@@ -184,6 +184,112 @@ func RunServer(ctx context.Context, stream MessageStream, s *Server) (*session.S
 	return sess, nil
 }
 
+// RunInitiator drives a federation initiator handshake to completion
+// over stream. Symmetric to RunClient but uses the federation message
+// types (HANDSHAKE.md §5.1). On success, returns the established
+// *session.Session for the federation hop.
+func RunInitiator(ctx context.Context, stream MessageStream, i *Initiator) (*session.Session, error) {
+	if stream == nil {
+		return nil, errors.New("handshake: nil stream")
+	}
+	if i == nil {
+		return nil, errors.New("handshake: nil initiator")
+	}
+	initBytes, err := i.Init()
+	if err != nil {
+		return nil, fmt.Errorf("handshake: initiator init: %w", err)
+	}
+	if err := stream.Send(ctx, initBytes); err != nil {
+		return nil, fmt.Errorf("handshake: send federation init: %w", err)
+	}
+	respBytes, err := stream.Recv(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("handshake: recv federation response: %w", err)
+	}
+	step, err := peekStep(respBytes)
+	if err != nil {
+		return nil, err
+	}
+	if step == StepRejected {
+		return nil, i.OnRejected(respBytes)
+	}
+	if step != StepResponse {
+		return nil, fmt.Errorf("handshake: unexpected step %q in federation initiator", step)
+	}
+	confirmBytes, sess, err := i.OnResponse(respBytes)
+	if err != nil {
+		return nil, fmt.Errorf("handshake: initiator OnResponse: %w", err)
+	}
+	if err := stream.Send(ctx, confirmBytes); err != nil {
+		return nil, fmt.Errorf("handshake: send federation confirm: %w", err)
+	}
+	acceptedBytes, err := stream.Recv(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("handshake: recv federation accepted: %w", err)
+	}
+	finalStep, err := peekStep(acceptedBytes)
+	if err != nil {
+		return nil, err
+	}
+	switch finalStep {
+	case StepAccepted:
+		if err := i.OnAccepted(acceptedBytes, sess); err != nil {
+			return nil, fmt.Errorf("handshake: initiator OnAccepted: %w", err)
+		}
+		return sess, nil
+	case StepRejected:
+		return nil, i.OnRejected(acceptedBytes)
+	default:
+		return nil, fmt.Errorf("handshake: unexpected final step %q in federation initiator", finalStep)
+	}
+}
+
+// RunResponder drives a federation responder handshake to completion
+// over stream. Symmetric to RunServer but uses the federation message
+// types. Any error from the state machine triggers a signed Rejected
+// before returning.
+func RunResponder(ctx context.Context, stream MessageStream, r *Responder) (*session.Session, error) {
+	if stream == nil {
+		return nil, errors.New("handshake: nil stream")
+	}
+	if r == nil {
+		return nil, errors.New("handshake: nil responder")
+	}
+	initBytes, err := stream.Recv(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("handshake: recv federation init: %w", err)
+	}
+	respBytes, err := r.OnInit(initBytes)
+	if err != nil {
+		_ = sendFederationRejection(ctx, stream, r, "policy_violation", err.Error())
+		return nil, fmt.Errorf("handshake: responder OnInit: %w", err)
+	}
+	if err := stream.Send(ctx, respBytes); err != nil {
+		return nil, fmt.Errorf("handshake: send federation response: %w", err)
+	}
+	confirmBytes, err := stream.Recv(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("handshake: recv federation confirm: %w", err)
+	}
+	acceptedBytes, sess, err := r.OnConfirm(confirmBytes)
+	if err != nil {
+		_ = sendFederationRejection(ctx, stream, r, "auth_failed", err.Error())
+		return nil, fmt.Errorf("handshake: responder OnConfirm: %w", err)
+	}
+	if err := stream.Send(ctx, acceptedBytes); err != nil {
+		return nil, fmt.Errorf("handshake: send federation accepted: %w", err)
+	}
+	return sess, nil
+}
+
+func sendFederationRejection(ctx context.Context, stream MessageStream, r *Responder, code, reason string) error {
+	rej, err := r.NewRejection(code, reason)
+	if err != nil {
+		return err
+	}
+	return stream.Send(ctx, rej)
+}
+
 // peekStep extracts the `step` field from a SEMP_HANDSHAKE message
 // without fully unmarshaling the rest of the structure. Used by the
 // drivers to dispatch on which message variant just arrived.
