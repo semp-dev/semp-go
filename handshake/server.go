@@ -47,7 +47,8 @@ type Server struct {
 	sessionKeys        *crypto.SessionKeys
 
 	// Client identity established by OnConfirm.
-	clientIdentity string
+	clientIdentity    string
+	clientDeviceKeyID keys.Fingerprint
 
 	// PoW gating state.
 	pendingPoW   *PoWRequired
@@ -396,6 +397,7 @@ func (s *Server) OnConfirm(data []byte) (acceptedBytes []byte, sess *session.Ses
 
 	// Identity is bound to the session. Build the Accepted message.
 	s.clientIdentity = proof.ClientIdentity
+	s.clientDeviceKeyID = keys.Fingerprint(proof.ClientLongTermKeyID)
 	ttl := 300
 	permissions := []string{"send", "receive"}
 	if s.policy != nil {
@@ -479,6 +481,20 @@ func (s *Server) ClientIdentity() string {
 		return ""
 	}
 	return s.clientIdentity
+}
+
+// ClientDeviceKeyID returns the fingerprint of the client's long-
+// term identity / device key from the identity proof in the
+// confirm message. For a primary device this is the user's primary
+// identity key; for a delegated device this is the device's own key
+// (which the home server uses to look up the device certificate
+// and enforce scope per CLIENT.md §2.4). Returns the empty
+// fingerprint before OnConfirm has succeeded.
+func (s *Server) ClientDeviceKeyID() keys.Fingerprint {
+	if s == nil {
+		return ""
+	}
+	return s.clientDeviceKeyID
 }
 
 // Erase wipes the server-side ephemeral private key and any retained

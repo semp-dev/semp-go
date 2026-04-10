@@ -63,6 +63,75 @@ type SendScope struct {
 	Allow []string `json:"allow,omitempty"`
 }
 
+// SendScope mode constants (KEY.md §10.3.2, CLIENT.md §2.4).
+const (
+	SendModeAll        = "all"
+	SendModeRestricted = "restricted"
+	SendModeNone       = "none"
+)
+
+// Allows reports whether this SendScope permits sending to recipient.
+// A restricted scope matches either an exact address
+// ("alice@example.com") or a domain entry ("example.com") against
+// the recipient's address. Comparison is case-insensitive on the
+// domain portion.
+func (s SendScope) Allows(recipient string) bool {
+	switch s.Mode {
+	case SendModeAll:
+		return true
+	case SendModeNone:
+		return false
+	case SendModeRestricted:
+		recip := lowerASCII(recipient)
+		recipDomain := domainOf(recip)
+		for _, entry := range s.Allow {
+			e := lowerASCII(entry)
+			if e == recip {
+				return true
+			}
+			if e == recipDomain {
+				return true
+			}
+		}
+		return false
+	default:
+		// Unknown mode: fail closed.
+		return false
+	}
+}
+
+// lowerASCII lowercases an ASCII string without allocating a
+// strings.Builder. The address and domain characters we care about
+// are ASCII-only for SEMP in the demo; full IDN handling is a
+// follow-up.
+func lowerASCII(s string) string {
+	b := make([]byte, len(s))
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if 'A' <= c && c <= 'Z' {
+			c += 'a' - 'A'
+		}
+		b[i] = c
+	}
+	return string(b)
+}
+
+// domainOf returns the portion of address after the last '@', or
+// the empty string if there is no '@'.
+func domainOf(address string) string {
+	at := -1
+	for i := len(address) - 1; i >= 0; i-- {
+		if address[i] == '@' {
+			at = i
+			break
+		}
+	}
+	if at < 0 {
+		return ""
+	}
+	return address[at+1:]
+}
+
 // ManageScope governs which administrative actions a delegated device may
 // perform: registering additional devices, modifying block lists, managing
 // keys.
@@ -72,13 +141,6 @@ type ManageScope struct {
 	Keys       bool `json:"keys"`
 }
 
-// VerifyChain checks that the certificate's signature is valid and that the
-// issuing device key is itself authorized for the user account. Returns nil
-// if the chain verifies.
-//
-// TODO(KEY.md §10.3.1): implement signature verification once crypto.Signer
-// is wired in.
-func (c *DeviceCertificate) VerifyChain(store Store) error {
-	_ = store
-	return nil
-}
+// VerifyChain is defined on DeviceCertificate in devicecert_sign.go.
+// It checks that the certificate's signature is valid AND that the
+// issuing device key is authorized for the user account.
