@@ -505,6 +505,25 @@ func fetchRecipientKeys(ctx context.Context, conn transport.Conn, to, from strin
 	if err != nil {
 		return nil, nil, nil, err
 	}
+
+	// Verify the response before trusting any key material, per
+	// CLIENT.md §3.3:
+	//
+	//   1. Response-level domain signature (origin_signature) must
+	//      verify against the domain key published in each result.
+	//   2. Per-record domain signatures must verify against the same
+	//      domain key.
+	//   3. No returned Record may carry a non-nil Revocation.
+	//
+	// The Verifier performs all three checks. A failure here MUST
+	// block envelope composition — a home server that lies about
+	// recipient keys could MITM an outbound message, and §3.3 is
+	// the trust boundary that prevents that.
+	verifier := &keys.Verifier{Suite: crypto.SuiteBaseline}
+	if err := verifier.Verify(resp); err != nil {
+		return nil, nil, nil, fmt.Errorf("verify SEMP_KEYS response: %w", err)
+	}
+
 	var recipResult, senderResult *keys.ResponseResult
 	for i := range resp.Results {
 		switch resp.Results[i].Address {

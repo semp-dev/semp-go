@@ -475,7 +475,14 @@ func (s *Server) handleKeys(ctx context.Context, stream MessageStream, raw []byt
 	for _, addr := range req.Addresses {
 		d := domainOf(addr)
 		if d == s.LocalDomain {
-			results = append(results, s.lookupLocalKeys(ctx, addr, req.IncludeDomainKeys))
+			local := s.lookupLocalKeys(ctx, addr, req.IncludeDomainKeys)
+			if local.Status == keys.StatusFound {
+				if err := s.signLocalResult(&local); err != nil {
+					local.Status = keys.StatusError
+					local.ErrorReason = err.Error()
+				}
+			}
+			results = append(results, local)
 			continue
 		}
 		// Remote domain. Try the Forwarder.
@@ -578,6 +585,56 @@ func (s *Server) lookupLocalKeys(ctx context.Context, address string, includeDom
 // opt in as they grow support.
 type domainEncKeyLookup interface {
 	LookupDomainEncryptionKey(domain string) *keys.Record
+}
+
+// signLocalResult applies the domain signatures required by
+// CLIENT.md §3.3 / KEY.md §5.1 to a ResponseResult before the server
+// returns it to a client.
+//
+// Two signatures are attached:
+//
+//  1. A per-record domain signature on every user Record in
+//     result.UserKeys, via keys.SignRecord. This is the KEY.md §5.1
+//     domain signature that the client's keys.Verifier checks
+//     against the response's DomainKey.
+//
+//  2. A response-level OriginSignature on the whole result, via
+//     keys.SignResponseResult. This is the CLIENT.md §5.4.5
+//     "origin_signature" that a forwarding home server passes
+//     through intact on cross-domain federation hops.
+//
+// Records are deep-copied before signing so we never mutate the
+// store's shared copies — concurrent lookups on the same address
+// from other goroutines would otherwise see signature bytes being
+// appended under their feet.
+func (s *Server) signLocalResult(result *keys.ResponseResult) error {
+	if s.DomainSignPriv == nil {
+		return errors.New("inboxd: no domain signing key")
+	}
+	signer := s.Suite.Signer()
+	// Clone each user record and sign the clone.
+	cloned := make([]*keys.Record, 0, len(result.UserKeys))
+	for _, rec := range result.UserKeys {
+		if rec == nil {
+			continue
+		}
+		cp := *rec
+		// Reset signatures to avoid carrying stale ones from the
+		// store.
+		cp.Signatures = nil
+		if err := keys.SignRecord(signer, s.DomainSignPriv, s.LocalDomain, s.DomainSignFP, &cp); err != nil {
+			return fmt.Errorf("sign user record %s: %w", rec.KeyID, err)
+		}
+		cloned = append(cloned, &cp)
+	}
+	result.UserKeys = cloned
+	// Fill in OriginSignature LAST, after every other field of the
+	// result is finalized, because SignResponseResult canonicalizes
+	// everything except origin_signature.
+	if err := keys.SignResponseResult(signer, s.DomainSignPriv, s.DomainSignFP, result); err != nil {
+		return fmt.Errorf("sign response result: %w", err)
+	}
+	return nil
 }
 
 // cachedRemoteFetch fetches keys for addresses on peerDomain via the
