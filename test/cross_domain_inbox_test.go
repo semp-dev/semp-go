@@ -270,7 +270,7 @@ func bringUpServer(t *testing.T, seed, domain string, users []string) *testServe
 				DomainEncFP:    domainEncFP,
 				DomainEncPriv:  domainEncPriv,
 				Identity:       srv.ClientIdentity(),
-				EnvMAC:         sess.EnvMAC(),
+				Session:        sess,
 				Logger:         silent,
 			}
 			_ = loop.Serve(ctx, conn)
@@ -317,7 +317,7 @@ func bringUpServer(t *testing.T, seed, domain string, users []string) *testServe
 				DomainEncFP:    domainEncFP,
 				DomainEncPriv:  domainEncPriv,
 				Identity:       resp.PeerDomain(),
-				EnvMAC:         sess.EnvMAC(),
+				Session:        sess,
 				Logger:         silent,
 			}
 			_ = loop.Serve(ctx, conn)
