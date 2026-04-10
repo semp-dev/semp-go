@@ -24,7 +24,7 @@ type Entry struct {
 }
 
 // Map is the standard wire-level container for an `extensions` object.
-// Keys are namespaced extension identifiers (e.g. "semp.org/priority",
+// Keys are namespaced extension identifiers (e.g. "semp.dev/priority",
 // "vendor.example.com/feature-name"). Iteration order is unspecified;
 // canonicalization sorts keys lexicographically per ENVELOPE.md §4.3.
 type Map map[string]Entry
