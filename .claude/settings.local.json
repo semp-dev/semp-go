@@ -6,7 +6,8 @@
       "Bash(go vet:*)",
       "Bash(go test:*)",
       "Bash(go mod:*)",
-      "Bash(go run:*)"
+      "Bash(go run:*)",
+      "Bash(go get:*)"
     ]
   }
 }
