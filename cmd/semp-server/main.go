@@ -1,25 +1,33 @@
 // Command semp-server is the reference SEMP server binary.
 //
 // In its current form it serves a single hard-coded local domain over a
-// plain WebSocket listener and handles two operations on each accepted
-// connection:
+// plain WebSocket listener and handles three operations:
 //
-//  1. Run the SEMP client handshake against the connected client.
-//  2. After a successful handshake, run delivery/inboxd.Server.Serve to
-//     accept envelope submissions and to fulfill SEMP_FETCH requests
-//     from the client's per-user inbox.
+//  1. Run the SEMP client handshake against connected clients on /v1/ws.
+//  2. After a successful handshake, run delivery/inboxd.Server.Serve in
+//     ModeClient to accept envelope submissions and SEMP_FETCH requests.
+//  3. Run the federation responder handshake on /v1/federate for
+//     connecting peer servers, then run inboxd in ModeFederation to
+//     accept forwarded envelopes and route them into local inboxes.
+//
+// Cross-domain forwarding: when a client submits an envelope addressed
+// to a user on a remote domain that matches a -peer entry, the server
+// opens a federation session to the peer (lazily), re-binds the session
+// MAC under the federation K_env_mac, and forwards the envelope. The
+// original domain signature is NOT touched — it's the sender-domain
+// provenance proof.
 //
 // Identity and encryption keys are derived deterministically from a
-// shared -seed flag (see internal/demoseed) so cmd/semp-cli, given the
-// same seed, can interoperate without any out-of-band exchange. This is
-// GROSSLY INSECURE and exists ONLY so the demo binaries can be a smoke
-// test. Production deployments register each device's keypair through
-// the device authorization flow defined in KEY.md §10.
+// shared -seed flag (see internal/demoseed) so cmd/semp-cli and peer
+// semp-server instances, given the same seed, can interoperate without
+// any out-of-band exchange. This is GROSSLY INSECURE and exists ONLY
+// so the demo binaries can be a smoke test.
 //
 // Usage:
 //
-//	semp-server [-addr :8080] [-domain example.com]
-//	            [-users alice@example.com,bob@example.com]
+//	semp-server [-addr :8080] [-domain a.example]
+//	            [-users alice@a.example]
+//	            [-peer b.example=ws://127.0.0.1:8081/v1/federate]
 //	            [-seed semp-demo-do-not-use-in-production]
 package main
 
@@ -29,10 +37,13 @@ import (
 	"flag"
 	"io"
 	"log"
+	"net"
+	"net/http"
 	"os"
 	"os/signal"
 	"strings"
 	"syscall"
+	"time"
 
 	semp "github.com/semp-dev/semp-go"
 	"github.com/semp-dev/semp-go/crypto"
@@ -58,7 +69,8 @@ func main() {
 		addr   = flag.String("addr", ":8080", "WebSocket listen address (host:port)")
 		domain = flag.String("domain", "example.com", "Server's home domain")
 		users  = flag.String("users", "alice@example.com,bob@example.com", "Comma-separated user identities to pre-seed")
-		seed   = flag.String("seed", "semp-demo-do-not-use-in-production", "Deterministic seed for demo identity/encryption keys (demo binary only — never use in production)")
+		seed   = flag.String("seed", "semp-demo-do-not-use-in-production", "Deterministic seed for demo identity/encryption keys (demo binary only)")
+		peers  = flag.String("peers", "", "Comma-separated peer list: domain=endpoint,domain=endpoint (e.g. 'b.example=ws://127.0.0.1:8081/v1/federate')")
 	)
 	flag.Parse()
 
@@ -69,16 +81,13 @@ func main() {
 	store := memstore.New()
 	inbox := delivery.NewInbox()
 
-	// Domain signing key (Ed25519). Derived deterministically so that
-	// cmd/semp-cli, given the same -seed and -domain, can verify
-	// envelopes the server signs.
+	// Domain signing key (Ed25519).
 	domainSignPub, domainSignPriv := demoseed.DomainSigning(*seed, *domain)
 	domainSignFP := store.PutDomainKey(*domain, domainSignPub)
 	logger.Printf("domain signing key fingerprint: %s", domainSignFP)
 	logger.Printf("domain signing key (base64): %s", base64.StdEncoding.EncodeToString(domainSignPub))
 
-	// Domain encryption key (X25519). Used by inboxd.Server to unwrap
-	// K_brief from inbound envelopes so the server can read brief.to.
+	// Domain encryption key (X25519).
 	domainEncPub, domainEncPriv, err := demoseed.DomainEncryption(*seed, *domain)
 	if err != nil {
 		logger.Fatalf("derive domain encryption key: %v", err)
@@ -87,9 +96,7 @@ func main() {
 	logger.Printf("domain encryption key fingerprint: %s", domainEncFP)
 	logger.Printf("domain encryption key (base64): %s", base64.StdEncoding.EncodeToString(domainEncPub))
 
-	// Pre-seed every configured user with both an identity key and an
-	// encryption key. The matching client, given the same seed, derives
-	// the matching private halves locally.
+	// Pre-seed every configured user.
 	for _, u := range splitNonEmpty(*users, ",") {
 		identityPub, _ := demoseed.Identity(*seed, u)
 		identityFP := store.PutUserKey(u, keys.TypeIdentity, "ed25519", identityPub)
@@ -103,76 +110,146 @@ func main() {
 		logger.Printf("pre-seeded user %s identity=%s encryption=%s", u, identityFP, encFP)
 	}
 
+	// Parse -peers and register each peer in the Forwarder's registry.
+	// We also derive each peer's public signing key from the shared
+	// -seed so federation handshakes work without an out-of-band
+	// exchange; real deployments would configure this via discovery.
+	peerRegistry := inboxd.NewPeerRegistry()
+	for _, entry := range splitNonEmpty(*peers, ",") {
+		eq := strings.IndexByte(entry, '=')
+		if eq < 0 {
+			logger.Fatalf("invalid -peers entry %q (expected domain=endpoint)", entry)
+		}
+		peerDomain := strings.TrimSpace(entry[:eq])
+		peerEndpoint := strings.TrimSpace(entry[eq+1:])
+		peerPub, _ := demoseed.DomainSigning(*seed, peerDomain)
+		peerRegistry.Put(inboxd.PeerConfig{
+			Domain:           peerDomain,
+			Endpoint:         peerEndpoint,
+			DomainSigningKey: peerPub,
+		})
+		// Also publish the peer's signing key in our local store so
+		// our federation responder can verify inbound handshakes from
+		// the peer. The Forwarder publishes this lazily on its own
+		// outbound dial path, but inbound federation traffic can
+		// arrive at any time and needs the key pre-registered.
+		store.PutDomainKey(peerDomain, peerPub)
+		// Also pre-seed the peer's users in our store so we can wrap
+		// envelopes for them on the sender side. In a real deployment
+		// the sender would fetch user keys via SEMP_KEYS.
+		for _, u := range splitNonEmpty(*users, ",") {
+			// Only users whose suffix matches the peer domain get
+			// published — no point publishing alice@a.example twice.
+			if strings.HasSuffix(u, "@"+peerDomain) {
+				encPub, _, err := demoseed.Encryption(*seed, u)
+				if err != nil {
+					logger.Fatalf("derive peer user encryption for %s: %v", u, err)
+				}
+				store.PutUserKey(u, keys.TypeEncryption, "x25519-chacha20-poly1305", encPub)
+			}
+		}
+		logger.Printf("peer %s → %s (signing key fingerprint: %s)", peerDomain, peerEndpoint, keys.Compute(peerPub))
+	}
+
+	// Forwarder shared across client-mode connections. Its Dial uses
+	// the same WebSocket transport the server listens on.
+	wsTransport := ws.NewWithConfig(ws.Config{
+		AllowInsecure:  true,
+		OriginPatterns: []string{"*"},
+	})
+	forwarder := inboxd.NewForwarder(inboxd.ForwarderConfig{
+		Suite:                 suite,
+		LocalDomain:           *domain,
+		LocalDomainKeyID:      domainSignFP,
+		LocalDomainPrivateKey: domainSignPriv,
+		Peers:                 peerRegistry,
+		Dial: func(ctx context.Context, endpoint string) (transport.Conn, error) {
+			return wsTransport.Dial(ctx, endpoint)
+		},
+		Store: store,
+	})
+	defer forwarder.Close()
+
 	logger.Printf("(WARNING: keys are derived deterministically from -seed; this is a demo binary only)")
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	wsTransport := ws.NewWithConfig(ws.Config{
+	// We build our own http.ServeMux so we can mount two handlers on
+	// the same listener: /v1/ws for clients and /v1/federate for
+	// peer servers.
+	hctx := &handlerCtx{
+		Suite:          suite,
+		Store:          store,
+		Inbox:          inbox,
+		Forwarder:      forwarder,
+		Domain:         *domain,
+		DomainSignFP:   domainSignFP,
+		DomainSignPriv: domainSignPriv,
+		DomainEncFP:    domainEncFP,
+		DomainEncPriv:  domainEncPriv,
+		Logger:         logger,
+	}
+	mux := http.NewServeMux()
+	mux.Handle("/v1/ws", ws.NewHandler(ws.Config{
 		AllowInsecure:  true,
 		OriginPatterns: []string{"*"},
-	})
-	listener, err := wsTransport.Listen(ctx, *addr)
-	if err != nil {
-		logger.Fatalf("listen: %v", err)
+	}, func(conn transport.Conn) {
+		go handleClient(ctx, hctx, conn)
+	}))
+	mux.Handle("/v1/federate", ws.NewHandler(ws.Config{
+		AllowInsecure:  true,
+		OriginPatterns: []string{"*"},
+	}, func(conn transport.Conn) {
+		go handleFederation(ctx, hctx, conn)
+	}))
+	httpSrv := &http.Server{
+		Addr:    *addr,
+		Handler: mux,
+		BaseContext: func(net.Listener) context.Context {
+			return ctx
+		},
 	}
-	defer listener.Close()
 
-	if a, ok := listener.(interface{ Addr() string }); ok {
-		logger.Printf("listening on http://%s/v1/ws (subprotocol %q)", a.Addr(), ws.Subprotocol)
-	} else {
-		logger.Printf("listening on %s", *addr)
-	}
+	// Run the HTTP server in a goroutine so we can handle signals.
+	go func() {
+		logger.Printf("listening on http://%s (subprotocol %q)", *addr, ws.Subprotocol)
+		logger.Printf("  client endpoint:     ws://%s/v1/ws", *addr)
+		logger.Printf("  federation endpoint: ws://%s/v1/federate", *addr)
+		if err := httpSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			logger.Fatalf("http serve: %v", err)
+		}
+	}()
 
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
-	go func() {
-		s := <-sigCh
-		logger.Printf("received signal %s, shutting down", s)
-		cancel()
-	}()
-
-	for {
-		conn, err := listener.Accept(ctx)
-		if err != nil {
-			if ctx.Err() != nil {
-				logger.Printf("accept loop exiting: %v", ctx.Err())
-				return
-			}
-			logger.Printf("accept: %v", err)
-			continue
-		}
-		go handle(ctx, logger, conn, &handlerCtx{
-			Suite:          suite,
-			Store:          store,
-			Inbox:          inbox,
-			Domain:         *domain,
-			DomainSignFP:   domainSignFP,
-			DomainSignPriv: domainSignPriv,
-			DomainEncFP:    domainEncFP,
-			DomainEncPriv:  domainEncPriv,
-		})
-	}
+	s := <-sigCh
+	logger.Printf("received signal %s, shutting down", s)
+	cancel()
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer shutdownCancel()
+	_ = httpSrv.Shutdown(shutdownCtx)
 }
 
-// handlerCtx bundles the per-server state needed by handle. Pulled into a
-// struct so handle's signature stays manageable.
+// handlerCtx bundles the per-server state needed by the handlers.
 type handlerCtx struct {
 	Suite          crypto.Suite
 	Store          *memstore.Store
 	Inbox          *delivery.Inbox
+	Forwarder      *inboxd.Forwarder
 	Domain         string
 	DomainSignFP   keys.Fingerprint
 	DomainSignPriv []byte
 	DomainEncFP    keys.Fingerprint
 	DomainEncPriv  []byte
+	Logger         *log.Logger
 }
 
-// handle drives the server-side handshake against one inbound connection,
-// then runs the inboxd serving loop until the peer disconnects.
-func handle(ctx context.Context, logger *log.Logger, conn transport.Conn, h *handlerCtx) {
+// handleClient drives the client-side handshake against one inbound
+// connection and then runs inboxd in ModeClient.
+func handleClient(ctx context.Context, h *handlerCtx, conn transport.Conn) {
 	defer conn.Close()
-	logger.Printf("[%s] new connection", conn.Peer())
+	h.Logger.Printf("[client %s] new connection", conn.Peer())
 
 	srv := handshake.NewServer(handshake.ServerConfig{
 		Suite:            h.Suite,
@@ -186,15 +263,18 @@ func handle(ctx context.Context, logger *log.Logger, conn transport.Conn, h *han
 
 	sess, err := handshake.RunServer(ctx, conn, srv)
 	if err != nil {
-		logger.Printf("[%s] handshake failed: %v", conn.Peer(), err)
+		h.Logger.Printf("[client %s] handshake failed: %v", conn.Peer(), err)
 		return
 	}
-	logger.Printf("[%s] handshake succeeded: session=%s identity=%s ttl=%s",
+	h.Logger.Printf("[client %s] handshake ok: session=%s identity=%s ttl=%s",
 		conn.Peer(), sess.ID, srv.ClientIdentity(), sess.TTL)
 
 	loop := &inboxd.Server{
+		Mode:           inboxd.ModeClient,
 		Suite:          h.Suite,
+		Store:          h.Store,
 		Inbox:          h.Inbox,
+		Forwarder:      h.Forwarder,
 		LocalDomain:    h.Domain,
 		DomainSignFP:   h.DomainSignFP,
 		DomainSignPriv: h.DomainSignPriv,
@@ -202,13 +282,64 @@ func handle(ctx context.Context, logger *log.Logger, conn transport.Conn, h *han
 		DomainEncPriv:  h.DomainEncPriv,
 		Identity:       srv.ClientIdentity(),
 		EnvMAC:         sess.EnvMAC(),
-		Logger:         logger,
+		Logger:         h.Logger,
 	}
 	if err := loop.Serve(ctx, conn); err != nil && err != io.EOF {
-		logger.Printf("[%s] inboxd loop ended: %v", conn.Peer(), err)
+		h.Logger.Printf("[client %s] inboxd loop ended: %v", conn.Peer(), err)
 		return
 	}
-	logger.Printf("[%s] connection closed cleanly", conn.Peer())
+	h.Logger.Printf("[client %s] connection closed cleanly", conn.Peer())
+}
+
+// handleFederation drives the federation responder handshake against
+// one inbound peer connection and then runs inboxd in ModeFederation.
+func handleFederation(ctx context.Context, h *handlerCtx, conn transport.Conn) {
+	defer conn.Close()
+	h.Logger.Printf("[federation %s] new connection", conn.Peer())
+
+	resp := handshake.NewResponder(handshake.ResponderConfig{
+		Suite:                 h.Suite,
+		Store:                 h.Store,
+		Verifier:              handshake.TrustingDomainVerifier{}, // demo
+		LocalDomain:           h.Domain,
+		LocalDomainKeyID:      h.DomainSignFP,
+		LocalDomainPrivateKey: h.DomainSignPriv,
+		Policy: handshake.FederationPolicy{
+			MessageRetention: "7d",
+			UserDiscovery:    "allowed",
+			RelayAllowed:     true,
+		},
+		SessionTTL: 3600,
+	})
+	defer resp.Erase()
+
+	sess, err := handshake.RunResponder(ctx, conn, resp)
+	if err != nil {
+		h.Logger.Printf("[federation %s] handshake failed: %v", conn.Peer(), err)
+		return
+	}
+	h.Logger.Printf("[federation %s] handshake ok: session=%s peer=%s ttl=%s",
+		conn.Peer(), sess.ID, resp.PeerDomain(), sess.TTL)
+
+	loop := &inboxd.Server{
+		Mode:          inboxd.ModeFederation,
+		Suite:         h.Suite,
+		Store:         h.Store,
+		Inbox:         h.Inbox,
+		LocalDomain:   h.Domain,
+		DomainSignFP:  h.DomainSignFP,
+		DomainSignPriv: h.DomainSignPriv,
+		DomainEncFP:   h.DomainEncFP,
+		DomainEncPriv: h.DomainEncPriv,
+		Identity:      resp.PeerDomain(),
+		EnvMAC:        sess.EnvMAC(),
+		Logger:        h.Logger,
+	}
+	if err := loop.Serve(ctx, conn); err != nil && err != io.EOF {
+		h.Logger.Printf("[federation %s] inboxd loop ended: %v", conn.Peer(), err)
+		return
+	}
+	h.Logger.Printf("[federation %s] connection closed cleanly", conn.Peer())
 }
 
 func splitNonEmpty(s, sep string) []string {

@@ -170,3 +170,32 @@ func Sign(env *Envelope, suite crypto.Suite, domainPrivateKey, envMAC []byte) er
 	}
 	return signer.Sign(&env.Seal, canonicalBytes)
 }
+
+// RebindSessionMAC recomputes seal.session_mac under a fresh K_env_mac
+// without touching seal.signature. It is the operation a sending server
+// performs when forwarding an already-signed envelope across a federation
+// hop: the domain signature stays valid (it's the original sender domain
+// proving the envelope's provenance to the world), but the session MAC
+// must be re-bound to the federation session that's actually carrying
+// the envelope on this hop.
+//
+// This is safe because the canonical bytes used as input to BOTH proofs
+// have signature AND session_mac elided to "" (ENVELOPE.md §4.3), so
+// changing one does not invalidate the other.
+//
+// Reference: ENVELOPE.md §4.3, §4.2; HANDSHAKE.md §1.2 (federation hop).
+func RebindSessionMAC(env *Envelope, suite crypto.Suite, envMAC []byte) error {
+	if env == nil {
+		return errors.New("envelope: nil envelope")
+	}
+	if len(envMAC) == 0 {
+		return errors.New("envelope: empty envMAC for rebind")
+	}
+	canonicalBytes, err := env.CanonicalBytes()
+	if err != nil {
+		return fmt.Errorf("envelope: canonical bytes: %w", err)
+	}
+	mac := crypto.ComputeMAC(envMAC, canonicalBytes)
+	env.Seal.SessionMAC = base64.StdEncoding.EncodeToString(mac)
+	return nil
+}
