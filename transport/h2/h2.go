@@ -33,13 +33,25 @@
 // already behaves. After this milestone inboxd.Server.Serve can run
 // over HTTP/2 as transparently as it does over WebSocket.
 //
-// # What this package does NOT do yet
+// SSE-based session stream (milestone 3gg):
 //
-// The SSE-based session stream described in TRANSPORT.md §4.2.4
-// (server-push of delivery events and rekey init messages) is still
-// deferred. Until it lands, unsolicited server-to-client messages over
-// HTTP/2 are not supported; the adapter handles strict
-// client-initiated request-response flows only.
+//   - SessionHub is a fan-out registry that lets higher-level server
+//     code push asynchronous messages to connected clients (delivery
+//     event notifications, server-initiated rekey init) per
+//     TRANSPORT.md §4.2.4.
+//   - NewSessionStreamHandler returns an http.Handler mounted at
+//     PathSession that holds the long-lived POST open and streams
+//     each pushed message as one Server-Sent Event.
+//   - OpenSessionStream is the client-side counterpart: it opens the
+//     long-lived POST to /v1/session/{id} and returns a Recv/Close
+//     SessionStreamConn.
+//
+// The SSE session stream is a server→client channel only; the
+// client→server direction continues to use the turn-based
+// request-response POSTs handled by NewPersistentHandler. Mount
+// NewSessionStreamHandler alongside NewPersistentHandler (typically at
+// PathSession and the root path respectively) when you need
+// bidirectional server-push semantics over HTTP/2.
 package h2
 
 import (
