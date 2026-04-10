@@ -15,6 +15,9 @@ go 1.25.0
 //   - golang.org/x/net                  (HTTP/2 helpers, transport/h2 binding)
 //   - github.com/quic-go/quic-go        (transport/quic binding)
 
-require golang.org/x/crypto v0.50.0
+require (
+	github.com/coder/websocket v1.8.14
+	golang.org/x/crypto v0.50.0
+)
 
 require golang.org/x/sys v0.43.0 // indirect
