@@ -34,6 +34,7 @@ package main
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"flag"
 	"io"
 	"log"
@@ -49,6 +50,7 @@ import (
 	"github.com/semp-dev/semp-go/crypto"
 	"github.com/semp-dev/semp-go/delivery"
 	"github.com/semp-dev/semp-go/delivery/inboxd"
+	"github.com/semp-dev/semp-go/discovery"
 	"github.com/semp-dev/semp-go/handshake"
 	"github.com/semp-dev/semp-go/internal/demoseed"
 	"github.com/semp-dev/semp-go/keys"
@@ -112,44 +114,49 @@ func main() {
 	}
 
 	// Parse -peers and register each peer in the Forwarder's registry.
-	// We also derive each peer's public signing key from the shared
-	// -seed so federation handshakes work without an out-of-band
-	// exchange; real deployments would configure this via discovery.
+	// Entries can be one of three forms:
+	//
+	//   b.example=ws://host:port/v1/federate   — static endpoint
+	//   b.example                              — discovery-resolved endpoint
+	//
+	// The signing key always comes from the shared -seed for the
+	// demo binary; a real deployment would load it from DANE, a
+	// pinned list, or the DNS zone.
 	peerRegistry := inboxd.NewPeerRegistry()
 	for _, entry := range splitNonEmpty(*peers, ",") {
-		eq := strings.IndexByte(entry, '=')
-		if eq < 0 {
-			logger.Fatalf("invalid -peers entry %q (expected domain=endpoint)", entry)
+		var peerDomain, peerEndpoint string
+		if eq := strings.IndexByte(entry, '='); eq >= 0 {
+			peerDomain = strings.TrimSpace(entry[:eq])
+			peerEndpoint = strings.TrimSpace(entry[eq+1:])
+		} else {
+			peerDomain = strings.TrimSpace(entry)
 		}
-		peerDomain := strings.TrimSpace(entry[:eq])
-		peerEndpoint := strings.TrimSpace(entry[eq+1:])
 		peerPub, _ := demoseed.DomainSigning(*seed, peerDomain)
 		peerRegistry.Put(inboxd.PeerConfig{
 			Domain:           peerDomain,
 			Endpoint:         peerEndpoint,
 			DomainSigningKey: peerPub,
 		})
-		// Also publish the peer's signing key in our local store so
-		// our federation responder can verify inbound handshakes from
-		// the peer. The Forwarder publishes this lazily on its own
-		// outbound dial path, but inbound federation traffic can
-		// arrive at any time and needs the key pre-registered.
+		// Publish the peer's signing key in our local store so our
+		// federation responder can verify inbound handshakes.
 		store.PutDomainKey(peerDomain, peerPub)
-		// Previously we also pre-seeded every peer user's encryption
-		// key from the shared -seed so the sender side of inboxd could
-		// wrap K_brief for them. That's no longer necessary:
-		// cmd/semp-cli now fetches recipient keys via SEMP_KEYS, which
-		// the inboxd handler forwards cross-domain via the federation
-		// session. The peer's SEMP_KEYS responder (running in
-		// federation mode on the other side) reads from its own store.
-		logger.Printf("peer %s → %s (signing key fingerprint: %s)", peerDomain, peerEndpoint, keys.Compute(peerPub))
+		if peerEndpoint == "" {
+			logger.Printf("peer %s → (discovery-resolved) signing key=%s", peerDomain, keys.Compute(peerPub))
+		} else {
+			logger.Printf("peer %s → %s signing key=%s", peerDomain, peerEndpoint, keys.Compute(peerPub))
+		}
 	}
 
 	// Forwarder shared across client-mode connections. Its Dial uses
-	// the same WebSocket transport the server listens on.
+	// the same WebSocket transport the server listens on, and its
+	// Resolver uses the default discovery stack (DNS + well-known +
+	// MX fallback) for any PeerConfig whose Endpoint is empty.
 	wsTransport := ws.NewWithConfig(ws.Config{
 		AllowInsecure:  true,
 		OriginPatterns: []string{"*"},
+	})
+	resolver := discovery.NewResolver(discovery.ResolverConfig{
+		Cache: discovery.NewMemCache(),
 	})
 	forwarder := inboxd.NewForwarder(inboxd.ForwarderConfig{
 		Suite:                 suite,
@@ -160,7 +167,21 @@ func main() {
 		Dial: func(ctx context.Context, endpoint string) (transport.Conn, error) {
 			return wsTransport.Dial(ctx, endpoint)
 		},
-		Store: store,
+		Store:    store,
+		Resolver: resolver,
+		// The demo server splits client and federation traffic
+		// across /v1/ws and /v1/federate on the same host, while
+		// the well-known URI publishes a single /v1/ws endpoint.
+		// Rewrite ws → federate to match the demo server's layout.
+		// A production operator whose server handles both paths at
+		// the same URL can omit this and use the default.
+		FederationEndpointFunc: func(result *discovery.Result) (string, error) {
+			ep, err := inboxd.DefaultFederationEndpointFunc(result)
+			if err != nil {
+				return "", err
+			}
+			return strings.Replace(ep, "/v1/ws", "/v1/federate", 1), nil
+		},
 	})
 	defer forwarder.Close()
 
@@ -197,6 +218,23 @@ func main() {
 	}, func(conn transport.Conn) {
 		go handleFederation(ctx, hctx, conn)
 	}))
+	// Publish a well-known capability document so peers using
+	// discovery.Resolver can find our federation endpoint without
+	// a static -peers entry. The URL we publish for "ws" is the
+	// client endpoint; the peer's FederationEndpointFunc is
+	// expected to rewrite it to /v1/federate for actual federation
+	// traffic (see the rewrite helper set on the Forwarder above).
+	mux.HandleFunc(discovery.WellKnownPath, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(discovery.Configuration{
+			Version: semp.ProtocolVersion,
+			Endpoints: map[string]string{
+				"ws": "ws://" + r.Host + "/v1/ws",
+			},
+			Features:    []string{},
+			PostQuantum: "hybrid",
+		})
+	})
 	httpSrv := &http.Server{
 		Addr:    *addr,
 		Handler: mux,
