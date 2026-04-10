@@ -218,18 +218,18 @@ func TestClientRespectsContextDeadline(t *testing.T) {
 	}
 }
 
-// TestUnwiredTransportMethodsErrorCleanly confirms that
-// h2.Transport.Dial and .Listen return a non-panicking error with a
-// clear "not yet implemented" message. This pins the deferred-work
-// documentation: future refactors that actually wire them up will
-// update this test.
-func TestUnwiredTransportMethodsErrorCleanly(t *testing.T) {
+// TestTransportDialRefusesNonHTTPSByDefault confirms that the default
+// (secure) h2.Transport configuration refuses plain http:// URLs from
+// Transport.Dial, matching the behavior of the low-level h2.Dial
+// helper.
+func TestTransportDialRefusesNonHTTPSByDefault(t *testing.T) {
 	tr := h2.New()
-	if _, err := tr.Dial(context.Background(), "https://example.com/v1/envelope"); err == nil {
-		t.Error("Transport.Dial should return an error")
+	_, err := tr.Dial(context.Background(), "http://example.com/v1/envelope")
+	if err == nil {
+		t.Fatal("Transport.Dial should refuse non-https URL with default config")
 	}
-	if _, err := tr.Listen(context.Background(), ":0"); err == nil {
-		t.Error("Transport.Listen should return an error")
+	if !strings.Contains(err.Error(), "non-https") {
+		t.Errorf("error should mention non-https refusal: %v", err)
 	}
 }
 

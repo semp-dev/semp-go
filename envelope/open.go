@@ -78,6 +78,108 @@ func OpenBrief(env *Envelope, suite crypto.Suite, recipientFingerprint keys.Fing
 	return &b, nil
 }
 
+// RecipientPrivateKey is a (fingerprint, private key) pair that a
+// receiver can offer to the multi-candidate open helpers below. It
+// supports two scenarios that come up once a user or domain has more
+// than one active encryption key at once:
+//
+//   - Multi-device clients: a single user may have N registered
+//     devices, each with its own encryption key. The sender wraps
+//     K_brief and K_enclosure under every device's key (one seal
+//     entry per device). The receiving device iterates its own
+//     key ring via OpenBriefAny to find the entry wrapped for it.
+//
+//   - Key rotation: a device may hold a current encryption key plus
+//     one or more retired keys needed to decrypt envelopes that
+//     were sealed under the retired key. Per CLIENT.md §4.1 the
+//     client SHOULD try retired keys during decryption.
+//
+// RecipientPrivateKey is a raw byte slice plus its fingerprint so
+// the helpers can pick the right wrap entry without having to
+// recompute fingerprints on every call.
+type RecipientPrivateKey struct {
+	// Fingerprint is the key's published fingerprint. It MUST match
+	// the fingerprint the sender used when wrapping; otherwise the
+	// helper will skip this entry and move on.
+	Fingerprint keys.Fingerprint
+
+	// PrivateKey is the raw X25519 private key bytes. Kept as []byte
+	// rather than a typed struct so callers can zeroize the slice
+	// on release.
+	PrivateKey []byte
+}
+
+// OpenBriefAny iterates candidates in order and returns the first
+// successful brief decryption. This is the multi-device / key-
+// rotation counterpart to OpenBrief: a client that holds more than
+// one candidate encryption key calls this once and lets the helper
+// pick the entry that matches its key ring.
+//
+// The function tries each candidate whose Fingerprint is present in
+// env.Seal.BriefRecipients; candidates whose fingerprints are not
+// authorized are skipped silently (they're not an error — a
+// multi-device user may pass the full key ring even when only one
+// key has a wrap entry). If every present candidate fails to
+// decrypt, the last underlying error is returned wrapped.
+//
+// Returns an error if candidates is empty or if no candidate is
+// authorized on the envelope.
+func OpenBriefAny(env *Envelope, suite crypto.Suite, candidates []RecipientPrivateKey) (*brief.Brief, error) {
+	if env == nil {
+		return nil, errors.New("envelope: nil envelope")
+	}
+	if len(candidates) == 0 {
+		return nil, errors.New("envelope: no recipient candidates")
+	}
+	var lastErr error
+	matched := false
+	for _, cand := range candidates {
+		if _, ok := env.Seal.BriefRecipients[cand.Fingerprint]; !ok {
+			continue
+		}
+		matched = true
+		b, err := OpenBrief(env, suite, cand.Fingerprint, cand.PrivateKey)
+		if err == nil {
+			return b, nil
+		}
+		lastErr = err
+	}
+	if !matched {
+		return nil, errors.New("envelope: no candidate matches any brief_recipients entry")
+	}
+	return nil, fmt.Errorf("envelope: all candidate keys failed to open brief: %w", lastErr)
+}
+
+// OpenEnclosureAny is the enclosure counterpart to OpenBriefAny.
+// Same candidate iteration semantics; only client encryption keys
+// should appear in the candidate set because enclosure wraps are
+// never created for domain keys (ENVELOPE.md §7.1 step 8).
+func OpenEnclosureAny(env *Envelope, suite crypto.Suite, candidates []RecipientPrivateKey) (*enclosure.Enclosure, error) {
+	if env == nil {
+		return nil, errors.New("envelope: nil envelope")
+	}
+	if len(candidates) == 0 {
+		return nil, errors.New("envelope: no recipient candidates")
+	}
+	var lastErr error
+	matched := false
+	for _, cand := range candidates {
+		if _, ok := env.Seal.EnclosureRecipients[cand.Fingerprint]; !ok {
+			continue
+		}
+		matched = true
+		e, err := OpenEnclosure(env, suite, cand.Fingerprint, cand.PrivateKey)
+		if err == nil {
+			return e, nil
+		}
+		lastErr = err
+	}
+	if !matched {
+		return nil, errors.New("envelope: no candidate matches any enclosure_recipients entry")
+	}
+	return nil, fmt.Errorf("envelope: all candidate keys failed to open enclosure: %w", lastErr)
+}
+
 // OpenEnclosure decrypts the encrypted enclosure payload using the
 // recipient client's private key. The recipient server CANNOT call this:
 // the enclosure is wrapped only for client encryption keys, never for
