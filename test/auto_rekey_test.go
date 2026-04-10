@@ -220,6 +220,7 @@ func bringUpServerForAutoRekey(t *testing.T, seed, domain string, users []string
 				DomainEncFP:    domainEncFP,
 				DomainEncPriv:  domainEncPriv,
 				Identity:       srv.ClientIdentity(),
+				DeviceKeyID:    srv.ClientDeviceKeyID(),
 				Session:        sess,
 				Logger:         silent,
 			}

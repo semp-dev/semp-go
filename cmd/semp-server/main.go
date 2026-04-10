@@ -275,6 +275,7 @@ func handleClient(ctx context.Context, h *handlerCtx, conn transport.Conn) {
 		DomainEncFP:    h.DomainEncFP,
 		DomainEncPriv:  h.DomainEncPriv,
 		Identity:       srv.ClientIdentity(),
+		DeviceKeyID:    srv.ClientDeviceKeyID(),
 		EnvMAC:         sess.EnvMAC(),
 		Logger:         h.Logger,
 	}
