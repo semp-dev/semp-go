@@ -64,6 +64,11 @@ type Negotiated struct {
 //
 // The init message is anonymous: it carries only an ephemeral key and
 // capabilities. Nothing in this message identifies the client.
+//
+// The Extensions field is intentionally NOT marked omitempty: the canonical
+// form of an init message MUST always include `"extensions":{}` even when
+// no extensions are advertised, so that the confirmation hash in
+// VECTORS.md §5.1 reproduces byte for byte.
 type ClientInit struct {
 	Type               string         `json:"type"`  // SEMP_HANDSHAKE
 	Step               Step           `json:"step"`  // StepInit
@@ -73,7 +78,7 @@ type ClientInit struct {
 	Transport          string         `json:"transport"`
 	ClientEphemeralKey EphemeralKey   `json:"client_ephemeral_key"`
 	Capabilities       Capabilities   `json:"capabilities"`
-	Extensions         extensions.Map `json:"extensions,omitempty"`
+	Extensions         extensions.Map `json:"extensions"`
 }
 
 // PoWRequired is the conditional message 1b returned by a server when it
@@ -104,6 +109,9 @@ type PoWSolution struct {
 }
 
 // ServerResponse is message 2 returned by the server (HANDSHAKE.md §2.3).
+//
+// As with ClientInit, Extensions is not marked omitempty so the canonical
+// form always includes `"extensions":{}`.
 type ServerResponse struct {
 	Type                string             `json:"type"`
 	Step                Step               `json:"step"` // StepResponse
@@ -116,7 +124,7 @@ type ServerResponse struct {
 	ServerIdentityProof ServerIdentityProof `json:"server_identity_proof"`
 	Negotiated          Negotiated         `json:"negotiated"`
 	ServerSignature     string             `json:"server_signature"`
-	Extensions          extensions.Map     `json:"extensions,omitempty"`
+	Extensions          extensions.Map     `json:"extensions"`
 }
 
 // ServerIdentityProof is the proof embedded in ServerResponse that the
@@ -138,7 +146,7 @@ type ClientConfirm struct {
 	SessionID        string         `json:"session_id"`
 	ConfirmationHash string         `json:"confirmation_hash"`
 	IdentityProof    string         `json:"identity_proof"`
-	Extensions       extensions.Map `json:"extensions,omitempty"`
+	Extensions       extensions.Map `json:"extensions"`
 }
 
 // IdentityProofBlock is the decrypted form of ClientConfirm.IdentityProof
@@ -168,7 +176,7 @@ type Accepted struct {
 	SessionTTL      int            `json:"session_ttl"`
 	Permissions     []string       `json:"permissions,omitempty"`
 	ServerSignature string         `json:"server_signature"`
-	Extensions      extensions.Map `json:"extensions,omitempty"`
+	Extensions      extensions.Map `json:"extensions"`
 }
 
 // Rejected is the failure outcome message 4 (HANDSHAKE.md §2.7).
@@ -181,5 +189,5 @@ type Rejected struct {
 	ReasonCode      string         `json:"reason_code"`
 	Reason          string         `json:"reason"`
 	ServerSignature string         `json:"server_signature"`
-	Extensions      extensions.Map `json:"extensions,omitempty"`
+	Extensions      extensions.Map `json:"extensions"`
 }
