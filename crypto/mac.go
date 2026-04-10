@@ -1,5 +1,11 @@
 package crypto
 
+import (
+	"crypto/hmac"
+	"crypto/sha256"
+	"crypto/subtle"
+)
+
 // MAC is a keyed message authentication primitive. Both currently defined
 // SEMP suites use HMAC-SHA-256 for handshake message MACs and for
 // seal.session_mac (ENVELOPE.md §7.3.1).
@@ -21,13 +27,39 @@ type MAC interface {
 	Reset()
 }
 
+// newHMACSHA256 returns a fresh HMAC-SHA-256 keyed with k. Used by the
+// baseline and post-quantum suites alike.
+func newHMACSHA256(k []byte) MAC {
+	return hmacMAC{h: hmac.New(sha256.New, k)}
+}
+
+// hmacMAC adapts hash.Hash (returned by hmac.New) to the MAC interface.
+type hmacMAC struct {
+	h interface {
+		Size() int
+		Write(p []byte) (int, error)
+		Sum(b []byte) []byte
+		Reset()
+	}
+}
+
+func (m hmacMAC) Size() int                { return m.h.Size() }
+func (m hmacMAC) Write(p []byte) (int, error) { return m.h.Write(p) }
+func (m hmacMAC) Sum(b []byte) []byte       { return m.h.Sum(b) }
+func (m hmacMAC) Reset()                    { m.h.Reset() }
+
 // Verify is a constant-time equality check between MAC tags. Implementations
 // MUST use constant-time comparison to avoid leaking tag bytes through
 // timing side channels (SESSION.md §5.6).
-//
-// TODO(SESSION.md §5.6): implement using crypto/subtle.ConstantTimeCompare
-// once the crypto primitives land.
 func Verify(expected, actual []byte) bool {
-	_, _ = expected, actual
-	return false
+	return subtle.ConstantTimeCompare(expected, actual) == 1
+}
+
+// ComputeMAC is a convenience helper that creates a fresh HMAC-SHA-256
+// over msg with key k and returns the resulting tag. It is the right
+// choice for one-shot computations such as seal.session_mac construction.
+func ComputeMAC(k, msg []byte) []byte {
+	m := newHMACSHA256(k)
+	_, _ = m.Write(msg)
+	return m.Sum(nil)
 }
