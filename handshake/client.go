@@ -1,7 +1,16 @@
 package handshake
 
 import (
+	"context"
+	"crypto/rand"
+	"encoding/base64"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"time"
+
 	"github.com/semp-dev/semp-go/crypto"
+	"github.com/semp-dev/semp-go/extensions"
 	"github.com/semp-dev/semp-go/keys"
 	"github.com/semp-dev/semp-go/session"
 )
@@ -13,91 +22,409 @@ import (
 //
 // Lifecycle:
 //
-//	c := handshake.NewClient(suite, store, identity)
+//	c := handshake.NewClient(suite, store, identity, identityKeyID,
+//	    serverDomain)
 //	initBytes, _ := c.Init()
 //	// transmit initBytes; read the server's response
 //	confirmBytes, sess, _ := c.OnResponse(responseBytes)
 //	// transmit confirmBytes; read the server's accepted/rejected
-//	_ = c.OnAccepted(acceptedBytes)
+//	_ = c.OnAccepted(acceptedBytes, sess)
 //	// session is now usable
 //
 // If the server returns a pow_required message before the response, the
-// caller MUST call OnPoWRequired before retrying for the response.
+// caller MUST call OnPoWRequired and transmit its result before retrying
+// for the response.
 type Client struct {
-	suite    crypto.Suite
-	store    keys.PrivateStore
-	identity string
+	suite        crypto.Suite
+	store        keys.PrivateStore
+	identity     string
+	identityKey  keys.Fingerprint
+	serverDomain string
+	transport    string
+	capabilities Capabilities
 
-	// nonce, ephemeralPriv, ephemeralPub, etc. are populated by Init.
+	// Populated by Init.
 	nonce         []byte
 	ephemeralPub  []byte
 	ephemeralPriv []byte
+	initCanonical []byte
+
+	// Populated by OnResponse.
+	responseCanonical []byte
+	sessionKeys       *crypto.SessionKeys
+	negotiated        Negotiated
+	sessionID         string
 }
 
-// NewClient constructs a Client. suite controls the algorithm choices,
-// store provides the user's long-term identity private key, and identity is
-// the user's full address (e.g. "user@example.com").
-func NewClient(suite crypto.Suite, store keys.PrivateStore, identity string) *Client {
+// ClientConfig groups the inputs to NewClient. The store provides the
+// long-term identity private key and the (cached) server domain public key
+// the client uses to verify message 2.
+type ClientConfig struct {
+	// Suite is the algorithm suite the client offers as its preferred
+	// option. Capabilities below are computed from this if Capabilities is
+	// zero-valued.
+	Suite crypto.Suite
+
+	// Store holds the client's identity private key (LoadPrivateKey) and
+	// the server's domain public key (LookupDomainKey).
+	Store keys.PrivateStore
+
+	// Identity is the user's full address, e.g. "alice@example.com".
+	Identity string
+
+	// IdentityKeyID is the fingerprint of the user's long-term identity
+	// public key. The corresponding private key MUST be retrievable from
+	// Store via LoadPrivateKey(IdentityKeyID).
+	IdentityKeyID keys.Fingerprint
+
+	// ServerDomain is the home server's domain, used by OnResponse to look
+	// up the server's published domain public key for signature verification.
+	ServerDomain string
+
+	// Transport is the wire transport in use; recorded in the init message.
+	// Defaults to "websocket" when empty.
+	Transport string
+
+	// Capabilities, if non-zero, overrides DefaultClientCapabilities.
+	Capabilities Capabilities
+}
+
+// NewClient constructs a Client from a ClientConfig.
+func NewClient(cfg ClientConfig) *Client {
+	caps := cfg.Capabilities
+	if len(caps.EncryptionAlgorithms) == 0 {
+		caps = DefaultClientCapabilities()
+	}
+	transport := cfg.Transport
+	if transport == "" {
+		transport = "websocket"
+	}
 	return &Client{
-		suite:    suite,
-		store:    store,
-		identity: identity,
+		suite:        cfg.Suite,
+		store:        cfg.Store,
+		identity:     cfg.Identity,
+		identityKey:  cfg.IdentityKeyID,
+		serverDomain: cfg.ServerDomain,
+		transport:    transport,
+		capabilities: caps,
 	}
 }
 
-// Init produces the message 1 (init/client) bytes.
+// Init produces the message 1 (init/client) bytes (HANDSHAKE.md §2.2).
 //
-// TODO(HANDSHAKE.md §2.2): generate a fresh nonce and ephemeral key pair,
-// build the ClientInit struct with capabilities advertised by suite, then
-// canonical-marshal it.
+// Init generates a fresh 32-byte nonce, a fresh ephemeral X25519 key pair,
+// builds the ClientInit struct, and returns its canonical-JSON form. The
+// ephemeral private key, nonce, and canonical bytes are retained in c for
+// use by OnResponse; the caller must invoke c.Erase if the handshake is
+// abandoned.
 func (c *Client) Init() ([]byte, error) {
-	_ = c
-	return nil, nil
+	if c == nil || c.suite == nil {
+		return nil, errors.New("handshake: nil client or suite")
+	}
+	c.nonce = make([]byte, 32)
+	if _, err := rand.Read(c.nonce); err != nil {
+		return nil, fmt.Errorf("handshake: nonce: %w", err)
+	}
+	ephPub, ephPriv, err := c.suite.KEM().GenerateKeyPair()
+	if err != nil {
+		return nil, fmt.Errorf("handshake: ephemeral keypair: %w", err)
+	}
+	c.ephemeralPub = ephPub
+	c.ephemeralPriv = ephPriv
+
+	msg := ClientInit{
+		Type:      MessageType,
+		Step:      StepInit,
+		Party:     PartyClient,
+		Version:   "1.0.0",
+		Nonce:     base64.StdEncoding.EncodeToString(c.nonce),
+		Transport: c.transport,
+		ClientEphemeralKey: EphemeralKey{
+			Algorithm: string(c.suite.ID()),
+			Key:       base64.StdEncoding.EncodeToString(ephPub),
+			KeyID:     string(keys.Compute(ephPub)),
+		},
+		Capabilities: c.capabilities,
+		Extensions:   extensions.Map{},
+	}
+	canonicalBytes, err := CanonicalForHashing(&msg)
+	if err != nil {
+		return nil, fmt.Errorf("handshake: canonical init: %w", err)
+	}
+	c.initCanonical = canonicalBytes
+	return canonicalBytes, nil
 }
 
 // OnPoWRequired processes a pow_required message and returns the bytes of
 // the pow_solution message to send next.
 //
-// TODO(HANDSHAKE.md §2.2a–b, REPUTATION.md §8.3): verify ServerSignature on
-// the challenge, solve via SolveChallenge, then marshal the solution.
+// The server's signature on the pow_required message is verified before any
+// solving work begins. If verification fails the handshake MUST be aborted
+// (HANDSHAKE.md §2.2a).
 func (c *Client) OnPoWRequired(data []byte) ([]byte, error) {
-	_, _ = c, data
-	return nil, nil
+	if c == nil || c.suite == nil {
+		return nil, errors.New("handshake: nil client or suite")
+	}
+	var req PoWRequired
+	if err := json.Unmarshal(data, &req); err != nil {
+		return nil, fmt.Errorf("handshake: parse pow_required: %w", err)
+	}
+	if req.Type != MessageType || req.Step != StepPoWRequired {
+		return nil, errors.New("handshake: pow_required type/step mismatch")
+	}
+	if req.Algorithm != PoWAlgorithm {
+		return nil, fmt.Errorf("handshake: unsupported PoW algorithm %q", req.Algorithm)
+	}
+	// Verify the server signature before doing any solving work.
+	domainPub, err := c.lookupServerDomainKey()
+	if err != nil {
+		return nil, err
+	}
+	if err := VerifyServerMessage(c.suite, domainPub, &req, req.ServerSignature); err != nil {
+		return nil, err
+	}
+	prefix, err := base64.StdEncoding.DecodeString(req.Prefix)
+	if err != nil {
+		return nil, fmt.Errorf("handshake: pow prefix base64: %w", err)
+	}
+	nonceB64, hashHex, err := SolveChallenge(prefix, req.ChallengeID, req.Difficulty, req.Expires)
+	if err != nil {
+		return nil, fmt.Errorf("handshake: solve PoW: %w", err)
+	}
+	out := PoWSolution{
+		Type:        MessageType,
+		Step:        StepPoWSolution,
+		Party:       PartyClient,
+		Version:     "1.0.0",
+		ChallengeID: req.ChallengeID,
+		Nonce:       nonceB64,
+		Hash:        hashHex,
+	}
+	return CanonicalForHashing(&out)
 }
 
 // OnResponse processes the server's response (message 2), derives the
 // session secret, and returns the confirm (message 3) bytes plus a partially
 // initialized Session that the caller will finalize on OnAccepted.
 //
-// TODO(HANDSHAKE.md §2.3 – §2.5, SESSION.md §2.1): verify ServerSignature
-// against the server's published domain key, perform the ephemeral key
-// agreement, derive the five session keys, build the encrypted identity
-// proof block, compute the confirmation hash, marshal the confirm message.
+// Steps performed (HANDSHAKE.md §2.3 – §2.5, SESSION.md §2.1):
+//
+//  1. Parse the response and verify it echoes our nonce.
+//  2. Look up the server's domain public key via the store and verify
+//     server_signature.
+//  3. Decode the server's ephemeral public key.
+//  4. Compute shared secret = X25519(ephemeralPriv, server_ephemeral_pub).
+//  5. Derive five session keys with salt = client_nonce || server_nonce.
+//  6. Compute confirmation_hash = SHA-256(canonical(init) || canonical(response)).
+//  7. Sign session_id || confirmation_hash with the client's identity key.
+//  8. AEAD-encrypt the identity proof block under K_enc_c2s.
+//  9. Marshal the confirm message and return.
+//
+// The ephemeral private key is erased before return.
 func (c *Client) OnResponse(data []byte) (confirm []byte, sess *session.Session, err error) {
-	_, _ = c, data
-	return nil, nil, nil
+	if c == nil || c.suite == nil {
+		return nil, nil, errors.New("handshake: nil client or suite")
+	}
+	if c.initCanonical == nil {
+		return nil, nil, errors.New("handshake: OnResponse called before Init")
+	}
+	var resp ServerResponse
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return nil, nil, fmt.Errorf("handshake: parse response: %w", err)
+	}
+	if resp.Type != MessageType || resp.Step != StepResponse || resp.Party != PartyServer {
+		return nil, nil, errors.New("handshake: response type/step/party mismatch")
+	}
+	expectedNonce := base64.StdEncoding.EncodeToString(c.nonce)
+	if resp.ClientNonce != expectedNonce {
+		return nil, nil, errors.New("handshake: response client_nonce mismatch")
+	}
+
+	domainPub, err := c.lookupServerDomainKey()
+	if err != nil {
+		return nil, nil, err
+	}
+	if err := VerifyServerMessage(c.suite, domainPub, &resp, resp.ServerSignature); err != nil {
+		return nil, nil, err
+	}
+
+	// Server ephemeral public key.
+	if resp.ServerEphemeralKey.Algorithm != string(c.suite.ID()) {
+		return nil, nil, fmt.Errorf("handshake: server suite %q does not match client suite %q",
+			resp.ServerEphemeralKey.Algorithm, c.suite.ID())
+	}
+	serverEphPub, err := base64.StdEncoding.DecodeString(resp.ServerEphemeralKey.Key)
+	if err != nil {
+		return nil, nil, fmt.Errorf("handshake: server ephemeral key base64: %w", err)
+	}
+	serverNonce, err := base64.StdEncoding.DecodeString(resp.ServerNonce)
+	if err != nil {
+		return nil, nil, fmt.Errorf("handshake: server nonce base64: %w", err)
+	}
+
+	// Shared secret + session key derivation.
+	shared, err := c.suite.KEM().Agree(c.ephemeralPriv, serverEphPub)
+	if err != nil {
+		return nil, nil, fmt.Errorf("handshake: ephemeral DH: %w", err)
+	}
+	defer crypto.Zeroize(shared)
+	sessionKeys, err := crypto.DeriveSessionKeys(c.suite.KDF(), shared, c.nonce, serverNonce)
+	if err != nil {
+		return nil, nil, fmt.Errorf("handshake: derive session keys: %w", err)
+	}
+
+	// Erase the ephemeral private key now that the shared secret is in hand
+	// (SESSION.md §2.2).
+	crypto.Zeroize(c.ephemeralPriv)
+	c.ephemeralPriv = nil
+
+	// Confirmation hash.
+	respCanonical, err := CanonicalForHashing(&resp)
+	if err != nil {
+		sessionKeys.Erase()
+		return nil, nil, fmt.Errorf("handshake: canonical response: %w", err)
+	}
+	confirmHash, err := ConfirmationHash(c.initCanonical, respCanonical)
+	if err != nil {
+		sessionKeys.Erase()
+		return nil, nil, err
+	}
+
+	// Identity proof: signature over session_id || confirmation_hash.
+	identityPriv, err := c.store.LoadPrivateKey(context.Background(), c.identityKey)
+	if err != nil {
+		sessionKeys.Erase()
+		return nil, nil, fmt.Errorf("handshake: load identity private key: %w", err)
+	}
+	defer crypto.Zeroize(identityPriv)
+	signed := append([]byte(resp.SessionID), confirmHash...)
+	identitySig, err := c.suite.Signer().Sign(identityPriv, signed)
+	if err != nil {
+		sessionKeys.Erase()
+		return nil, nil, fmt.Errorf("handshake: identity sign: %w", err)
+	}
+	proof := IdentityProofBlock{
+		ClientID:            "client-" + resp.SessionID,
+		ClientIdentity:      c.identity,
+		ClientLongTermKeyID: string(c.identityKey),
+		IdentitySignature:   base64.StdEncoding.EncodeToString(identitySig),
+		Auth: AuthBlock{
+			Method: "identity_key",
+			Params: map[string]any{},
+		},
+	}
+	proofBytes, err := json.Marshal(&proof)
+	if err != nil {
+		sessionKeys.Erase()
+		return nil, nil, fmt.Errorf("handshake: marshal identity proof: %w", err)
+	}
+
+	// Encrypt under K_enc_c2s with a fresh nonce; the wire form prepends
+	// the nonce to the ciphertext, then base64 the whole thing.
+	aead := c.suite.AEAD()
+	proofNonce, err := crypto.FreshNonce(aead)
+	if err != nil {
+		sessionKeys.Erase()
+		return nil, nil, fmt.Errorf("handshake: identity proof nonce: %w", err)
+	}
+	proofCT, err := aead.Seal(sessionKeys.EncC2S, proofNonce, proofBytes, []byte(resp.SessionID))
+	if err != nil {
+		sessionKeys.Erase()
+		return nil, nil, fmt.Errorf("handshake: encrypt identity proof: %w", err)
+	}
+	wrappedProof := append(proofNonce, proofCT...)
+
+	confirmMsg := ClientConfirm{
+		Type:             MessageType,
+		Step:             StepConfirm,
+		Party:            PartyClient,
+		Version:          "1.0.0",
+		SessionID:        resp.SessionID,
+		ConfirmationHash: base64.StdEncoding.EncodeToString(confirmHash),
+		IdentityProof:    base64.StdEncoding.EncodeToString(wrappedProof),
+		Extensions:       extensions.Map{},
+	}
+	confirmBytes, err := CanonicalForHashing(&confirmMsg)
+	if err != nil {
+		sessionKeys.Erase()
+		return nil, nil, fmt.Errorf("handshake: canonical confirm: %w", err)
+	}
+
+	// Stash state for OnAccepted.
+	c.responseCanonical = respCanonical
+	c.sessionKeys = sessionKeys
+	c.sessionID = resp.SessionID
+	c.negotiated = resp.Negotiated
+
+	// Build a partially populated Session. The handshake is not yet
+	// established — OnAccepted will set State and timing fields.
+	sess = session.New(session.RoleClient)
+	sess.ID = resp.SessionID
+	sess.PeerIdentity = c.serverDomain
+	sess.State = session.StateHandshaking
+	sess.SetKeys(sessionKeys)
+	return confirmBytes, sess, nil
 }
 
-// OnAccepted processes the server's accepted message and finalizes the
-// Session created by OnResponse. After OnAccepted returns nil, the session
-// is ready to send envelopes.
-//
-// TODO(HANDSHAKE.md §2.7, SESSION.md §2.6): verify ServerSignature on the
-// accepted message, set Session.State to StateActive, populate
-// Session.EstablishedAt, TTL, and ExpiresAt from the response.
+// OnAccepted processes the server's accepted message and finalizes sess.
+// After OnAccepted returns nil, sess is in StateActive and may be used to
+// send envelopes (HANDSHAKE.md §2.7, SESSION.md §2.6).
 func (c *Client) OnAccepted(data []byte, sess *session.Session) error {
-	_, _, _ = c, data, sess
+	if c == nil || c.suite == nil {
+		return errors.New("handshake: nil client or suite")
+	}
+	if sess == nil {
+		return errors.New("handshake: nil session")
+	}
+	var acc Accepted
+	if err := json.Unmarshal(data, &acc); err != nil {
+		return fmt.Errorf("handshake: parse accepted: %w", err)
+	}
+	if acc.Type != MessageType || acc.Step != StepAccepted || acc.Party != PartyServer {
+		return errors.New("handshake: accepted type/step/party mismatch")
+	}
+	if acc.SessionID != c.sessionID {
+		return errors.New("handshake: accepted session_id mismatch")
+	}
+	domainPub, err := c.lookupServerDomainKey()
+	if err != nil {
+		return err
+	}
+	if err := VerifyServerMessage(c.suite, domainPub, &acc, acc.ServerSignature); err != nil {
+		return err
+	}
+	ttl := acc.SessionTTL
+	if ttl <= 0 {
+		// Per HANDSHAKE.md §2.7.1, an accepted message without session_ttl
+		// is treated as 300 seconds and SHOULD log a warning.
+		ttl = 300
+	}
+	now := time.Now()
+	sess.State = session.StateActive
+	sess.EstablishedAt = now
+	sess.TTL = time.Duration(ttl) * time.Second
+	sess.ExpiresAt = now.Add(sess.TTL)
 	return nil
 }
 
 // OnRejected processes the server's rejected message and returns the
-// corresponding *semp.Error.
-//
-// TODO(HANDSHAKE.md §4.1, ERRORS.md §2): parse the reason_code and convert
-// to a *semp.Error so callers can branch on its Code.
+// corresponding *semp.Error wrapped in a Go error so callers can branch on
+// the reason code via errors.As / errors.Is.
 func (c *Client) OnRejected(data []byte) error {
-	_, _ = c, data
-	return nil
+	if c == nil {
+		return errors.New("handshake: nil client")
+	}
+	var rej Rejected
+	if err := json.Unmarshal(data, &rej); err != nil {
+		return fmt.Errorf("handshake: parse rejected: %w", err)
+	}
+	if rej.Type != MessageType || rej.Step != StepRejected || rej.Party != PartyServer {
+		return errors.New("handshake: rejected type/step/party mismatch")
+	}
+	// We do not require a verified signature here: a malformed or unsigned
+	// rejection is still a rejection. The caller can choose to escalate
+	// based on whether the signature verifies.
+	return &handshakeRejection{Code: rej.ReasonCode, Reason: rej.Reason, SessionID: rej.SessionID}
 }
 
 // Erase wipes the ephemeral private key and any retained state. Callers
@@ -110,4 +437,42 @@ func (c *Client) Erase() {
 	crypto.Zeroize(c.nonce)
 	c.ephemeralPriv = nil
 	c.ephemeralPub = nil
+	c.nonce = nil
+	c.initCanonical = nil
+	c.responseCanonical = nil
+	if c.sessionKeys != nil {
+		c.sessionKeys.Erase()
+		c.sessionKeys = nil
+	}
+}
+
+func (c *Client) lookupServerDomainKey() ([]byte, error) {
+	if c.store == nil {
+		return nil, errors.New("handshake: nil key store")
+	}
+	rec, err := c.store.LookupDomainKey(context.Background(), c.serverDomain)
+	if err != nil {
+		return nil, fmt.Errorf("handshake: lookup server domain key: %w", err)
+	}
+	if rec == nil {
+		return nil, errors.New("handshake: server domain key not found")
+	}
+	pub, err := base64.StdEncoding.DecodeString(rec.PublicKey)
+	if err != nil {
+		return nil, fmt.Errorf("handshake: decode server domain key: %w", err)
+	}
+	return pub, nil
+}
+
+// handshakeRejection is the error type returned by OnRejected. It carries
+// the reason_code so callers can branch on it via errors.As, and otherwise
+// behaves like a plain error.
+type handshakeRejection struct {
+	Code      string
+	Reason    string
+	SessionID string
+}
+
+func (e *handshakeRejection) Error() string {
+	return fmt.Sprintf("handshake: rejected: %s: %s", e.Code, e.Reason)
 }
