@@ -87,12 +87,13 @@ func main() {
 	logger.Printf("domain signing key fingerprint: %s", domainSignFP)
 	logger.Printf("domain signing key (base64): %s", base64.StdEncoding.EncodeToString(domainSignPub))
 
-	// Domain encryption key (X25519).
+	// Domain encryption key (X25519). Published in the local store so
+	// SEMP_KEYS requests from clients can resolve it.
 	domainEncPub, domainEncPriv, err := demoseed.DomainEncryption(*seed, *domain)
 	if err != nil {
 		logger.Fatalf("derive domain encryption key: %v", err)
 	}
-	domainEncFP := keys.Compute(domainEncPub)
+	domainEncFP := store.PutDomainEncryptionKey(*domain, domainEncPub)
 	logger.Printf("domain encryption key fingerprint: %s", domainEncFP)
 	logger.Printf("domain encryption key (base64): %s", base64.StdEncoding.EncodeToString(domainEncPub))
 
@@ -134,20 +135,13 @@ func main() {
 		// outbound dial path, but inbound federation traffic can
 		// arrive at any time and needs the key pre-registered.
 		store.PutDomainKey(peerDomain, peerPub)
-		// Also pre-seed the peer's users in our store so we can wrap
-		// envelopes for them on the sender side. In a real deployment
-		// the sender would fetch user keys via SEMP_KEYS.
-		for _, u := range splitNonEmpty(*users, ",") {
-			// Only users whose suffix matches the peer domain get
-			// published — no point publishing alice@a.example twice.
-			if strings.HasSuffix(u, "@"+peerDomain) {
-				encPub, _, err := demoseed.Encryption(*seed, u)
-				if err != nil {
-					logger.Fatalf("derive peer user encryption for %s: %v", u, err)
-				}
-				store.PutUserKey(u, keys.TypeEncryption, "x25519-chacha20-poly1305", encPub)
-			}
-		}
+		// Previously we also pre-seeded every peer user's encryption
+		// key from the shared -seed so the sender side of inboxd could
+		// wrap K_brief for them. That's no longer necessary:
+		// cmd/semp-cli now fetches recipient keys via SEMP_KEYS, which
+		// the inboxd handler forwards cross-domain via the federation
+		// session. The peer's SEMP_KEYS responder (running in
+		// federation mode on the other side) reads from its own store.
 		logger.Printf("peer %s → %s (signing key fingerprint: %s)", peerDomain, peerEndpoint, keys.Compute(peerPub))
 	}
 

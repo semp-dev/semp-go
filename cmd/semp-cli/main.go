@@ -170,42 +170,6 @@ func runSend(args []string) error {
 
 	suite := crypto.SuiteBaseline
 
-	// We need three encryption keys to wrap K_brief and K_enclosure
-	// correctly for cross-domain delivery (ENVELOPE.md §4.4):
-	//
-	//   - recipEncPub: the recipient CLIENT's encryption key — goes
-	//     into both BriefRecipients and EnclosureRecipients so bob can
-	//     unwrap both.
-	//   - senderDomainEncPub: OUR home server's domain encryption key
-	//     — goes into BriefRecipients so our home server can read
-	//     brief.to for local routing / forwarding decisions.
-	//   - recipDomainEncPub: the RECIPIENT server's domain encryption
-	//     key — goes into BriefRecipients so the recipient server can
-	//     unwrap K_brief and deliver the envelope into the recipient's
-	//     inbox. For same-domain sends this is the same as
-	//     senderDomainEncPub.
-	//
-	// All three are derived from the shared -seed for the demo; a
-	// real sender would fetch them via SEMP_KEYS.
-	recipEncPub, _, err := demoseed.Encryption(*seed, *to)
-	if err != nil {
-		return fmt.Errorf("derive recipient encryption key: %w", err)
-	}
-	recipEncFP := keys.Compute(recipEncPub)
-
-	senderDomainEncPub, _, err := demoseed.DomainEncryption(*seed, *domain)
-	if err != nil {
-		return fmt.Errorf("derive sender server encryption key: %w", err)
-	}
-	senderDomainEncFP := keys.Compute(senderDomainEncPub)
-
-	recipDomain := domainOf(*to)
-	recipDomainEncPub, _, err := demoseed.DomainEncryption(*seed, recipDomain)
-	if err != nil {
-		return fmt.Errorf("derive recipient server encryption key: %w", err)
-	}
-	recipDomainEncFP := keys.Compute(recipDomainEncPub)
-
 	// Open a session.
 	conn, err := dialServer(cfg)
 	if err != nil {
@@ -229,6 +193,21 @@ func runSend(args []string) error {
 		return fmt.Errorf("run handshake: %w", err)
 	}
 	fmt.Fprintf(os.Stderr, "handshake ok: session=%s\n", sess.ID)
+
+	// Fetch the recipient's keys and both domain encryption keys via
+	// SEMP_KEYS instead of deriving them locally. This is the real
+	// spec-compliant path: the client asks its home server for the
+	// recipient's published keys, and the home server fetches them
+	// from the remote domain (via its cached federation session) on
+	// the client's behalf. See CLIENT.md §5.4.
+	_ = seed // kept as a flag for continuity; no longer used on the send path
+	recipEncPub, recipDomainEncPub, senderDomainEncPub, err := fetchRecipientKeys(hsCtx, conn, *to, *from)
+	if err != nil {
+		return fmt.Errorf("fetch recipient keys: %w", err)
+	}
+	recipEncFP := keys.Compute(recipEncPub)
+	recipDomainEncFP := keys.Compute(recipDomainEncPub)
+	senderDomainEncFP := keys.Compute(senderDomainEncPub)
 
 	// Compose the envelope.
 	postmarkID, err := newDemoULID()
@@ -509,6 +488,72 @@ func dialServer(cfg *commonFlags) (transport.Conn, error) {
 	}
 	fmt.Fprintf(os.Stderr, "connected to %s (subprotocol %s)\n", conn.Peer(), ws.Subprotocol)
 	return conn, nil
+}
+
+// fetchRecipientKeys sends a SEMP_KEYS request over conn asking for
+// both the recipient and the sender's own domain encryption key. It
+// returns (recipientClientEncKey, recipientDomainEncKey,
+// senderDomainEncKey, err).
+//
+// The caller sends envelopes addressed to `to` from `from`. The three
+// returned keys are exactly the three slots needed by
+// envelope.ComposeInput.BriefRecipients per ENVELOPE.md §4.4.
+func fetchRecipientKeys(ctx context.Context, conn transport.Conn, to, from string) (recipEncPub, recipDomainEncPub, senderDomainEncPub []byte, err error) {
+	fetcher := keys.NewFetcher(conn)
+	req := keys.NewRequest(fmt.Sprintf("cli-%d", time.Now().UnixNano()), []string{to, from})
+	resp, err := fetcher.FetchKeys(ctx, req)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	var recipResult, senderResult *keys.ResponseResult
+	for i := range resp.Results {
+		switch resp.Results[i].Address {
+		case to:
+			recipResult = &resp.Results[i]
+		case from:
+			senderResult = &resp.Results[i]
+		}
+	}
+	if recipResult == nil || recipResult.Status != keys.StatusFound {
+		return nil, nil, nil, fmt.Errorf("keys for %s not found", to)
+	}
+	if senderResult == nil || senderResult.Status != keys.StatusFound {
+		return nil, nil, nil, fmt.Errorf("keys for %s not found", from)
+	}
+	recipEncRec := firstKeyOfType(recipResult.UserKeys, keys.TypeEncryption)
+	if recipEncRec == nil {
+		return nil, nil, nil, fmt.Errorf("no encryption key for %s", to)
+	}
+	recipEncPub, err = decodeBase64(recipEncRec.PublicKey)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("decode recipient enc key: %w", err)
+	}
+	if recipResult.DomainEncKey == nil {
+		return nil, nil, nil, fmt.Errorf("no domain encryption key for %s", recipResult.Domain)
+	}
+	recipDomainEncPub, err = decodeBase64(recipResult.DomainEncKey.PublicKey)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("decode recipient domain enc key: %w", err)
+	}
+	if senderResult.DomainEncKey == nil {
+		return nil, nil, nil, fmt.Errorf("no domain encryption key for %s", senderResult.Domain)
+	}
+	senderDomainEncPub, err = decodeBase64(senderResult.DomainEncKey.PublicKey)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("decode sender domain enc key: %w", err)
+	}
+	return recipEncPub, recipDomainEncPub, senderDomainEncPub, nil
+}
+
+// firstKeyOfType returns the first keys.Record in records whose Type
+// matches kt, or nil if none matches.
+func firstKeyOfType(records []*keys.Record, kt keys.Type) *keys.Record {
+	for _, r := range records {
+		if r.Type == kt {
+			return r
+		}
+	}
+	return nil
 }
 
 // decodeBase64 accepts standard or URL-safe base64, with or without
