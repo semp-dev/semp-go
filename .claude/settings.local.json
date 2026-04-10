@@ -7,7 +7,25 @@
       "Bash(go test:*)",
       "Bash(go mod:*)",
       "Bash(go run:*)",
-      "Bash(go get:*)"
+      "Bash(go get:*)",
+      "Bash(git add:*)",
+      "Bash(git commit -m ':*)",
+      "Bash(git push:*)",
+      "Bash(gh pr create --base main --head claude --title 'handshake: client state machine, PoW, and spec test vectors' --body ':*)",
+      "Bash(git fetch:*)",
+      "Bash(gh pr create --base main --head claude --title 'handshake: federation Initiator/Responder, collision rule, and cross-domain envelope flow' --body ':*)",
+      "Bash(go doc:*)",
+      "Bash(git stash:*)",
+      "Bash(git pull:*)",
+      "Bash(gh pr create --base main --head claude --title 'transport/ws: WebSocket binding, handshake driver, and runnable binaries' --body ':*)",
+      "Bash(grep -n \"func domainOf\" test/*.go cmd/semp-cli/*.go)",
+      "Bash(gh pr create --base main --head claude --title 'inboxd: envelope routing and SEMP_FETCH in the demo binaries' --body ':*)",
+      "Bash(gh pr create --base main --head claude --title 'inboxd: cross-domain envelope flow in the demo binaries' --body ':*)",
+      "Bash(gh pr create --base main --head claude --title 'SEMP_KEYS: real client-side key fetching via home server' --body ':*)",
+      "Bash(grep -n \"DeriveRekey\\\\|DeriveSession\\\\|Rekey\" crypto/kdf.go session/*.go)",
+      "Bash(grep -n \"EnvMAC:.*sess\\\\.EnvMAC\" test/*.go)",
+      "Bash(gh pr create --base main --head claude --title 'session: in-session rekeying \\(SEMP_REKEY\\)' --body ':*)",
+      "Bash(gh pr:*)"
     ]
   }
 }

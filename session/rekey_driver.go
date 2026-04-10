@@ -42,18 +42,37 @@ type Rekeyer struct {
 	// Session is the session to rekey. On success, Session.ApplyRekey
 	// is called with the new keys, the new ID, and the current time.
 	Session *Session
+
+	// InitiatorDirection identifies which half of the session keys the
+	// initiator uses to encrypt its rekey messages per SESSION.md §3.2.
+	// For a client-initiated rekey this is DirectionC2S; for a
+	// federation-initiated rekey the initiating server uses whichever
+	// half of the session it "owns" (by convention, the side that
+	// opened the connection uses c2s).
+	//
+	// A zero value defaults to DirectionC2S so existing callers that
+	// drive a client session keep working without changes.
+	InitiatorDirection string
 }
 
 // Rekey executes the two-message SEMP_REKEY exchange over stream:
 //
 //  1. Generate a fresh ephemeral key pair and rekey nonce.
-//  2. Send RekeyInit.
-//  3. Receive RekeyAccepted (or RekeyRejected).
+//  2. Seal the RekeyInit under K_enc_{initiator direction} and send.
+//  3. Receive the sealed response, open it under the opposite
+//     directional keys, parse the inner RekeyAccepted (or RekeyRejected).
 //  4. Compute the shared secret via X25519 against the responder's
 //     ephemeral public key.
 //  5. Derive the five new session keys via crypto.DeriveRekeyKeys
 //     with salt = rekey_nonce || responder_nonce.
 //  6. Call Session.ApplyRekey to install the new keys and ID.
+//
+// Both messages are AEAD-sealed under the current session's directional
+// keys per SESSION.md §3.2. The AEAD additional data binds each
+// ciphertext to the direction label, the current session ID, and the
+// corresponding MAC key, so an attacker who somehow extracted the
+// encryption key alone still could not forge a message — the MAC
+// key is mixed into the AAD.
 //
 // Rekey is NOT invoked automatically — callers decide when to rekey
 // (typically at 80% TTL per SESSION.md §3.1).
@@ -63,6 +82,15 @@ func (r *Rekeyer) Rekey(ctx context.Context, stream RekeyStream) error {
 	if r == nil || r.Suite == nil || r.Session == nil {
 		return errors.New("session: nil rekeyer")
 	}
+	initDir := r.InitiatorDirection
+	if initDir == "" {
+		initDir = DirectionC2S
+	}
+	respDir := DirectionS2C
+	if initDir == DirectionS2C {
+		respDir = DirectionC2S
+	}
+
 	now := time.Now()
 	if ok, code, reason := r.Session.CanRekey(now); !ok {
 		return fmt.Errorf("session: cannot rekey: %s: %s", code, reason)
@@ -92,18 +120,44 @@ func (r *Rekeyer) Rekey(ctx context.Context, stream RekeyStream) error {
 		},
 		RekeyNonce: base64.StdEncoding.EncodeToString(rekeyNonce),
 	}
-	initBytes, err := json.Marshal(&initMsg)
+	initBytes, err := marshalRekeyBody(&initMsg)
 	if err != nil {
 		return fmt.Errorf("session: marshal rekey init: %w", err)
 	}
-	if err := stream.Send(ctx, initBytes); err != nil {
-		return fmt.Errorf("session: send rekey init: %w", err)
+	sealed, err := SealRekeyMessage(r.Suite, r.Session, initDir, initBytes)
+	if err != nil {
+		return fmt.Errorf("session: seal rekey init: %w", err)
+	}
+	sealedBytes, err := json.Marshal(sealed)
+	if err != nil {
+		return fmt.Errorf("session: marshal sealed rekey: %w", err)
+	}
+	if err := stream.Send(ctx, sealedBytes); err != nil {
+		return fmt.Errorf("session: send sealed rekey init: %w", err)
 	}
 
-	respBytes, err := stream.Recv(ctx)
+	respRaw, err := stream.Recv(ctx)
 	if err != nil {
 		return fmt.Errorf("session: recv rekey response: %w", err)
 	}
+	var sealedResp SealedRekey
+	if err := json.Unmarshal(respRaw, &sealedResp); err != nil {
+		return fmt.Errorf("session: parse sealed rekey response: %w", err)
+	}
+	if sealedResp.Type != MessageType {
+		return fmt.Errorf("session: expected sealed rekey, got type %q", sealedResp.Type)
+	}
+	if !sealedResp.Sealed {
+		return errors.New("session: rekey response is not sealed")
+	}
+	if sealedResp.Direction != respDir {
+		return fmt.Errorf("session: sealed rekey response direction %q, want %q", sealedResp.Direction, respDir)
+	}
+	respBytes, err := OpenRekeyMessage(r.Suite, r.Session, &sealedResp)
+	if err != nil {
+		return fmt.Errorf("session: open rekey response: %w", err)
+	}
+
 	step, err := peekRekeyStep(respBytes)
 	if err != nil {
 		return err
@@ -128,7 +182,6 @@ func (r *Rekeyer) Rekey(ctx context.Context, stream RekeyStream) error {
 	if acc.SessionID != r.Session.ID {
 		return fmt.Errorf("session: rekey_accepted session_id mismatch: got %s want %s", acc.SessionID, r.Session.ID)
 	}
-	// Sanity: responder MUST echo our nonce.
 	if acc.RekeyNonce != initMsg.RekeyNonce {
 		return errors.New("session: rekey_accepted echoed wrong rekey_nonce")
 	}
@@ -158,9 +211,9 @@ func (r *Rekeyer) Rekey(ctx context.Context, stream RekeyStream) error {
 }
 
 // RekeyHandler runs the responder side of a SEMP_REKEY exchange. It is
-// invoked with an already-received RekeyInit byte slice (which the
-// dispatch loop has just read off the stream). It writes either a
-// RekeyAccepted or a RekeyRejected message back to stream.
+// invoked with an already-received (sealed) SEMP_REKEY byte slice which
+// the dispatch loop has just read off the stream. It writes either a
+// sealed RekeyAccepted or a sealed RekeyRejected back to stream.
 //
 // On success, the supplied *Session is mutated via ApplyRekey so that
 // subsequent operations use the new keys. On rejection, the session is
@@ -168,40 +221,79 @@ func (r *Rekeyer) Rekey(ctx context.Context, stream RekeyStream) error {
 type RekeyHandler struct {
 	Suite   crypto.Suite
 	Session *Session
+
+	// InitiatorDirection identifies which half of the session keys
+	// the INITIATOR uses. The handler uses the opposite direction to
+	// seal its response. Zero means DirectionC2S (the client-
+	// initiated rekey default), so the handler seals its response
+	// under DirectionS2C.
+	InitiatorDirection string
 }
 
-// Handle processes one rekey init message and writes the response.
-// Returns nil on either rekey_accepted or rekey_rejected (both are
-// "handled" outcomes); returns a non-nil error only on transport-level
-// or decode failures that prevent a response from being written.
+// Handle processes one sealed SEMP_REKEY message and writes the
+// response. Returns nil on either rekey_accepted or rekey_rejected
+// (both are "handled" outcomes); returns a non-nil error only on
+// transport-level or unseal failures that prevent a response from
+// being written.
 func (h *RekeyHandler) Handle(ctx context.Context, stream RekeyStream, raw []byte) error {
 	if h == nil || h.Suite == nil || h.Session == nil {
 		return errors.New("session: nil rekey handler")
 	}
+	initDir := h.InitiatorDirection
+	if initDir == "" {
+		initDir = DirectionC2S
+	}
+	respDir := DirectionS2C
+	if initDir == DirectionS2C {
+		respDir = DirectionC2S
+	}
+
+	// Open the sealed envelope.
+	var sealed SealedRekey
+	if err := json.Unmarshal(raw, &sealed); err != nil {
+		return fmt.Errorf("session: parse sealed rekey: %w", err)
+	}
+	if sealed.Type != MessageType {
+		return fmt.Errorf("session: unexpected sealed type %q", sealed.Type)
+	}
+	if !sealed.Sealed {
+		return errors.New("session: rekey message is not sealed (cleartext not supported)")
+	}
+	if sealed.Direction != initDir {
+		return fmt.Errorf("session: sealed rekey direction %q, expected %q", sealed.Direction, initDir)
+	}
+	plaintext, err := OpenRekeyMessage(h.Suite, h.Session, &sealed)
+	if err != nil {
+		// We can't respond under the session keys if the initiator
+		// didn't hold them. Return the error to the caller; the
+		// dispatch loop will log it and move on.
+		return fmt.Errorf("session: open sealed rekey: %w", err)
+	}
+
 	var init RekeyInit
-	if err := json.Unmarshal(raw, &init); err != nil {
+	if err := json.Unmarshal(plaintext, &init); err != nil {
 		return fmt.Errorf("session: parse rekey_init: %w", err)
 	}
 	if init.Type != MessageType || init.Step != StepRekeyInit {
 		return fmt.Errorf("session: unexpected rekey type/step: %s/%s", init.Type, init.Step)
 	}
 	if init.SessionID != h.Session.ID {
-		return h.reject(ctx, stream, init.SessionID, "session_expired",
+		return h.reject(ctx, stream, respDir, init.SessionID, "session_expired",
 			fmt.Sprintf("session %s is not the current session", init.SessionID))
 	}
 	now := time.Now()
 	if ok, code, reason := h.Session.CanRekey(now); !ok {
-		return h.reject(ctx, stream, init.SessionID, code, reason)
+		return h.reject(ctx, stream, respDir, init.SessionID, code, reason)
 	}
 
 	initiatorEphPub, err := base64.StdEncoding.DecodeString(init.NewEphemeralKey.Key)
 	if err != nil {
-		return h.reject(ctx, stream, init.SessionID, "rekey_unsupported",
+		return h.reject(ctx, stream, respDir, init.SessionID, "rekey_unsupported",
 			fmt.Sprintf("invalid new_ephemeral_key: %v", err))
 	}
 	initiatorNonce, err := base64.StdEncoding.DecodeString(init.RekeyNonce)
 	if err != nil {
-		return h.reject(ctx, stream, init.SessionID, "rekey_unsupported",
+		return h.reject(ctx, stream, respDir, init.SessionID, "rekey_unsupported",
 			fmt.Sprintf("invalid rekey_nonce: %v", err))
 	}
 
@@ -217,10 +309,9 @@ func (h *RekeyHandler) Handle(ctx context.Context, stream RekeyStream, raw []byt
 		return fmt.Errorf("session: responder nonce: %w", err)
 	}
 
-	// Shared secret + new session keys.
 	shared, err := h.Suite.KEM().Agree(respEphPriv, initiatorEphPub)
 	if err != nil {
-		return h.reject(ctx, stream, init.SessionID, "rekey_unsupported",
+		return h.reject(ctx, stream, respDir, init.SessionID, "rekey_unsupported",
 			fmt.Sprintf("DH failed: %v", err))
 	}
 	defer crypto.Zeroize(shared)
@@ -229,8 +320,6 @@ func (h *RekeyHandler) Handle(ctx context.Context, stream RekeyStream, raw []byt
 		return fmt.Errorf("session: derive rekey keys: %w", err)
 	}
 
-	// Mint a new session ID (simple counter-based for now — the spec
-	// says ULID RECOMMENDED).
 	newID, err := newRekeySessionID()
 	if err != nil {
 		return fmt.Errorf("session: new session id: %w", err)
@@ -250,22 +339,34 @@ func (h *RekeyHandler) Handle(ctx context.Context, stream RekeyStream, raw []byt
 		RekeyNonce:     init.RekeyNonce,
 		ResponderNonce: base64.StdEncoding.EncodeToString(responderNonce),
 	}
-	accBytes, err := json.Marshal(&acc)
+	accBytes, err := marshalRekeyBody(&acc)
 	if err != nil {
 		return fmt.Errorf("session: marshal rekey_accepted: %w", err)
 	}
-	if err := stream.Send(ctx, accBytes); err != nil {
-		return fmt.Errorf("session: send rekey_accepted: %w", err)
+	// Seal the response under the OLD session keys — the peer only
+	// gets to see the accepted message after successful AEAD open,
+	// which proves we hold the keys. After we apply the rekey we
+	// switch to the new keys for any subsequent message.
+	sealedAcc, err := SealRekeyMessage(h.Suite, h.Session, respDir, accBytes)
+	if err != nil {
+		return fmt.Errorf("session: seal rekey_accepted: %w", err)
+	}
+	sealedBytes, err := json.Marshal(sealedAcc)
+	if err != nil {
+		return fmt.Errorf("session: marshal sealed rekey_accepted: %w", err)
+	}
+	if err := stream.Send(ctx, sealedBytes); err != nil {
+		return fmt.Errorf("session: send sealed rekey_accepted: %w", err)
 	}
 
 	h.Session.ApplyRekey(newID, newKeys, now)
 	return nil
 }
 
-// reject writes a rekey_rejected message to stream. Returns nil on
-// successful write; the caller treats "we sent a rejection" as a
+// reject writes a sealed rekey_rejected message to stream. Returns nil
+// on successful write; the caller treats "we sent a rejection" as a
 // handled outcome.
-func (h *RekeyHandler) reject(ctx context.Context, stream RekeyStream, sessionID, code, reason string) error {
+func (h *RekeyHandler) reject(ctx context.Context, stream RekeyStream, respDir, sessionID, code, reason string) error {
 	rej := RekeyRejected{
 		Type:       MessageType,
 		Step:       StepRekeyRejected,
@@ -274,9 +375,17 @@ func (h *RekeyHandler) reject(ctx context.Context, stream RekeyStream, sessionID
 		ReasonCode: code,
 		Reason:     reason,
 	}
-	out, err := json.Marshal(&rej)
+	body, err := marshalRekeyBody(&rej)
 	if err != nil {
 		return fmt.Errorf("session: marshal rekey_rejected: %w", err)
+	}
+	sealed, err := SealRekeyMessage(h.Suite, h.Session, respDir, body)
+	if err != nil {
+		return fmt.Errorf("session: seal rekey_rejected: %w", err)
+	}
+	out, err := json.Marshal(sealed)
+	if err != nil {
+		return fmt.Errorf("session: marshal sealed rekey_rejected: %w", err)
 	}
 	return stream.Send(ctx, out)
 }
