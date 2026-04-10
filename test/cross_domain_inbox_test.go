@@ -270,6 +270,7 @@ func bringUpServer(t *testing.T, seed, domain string, users []string) *testServe
 				DomainEncFP:    domainEncFP,
 				DomainEncPriv:  domainEncPriv,
 				Identity:       srv.ClientIdentity(),
+				DeviceKeyID:    srv.ClientDeviceKeyID(),
 				Session:        sess,
 				Logger:         silent,
 			}

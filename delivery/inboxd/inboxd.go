@@ -126,6 +126,16 @@ type Server struct {
 	// address; in ModeFederation it is the peer server's domain.
 	Identity string
 
+	// DeviceKeyID is the fingerprint of the long-term device key the
+	// client used to sign the handshake's identity proof. In
+	// ModeClient the dispatch loop consults
+	// Store.LookupDeviceCertificate(DeviceKeyID) on every envelope
+	// submission; if a certificate is present its scope is enforced
+	// per CLIENT.md §2.4. If no certificate exists, the device is
+	// treated as full-access (the common case for a primary device).
+	// Unused in ModeFederation.
+	DeviceKeyID keys.Fingerprint
+
 	// Session, if non-nil, is the live *session.Session backing this
 	// connection. The dispatch loop uses it to run in-session rekey
 	// exchanges (SEMP_REKEY) and always reads K_env_mac from the
@@ -276,9 +286,49 @@ func (s *Server) handleClientSubmission(ctx context.Context, stream MessageStrea
 
 	allRecipients := append([]brief.Address{}, bf.To...)
 	allRecipients = append(allRecipients, bf.CC...)
+
+	// Scope enforcement: if the authenticated device has a
+	// certificate, check every recipient against scope.send per
+	// CLIENT.md §2.4. A missing certificate means "full access"
+	// (primary device); an invalid certificate or a recipient
+	// outside the scope produces a scope_exceeded rejection.
+	scopeResults, scopeAllRejected, err := s.enforceSendScope(ctx, env.Postmark.ID, allRecipients)
+	if err != nil {
+		resp := delivery.NewSubmissionResponse(env.Postmark.ID, []delivery.SubmissionResult{{
+			Recipient:  s.Identity,
+			Status:     semp.StatusRejected,
+			ReasonCode: semp.ReasonPolicyViolation,
+			Reason:     err.Error(),
+		}})
+		_ = sendJSON(ctx, stream, resp)
+		return fmt.Errorf("enforce scope: %w", err)
+	}
+	if scopeAllRejected {
+		// At least one recipient was blocked AND none passed the
+		// scope check: surface the rejections without delivering
+		// anything.
+		resp := delivery.NewSubmissionResponse(env.Postmark.ID, scopeResults)
+		return sendJSON(ctx, stream, resp)
+	}
+
 	results := make([]delivery.SubmissionResult, 0, len(allRecipients))
+	// Merge any scope_exceeded entries produced by the scope
+	// enforcer into the final result list. scopeResults is keyed
+	// by the same recipient strings, so we skip blocked recipients
+	// in the delivery loop below.
+	blocked := make(map[string]delivery.SubmissionResult, len(scopeResults))
+	for _, r := range scopeResults {
+		if r.Status == semp.StatusRejected {
+			blocked[r.Recipient] = r
+		}
+	}
+
 	for _, addr := range allRecipients {
 		address := string(addr)
+		if r, ok := blocked[address]; ok {
+			results = append(results, r)
+			continue
+		}
 		if s.isLocal(address) {
 			s.Inbox.Store(address, wire)
 			results = append(results, delivery.SubmissionResult{
@@ -585,6 +635,81 @@ func (s *Server) lookupLocalKeys(ctx context.Context, address string, includeDom
 // opt in as they grow support.
 type domainEncKeyLookup interface {
 	LookupDomainEncryptionKey(domain string) *keys.Record
+}
+
+// enforceSendScope applies the CLIENT.md §2.4 scope check to the
+// given recipient list using the device certificate attached to
+// s.DeviceKeyID in the local store.
+//
+// Returns:
+//   - rejections: one SubmissionResult per recipient that was
+//     blocked by the scope. Empty when no cert exists, when the
+//     cert's scope.send.mode is "all", or when all recipients
+//     passed the scope check.
+//   - allBlocked: true when EVERY recipient was blocked (scope
+//     mode=none, or every recipient is outside a restricted scope).
+//     The caller uses this to short-circuit delivery for submissions
+//     where nothing would make it through.
+//   - err: a fatal error that blocks the entire submission (e.g. a
+//     certificate whose chain does not verify). This is distinct
+//     from per-recipient rejections: a broken cert kills the
+//     submission entirely, per CLIENT.md §2.3 (the server MUST
+//     reject a registration without a valid authorization proof).
+func (s *Server) enforceSendScope(ctx context.Context, envelopeID string, recipients []brief.Address) (rejections []delivery.SubmissionResult, allBlocked bool, err error) {
+	if s.DeviceKeyID == "" || s.Store == nil {
+		return nil, false, nil
+	}
+	cert, err := s.Store.LookupDeviceCertificate(ctx, s.DeviceKeyID)
+	if err != nil {
+		return nil, false, fmt.Errorf("lookup device certificate: %w", err)
+	}
+	if cert == nil {
+		// No certificate means this is a primary (full-access)
+		// device: scope checks do not apply.
+		return nil, false, nil
+	}
+	// Verify the chain: the issuing device key must be a registered
+	// identity key for the cert's UserID, and the signature must
+	// check out. A broken chain is fatal.
+	if err := cert.VerifyChain(ctx, s.Suite, s.Store); err != nil {
+		return nil, false, fmt.Errorf("verify device certificate chain: %w", err)
+	}
+	// Cross-check: the certificate MUST identify THIS device and
+	// this user. A mismatch means the store returned someone else's
+	// cert, which is a configuration bug; fail closed.
+	if cert.DeviceKeyID != s.DeviceKeyID {
+		return nil, false, fmt.Errorf("device certificate mismatch: cert for %s, session for %s",
+			cert.DeviceKeyID, s.DeviceKeyID)
+	}
+	if cert.UserID != s.Identity {
+		return nil, false, fmt.Errorf("device certificate UserID %s does not match session identity %s",
+			cert.UserID, s.Identity)
+	}
+
+	scope := cert.Scope.Send
+	blocked := make([]delivery.SubmissionResult, 0)
+	allowedCount := 0
+	for _, addr := range recipients {
+		address := string(addr)
+		if scope.Allows(address) {
+			allowedCount++
+			continue
+		}
+		reasonText := fmt.Sprintf("recipient %s is outside the device's scope.send", address)
+		if scope.Mode == keys.SendModeNone {
+			reasonText = "device certificate scope.send.mode is 'none'"
+		}
+		blocked = append(blocked, delivery.SubmissionResult{
+			Recipient:  address,
+			Status:     semp.StatusRejected,
+			ReasonCode: semp.ReasonScopeExceeded,
+			Reason:     reasonText,
+		})
+		s.logf("[%s] scope_exceeded: envelope=%s recipient=%s mode=%s",
+			s.Identity, envelopeID, address, scope.Mode)
+	}
+	allBlocked = allowedCount == 0 && len(recipients) > 0
+	return blocked, allBlocked, nil
 }
 
 // signLocalResult applies the domain signatures required by
