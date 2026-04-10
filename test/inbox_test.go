@@ -114,7 +114,7 @@ func TestInboxRouting(t *testing.T) {
 				DomainEncFP:    domainEncFP,
 				DomainEncPriv:  domainEncPriv,
 				Identity:       srv.ClientIdentity(),
-				EnvMAC:         sess.EnvMAC(),
+				Session:        sess,
 				Logger:         logger,
 			}
 			_ = loop.Serve(ctx, conn)

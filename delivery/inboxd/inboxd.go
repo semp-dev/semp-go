@@ -36,6 +36,7 @@ import (
 	"github.com/semp-dev/semp-go/delivery"
 	"github.com/semp-dev/semp-go/envelope"
 	"github.com/semp-dev/semp-go/keys"
+	"github.com/semp-dev/semp-go/session"
 )
 
 var (
@@ -125,17 +126,37 @@ type Server struct {
 	// address; in ModeFederation it is the peer server's domain.
 	Identity string
 
-	// EnvMAC is K_env_mac from the established session. Used by
-	// envelope.Sign in ModeClient (to seal envelopes on submission)
-	// and by envelope.VerifySessionMAC in ModeFederation (to verify
-	// forwarded envelopes). In both modes it is the K_env_mac of the
-	// session carrying this connection, not of the envelope's original
-	// composition session.
+	// Session, if non-nil, is the live *session.Session backing this
+	// connection. The dispatch loop uses it to run in-session rekey
+	// exchanges (SEMP_REKEY) and always reads K_env_mac from the
+	// session's current state, so that rekey events transparently
+	// rotate the key under which envelopes are signed and verified.
+	//
+	// If Session is nil, the loop falls back to the static EnvMAC
+	// field below, which is the legacy code path. Tests and the
+	// reference binaries always set Session.
+	Session *session.Session
+
+	// EnvMAC is the static K_env_mac used when Session is nil. When
+	// Session is non-nil, this field is IGNORED — the live session
+	// value (session.EnvMAC()) is used instead so rekey events take
+	// effect immediately.
 	EnvMAC []byte
 
 	// Logger receives operational notes (one line per accepted/rejected
 	// envelope, one line per fetch). May be nil to disable logging.
 	Logger Logger
+}
+
+// envMAC returns the K_env_mac this loop should use for signing or
+// verifying envelopes right now. When a live Session is set it reads
+// from the session (so rekey events are picked up immediately);
+// otherwise it falls back to the static EnvMAC field.
+func (s *Server) envMAC() []byte {
+	if s.Session != nil {
+		return s.Session.EnvMAC()
+	}
+	return s.EnvMAC
 }
 
 // Serve runs the post-handshake message loop until the peer closes the
@@ -178,6 +199,13 @@ func (s *Server) Serve(ctx context.Context, stream MessageStream) error {
 				// SEMP_KEYS failures are per-address; the response
 				// already carries the per-address error status.
 			}
+		case session.MessageType:
+			if err := s.handleRekey(ctx, stream, raw); err != nil {
+				s.logf("[%s] rekey error: %v", s.Identity, err)
+				// Rekey errors are handled by the handler by
+				// writing a rekey_rejected; only transport failures
+				// propagate here.
+			}
 		default:
 			s.logf("[%s] unsupported message type %q", s.Identity, msgType)
 		}
@@ -218,7 +246,7 @@ func (s *Server) handleClientSubmission(ctx context.Context, stream MessageStrea
 	// The client transmits the envelope WITHOUT seal.signature or
 	// seal.session_mac populated. The home server fills both in per
 	// CLIENT.md §1.3 / ENVELOPE.md §7.1 step 8.
-	if err := envelope.Sign(env, s.Suite, s.DomainSignPriv, s.EnvMAC); err != nil {
+	if err := envelope.Sign(env, s.Suite, s.DomainSignPriv, s.envMAC()); err != nil {
 		resp := delivery.NewSubmissionResponse(env.Postmark.ID, []delivery.SubmissionResult{{
 			Recipient:  s.Identity,
 			Status:     semp.StatusRejected,
@@ -321,7 +349,7 @@ func (s *Server) handleFederationSubmission(ctx context.Context, stream MessageS
 	// Verify the session MAC against OUR K_env_mac. The initiator
 	// rebinds session_mac to the federation session's MAC key before
 	// forwarding.
-	if err := envelope.VerifySessionMAC(env, s.Suite, s.EnvMAC); err != nil {
+	if err := envelope.VerifySessionMAC(env, s.Suite, s.envMAC()); err != nil {
 		resp := delivery.NewSubmissionResponse(env.Postmark.ID, []delivery.SubmissionResult{{
 			Recipient:  s.Identity,
 			Status:     semp.StatusRejected,
@@ -566,6 +594,34 @@ func (s *Server) cachedRemoteFetch(ctx context.Context, peerDomain string, addre
 // a timestamp + a few random bytes to keep the function dependency-free.
 func newRequestID() string {
 	return fmt.Sprintf("req-%d", time.Now().UnixNano())
+}
+
+// handleRekey processes a SEMP_REKEY init from the peer and runs the
+// responder side of the rekey exchange (SESSION.md §3). The session's
+// key material is rotated in-place on success; subsequent envelope
+// handling uses the new K_env_mac via s.envMAC().
+//
+// If the Server has no live Session pointer, rekey is not supported
+// on this connection and we return an error so the loop logs it. A
+// production implementation would send a signed rekey_rejected with
+// reason_code rekey_unsupported; the current helper does the same via
+// RekeyHandler.Handle's reject path only when Session is non-nil.
+func (s *Server) handleRekey(ctx context.Context, stream MessageStream, raw []byte) error {
+	if s.Session == nil {
+		// We have no live session state to rekey against. Drop the
+		// message; the peer will retry or fall back to re-handshake.
+		return errors.New("rekey not supported: no live session")
+	}
+	handler := &session.RekeyHandler{
+		Suite:   s.Suite,
+		Session: s.Session,
+	}
+	if err := handler.Handle(ctx, stream, raw); err != nil {
+		return fmt.Errorf("rekey handle: %w", err)
+	}
+	s.logf("[%s] rekey ok: new session=%s rekey_count=%d",
+		s.Identity, s.Session.ID, s.Session.RekeyCount)
+	return nil
 }
 
 // handleFetch returns every waiting envelope for the authenticated identity.
