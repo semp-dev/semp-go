@@ -76,7 +76,15 @@ type Dialer func(ctx context.Context, endpoint string) (transport.Conn, error)
 // the federation handshake if the cached session has expired or been
 // torn down.
 //
-// Forwarder is safe for concurrent use.
+// Each cached federation session has a background goroutine that
+// watches the session's TTL and fires an in-session rekey via
+// session.Rekeyer at RekeyThreshold * TTL (default 80% per
+// SESSION.md §3.1). This keeps long-lived federation hops alive past
+// their initial TTL without a full handshake.
+//
+// Forwarder is safe for concurrent use. Per-session wire access is
+// serialized by an internal mutex so auto-rekey slots between
+// Forward/FetchKeys calls without interleaving.
 type Forwarder struct {
 	// Suite is the cryptographic suite used for all outbound federation
 	// handshakes. Must match the suite used elsewhere in the process.
@@ -107,6 +115,15 @@ type Forwarder struct {
 	// peer's signatures.
 	Store SharedStore
 
+	// rekeyThreshold is the fraction of TTL at which the auto-rekey
+	// goroutine fires. Defaults to 0.8 per SESSION.md §3.1.
+	rekeyThreshold float64
+
+	// disableAutoRekey, when true, prevents the background goroutine
+	// from being spawned. Used by tests that want to observe raw
+	// session lifecycle without rekey interference.
+	disableAutoRekey bool
+
 	mu       sync.Mutex
 	sessions map[string]*forwarderSession // keyed by peer domain
 }
@@ -121,9 +138,18 @@ type SharedStore interface {
 }
 
 // forwarderSession is the cached per-peer federation session state.
+//
+// wireMu serializes access to conn.Send/Recv so the background
+// auto-rekey goroutine and the foreground Forward/FetchKeys callers
+// don't interleave on the same stream. Every wire operation on conn
+// MUST take wireMu before touching the socket.
 type forwarderSession struct {
-	conn transport.Conn
-	sess *session.Session
+	conn   transport.Conn
+	sess   *session.Session
+	wireMu sync.Mutex
+	// cancel stops the per-session auto-rekey goroutine. Called when
+	// the session is dropped or the forwarder is closed.
+	cancel context.CancelFunc
 }
 
 // NewForwarder constructs a Forwarder. cfg provides the static
@@ -134,6 +160,10 @@ func NewForwarder(cfg ForwarderConfig) *Forwarder {
 	if peers == nil {
 		peers = NewPeerRegistry()
 	}
+	threshold := cfg.RekeyThreshold
+	if threshold <= 0 {
+		threshold = 0.8
+	}
 	return &Forwarder{
 		Suite:                 cfg.Suite,
 		LocalDomain:           cfg.LocalDomain,
@@ -142,6 +172,8 @@ func NewForwarder(cfg ForwarderConfig) *Forwarder {
 		Peers:                 peers,
 		Dial:                  cfg.Dial,
 		Store:                 cfg.Store,
+		rekeyThreshold:        threshold,
+		disableAutoRekey:      cfg.DisableAutoRekey,
 		sessions:              make(map[string]*forwarderSession),
 	}
 }
@@ -157,18 +189,34 @@ type ForwarderConfig struct {
 	Peers                 *PeerRegistry
 	Dial                  Dialer
 	Store                 SharedStore
+
+	// RekeyThreshold is the fraction of TTL at which the background
+	// auto-rekey goroutine fires. SESSION.md §3.1 recommends 0.8.
+	// Zero means "use the default". Tests can set this lower (e.g.
+	// 0.2) to observe rekey happening within a short-lived session.
+	RekeyThreshold float64
+
+	// DisableAutoRekey skips spawning the per-session auto-rekey
+	// goroutine. Intended for tests that want to inspect raw session
+	// lifecycle without rekey interference.
+	DisableAutoRekey bool
 }
 
-// Close tears down every cached federation session. Call this during
-// server shutdown.
+// Close tears down every cached federation session, stopping each
+// session's background auto-rekey goroutine before closing the
+// underlying connection. Call this during server shutdown.
 func (f *Forwarder) Close() {
 	f.mu.Lock()
-	defer f.mu.Unlock()
-	for dom, fs := range f.sessions {
+	sessions := f.sessions
+	f.sessions = make(map[string]*forwarderSession)
+	f.mu.Unlock()
+	for _, fs := range sessions {
+		if fs.cancel != nil {
+			fs.cancel()
+		}
 		if fs.conn != nil {
 			_ = fs.conn.Close()
 		}
-		delete(f.sessions, dom)
 	}
 }
 
@@ -197,41 +245,12 @@ func (f *Forwarder) Forward(ctx context.Context, peerDomain string, env *envelop
 		return nil, err
 	}
 
-	// Update the postmark session_id so the peer references the
-	// federation session when verifying. This MUST happen before
-	// re-signing, because session_id is in the postmark and therefore
-	// covered by both proofs' canonical input bytes.
-	env.Postmark.SessionID = fs.sess.ID
-
-	// Re-sign with our local domain key. Subtle point: the sender's
-	// home server and the federation initiator are the SAME server in
-	// this architecture, so "re-signing with our domain key" is
-	// functionally identical to "the sender's domain signed this
-	// envelope" — the provenance proof is unchanged. The signature
-	// value over the canonical bytes is different because session_id
-	// changed, but the key behind the signature is still a.example's
-	// domain key. A multi-hop relay that did NOT originate the
-	// envelope would not be able to do this; in the federated delivery
-	// model the sending side always re-signs for the hop it controls.
-	//
-	// envelope.Sign recomputes both seal.signature (with the domain
-	// key) and seal.session_mac (with the federation K_env_mac).
-	if err := envelope.Sign(env, f.Suite, f.LocalDomainPrivateKey, fs.sess.EnvMAC()); err != nil {
-		return nil, fmt.Errorf("inboxd: re-sign forwarded envelope: %w", err)
-	}
-
-	wire, err := envelope.Encode(env)
-	if err != nil {
-		return nil, fmt.Errorf("inboxd: encode forwarded envelope: %w", err)
-	}
-	if err := fs.conn.Send(ctx, wire); err != nil {
+	respRaw, dropNeeded, err := f.forwardOnSession(ctx, fs, env)
+	if dropNeeded {
 		f.dropSession(peerDomain)
-		return nil, fmt.Errorf("inboxd: send forwarded envelope: %w", err)
 	}
-	respRaw, err := fs.conn.Recv(ctx)
 	if err != nil {
-		f.dropSession(peerDomain)
-		return nil, fmt.Errorf("inboxd: recv federation submission response: %w", err)
+		return nil, err
 	}
 	var resp delivery.SubmissionResponse
 	if err := json.Unmarshal(respRaw, &resp); err != nil {
@@ -240,13 +259,53 @@ func (f *Forwarder) Forward(ctx context.Context, peerDomain string, env *envelop
 	return &resp, nil
 }
 
+// forwardOnSession performs one send/recv round trip on fs under
+// fs.wireMu. It returns the raw response bytes, a flag that tells the
+// caller whether the session should be dropped (true for transport
+// errors), and an error. Kept separate from Forward so the wire lock
+// defers cleanly without juggling unlock/drop/relock.
+func (f *Forwarder) forwardOnSession(ctx context.Context, fs *forwarderSession, env *envelope.Envelope) ([]byte, bool, error) {
+	fs.wireMu.Lock()
+	defer fs.wireMu.Unlock()
+
+	// Update the postmark session_id so the peer references the
+	// federation session when verifying. This MUST happen before
+	// re-signing, because session_id is in the postmark and therefore
+	// covered by both proofs' canonical input bytes.
+	env.Postmark.SessionID = fs.sess.ID
+
+	// Re-sign with our local domain key. The sender's home server and
+	// the federation initiator are the SAME server in this
+	// architecture, so "re-signing with our domain key" is
+	// functionally identical to "the sender's domain signed this
+	// envelope" — the provenance proof is unchanged.
+	if err := envelope.Sign(env, f.Suite, f.LocalDomainPrivateKey, fs.sess.EnvMAC()); err != nil {
+		return nil, false, fmt.Errorf("inboxd: re-sign forwarded envelope: %w", err)
+	}
+	wire, err := envelope.Encode(env)
+	if err != nil {
+		return nil, false, fmt.Errorf("inboxd: encode forwarded envelope: %w", err)
+	}
+	if err := fs.conn.Send(ctx, wire); err != nil {
+		return nil, true, fmt.Errorf("inboxd: send forwarded envelope: %w", err)
+	}
+	respRaw, err := fs.conn.Recv(ctx)
+	if err != nil {
+		return nil, true, fmt.Errorf("inboxd: recv federation submission response: %w", err)
+	}
+	return respRaw, false, nil
+}
+
 // getSession returns a cached federation session for peerCfg.Domain,
-// opening one via the federation handshake if necessary.
+// opening one via the federation handshake if necessary. When a fresh
+// session is opened, a background auto-rekey goroutine is spawned
+// (unless disableAutoRekey is set) and cancelled when the session is
+// dropped.
 func (f *Forwarder) getSession(ctx context.Context, peerCfg PeerConfig) (*forwarderSession, error) {
 	f.mu.Lock()
 	fs, ok := f.sessions[peerCfg.Domain]
 	f.mu.Unlock()
-	if ok && fs.sess.Active(nowFunc()) {
+	if ok && f.sessionActive(fs) {
 		return fs, nil
 	}
 	// Open a fresh federation session.
@@ -278,23 +337,37 @@ func (f *Forwarder) getSession(ctx context.Context, peerCfg PeerConfig) (*forwar
 		_ = conn.Close()
 		return nil, fmt.Errorf("inboxd: federation handshake with %s: %w", peerCfg.Domain, err)
 	}
-	newFS := &forwarderSession{conn: conn, sess: sess}
+	bgCtx, cancel := context.WithCancel(context.Background())
+	newFS := &forwarderSession{
+		conn:   conn,
+		sess:   sess,
+		cancel: cancel,
+	}
 	f.mu.Lock()
 	// Check again in case another goroutine raced us; prefer the newer
 	// session and close any duplicate.
-	if existing, ok := f.sessions[peerCfg.Domain]; ok && existing.sess.Active(nowFunc()) {
+	if existing, ok := f.sessions[peerCfg.Domain]; ok {
 		f.mu.Unlock()
-		_ = conn.Close()
-		return existing, nil
+		if f.sessionActive(existing) {
+			cancel()
+			_ = conn.Close()
+			return existing, nil
+		}
+		f.mu.Lock()
 	}
 	f.sessions[peerCfg.Domain] = newFS
 	f.mu.Unlock()
+
+	if !f.disableAutoRekey {
+		go f.autoRekey(bgCtx, peerCfg.Domain, newFS)
+	}
 	return newFS, nil
 }
 
-// dropSession removes the cached session for peerDomain, closing its
-// underlying connection. Used when a forward fails and we cannot tell
-// whether the remote side still considers the session active.
+// dropSession removes the cached session for peerDomain, stopping its
+// auto-rekey goroutine and closing its underlying connection. Used
+// when a forward/fetch fails and we cannot tell whether the remote
+// side still considers the session active.
 func (f *Forwarder) dropSession(peerDomain string) {
 	f.mu.Lock()
 	fs, ok := f.sessions[peerDomain]
@@ -302,9 +375,113 @@ func (f *Forwarder) dropSession(peerDomain string) {
 		delete(f.sessions, peerDomain)
 	}
 	f.mu.Unlock()
-	if ok && fs.conn != nil {
-		_ = fs.conn.Close()
+	if ok {
+		if fs.cancel != nil {
+			fs.cancel()
+		}
+		if fs.conn != nil {
+			_ = fs.conn.Close()
+		}
 	}
+}
+
+// SessionSnapshot returns a shallow copy of the session state cached
+// for peerDomain, or nil if no session is cached. Intended for tests
+// and operator-visible diagnostics — callers must not mutate the
+// returned *session.Session, and the copy does NOT carry live keys
+// (only metadata: ID, TTL, ExpiresAt, RekeyCount, LastRekeyAt,
+// PreviousID).
+//
+// The snapshot is taken under the session's wire lock so it cannot
+// race with an in-flight forward or rekey.
+func (f *Forwarder) SessionSnapshot(peerDomain string) *session.Session {
+	f.mu.Lock()
+	fs, ok := f.sessions[peerDomain]
+	f.mu.Unlock()
+	if !ok {
+		return nil
+	}
+	fs.wireMu.Lock()
+	defer fs.wireMu.Unlock()
+	if fs.sess == nil {
+		return nil
+	}
+	snap := *fs.sess
+	return &snap
+}
+
+// autoRekey runs as a background goroutine per cached federation
+// session. It sleeps until RekeyThreshold * TTL has elapsed since
+// the session's last establishment or rekey, takes fs.wireMu to
+// serialize with Forward/FetchKeys, runs session.Rekeyer.Rekey, and
+// loops. Exits when ctx is cancelled (dropSession or Close) or when
+// the session becomes inactive.
+//
+// A failing rekey drops the session entirely: the peer will need to
+// re-handshake on the next Forward/FetchKeys call. This matches the
+// spec's "rekey MUST NOT be initiated after the session has expired"
+// rule (SESSION.md §3.1) in spirit: if rekey fails, the session is
+// treated as dead.
+func (f *Forwarder) autoRekey(ctx context.Context, peerDomain string, fs *forwarderSession) {
+	for {
+		// Compute the wake-up time for the next rekey attempt.
+		fs.wireMu.Lock()
+		sess := fs.sess
+		if sess == nil || sess.TTL <= 0 || !sess.Active(nowFunc()) {
+			fs.wireMu.Unlock()
+			return
+		}
+		wakeAt := sess.ExpiresAt.Add(-time.Duration(float64(sess.TTL) * (1.0 - f.rekeyThreshold)))
+		fs.wireMu.Unlock()
+
+		sleep := time.Until(wakeAt)
+		if sleep < 0 {
+			sleep = 0
+		}
+		timer := time.NewTimer(sleep)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return
+		case <-timer.C:
+		}
+
+		// Take the wire lock and attempt the rekey. The rekeyer's
+		// session argument is the same pointer the foreground
+		// callers see, so ApplyRekey mutates it in place.
+		fs.wireMu.Lock()
+		if fs.sess == nil || !fs.sess.Active(nowFunc()) {
+			fs.wireMu.Unlock()
+			return
+		}
+		rekeyer := &session.Rekeyer{
+			Suite:              f.Suite,
+			Session:            fs.sess,
+			InitiatorDirection: session.DirectionC2S,
+		}
+		if err := rekeyer.Rekey(ctx, fs.conn); err != nil {
+			fs.wireMu.Unlock()
+			// Rekey failed: drop the session so the next caller
+			// runs a fresh handshake. The goroutine exits.
+			f.dropSession(peerDomain)
+			return
+		}
+		fs.wireMu.Unlock()
+		// Loop: compute the next wake-up based on the new ExpiresAt.
+	}
+}
+
+// sessionActive is a race-safe wrapper around fs.sess.Active: it
+// takes fs.wireMu before reading the session fields, which is
+// necessary because the autoRekey goroutine mutates the session
+// state under the same lock.
+func (f *Forwarder) sessionActive(fs *forwarderSession) bool {
+	if fs == nil {
+		return false
+	}
+	fs.wireMu.Lock()
+	defer fs.wireMu.Unlock()
+	return fs.sess != nil && fs.sess.Active(nowFunc())
 }
 
 // nowFunc is a package-level indirection so tests can freeze time.
@@ -337,22 +514,35 @@ func (f *Forwarder) FetchKeys(ctx context.Context, peerDomain string, req *keys.
 	if err != nil {
 		return nil, err
 	}
-	reqBytes, err := json.Marshal(req)
-	if err != nil {
-		return nil, fmt.Errorf("inboxd: marshal SEMP_KEYS request: %w", err)
-	}
-	if err := fs.conn.Send(ctx, reqBytes); err != nil {
+	respRaw, dropNeeded, err := f.fetchKeysOnSession(ctx, fs, req)
+	if dropNeeded {
 		f.dropSession(peerDomain)
-		return nil, fmt.Errorf("inboxd: send SEMP_KEYS request: %w", err)
 	}
-	respRaw, err := fs.conn.Recv(ctx)
 	if err != nil {
-		f.dropSession(peerDomain)
-		return nil, fmt.Errorf("inboxd: recv SEMP_KEYS response: %w", err)
+		return nil, err
 	}
 	var resp keys.Response
 	if err := json.Unmarshal(respRaw, &resp); err != nil {
 		return nil, fmt.Errorf("inboxd: parse SEMP_KEYS response: %w", err)
 	}
 	return &resp, nil
+}
+
+// fetchKeysOnSession is the FetchKeys counterpart of forwardOnSession:
+// one send/recv round trip on fs under fs.wireMu.
+func (f *Forwarder) fetchKeysOnSession(ctx context.Context, fs *forwarderSession, req *keys.Request) ([]byte, bool, error) {
+	fs.wireMu.Lock()
+	defer fs.wireMu.Unlock()
+	reqBytes, err := json.Marshal(req)
+	if err != nil {
+		return nil, false, fmt.Errorf("inboxd: marshal SEMP_KEYS request: %w", err)
+	}
+	if err := fs.conn.Send(ctx, reqBytes); err != nil {
+		return nil, true, fmt.Errorf("inboxd: send SEMP_KEYS request: %w", err)
+	}
+	respRaw, err := fs.conn.Recv(ctx)
+	if err != nil {
+		return nil, true, fmt.Errorf("inboxd: recv SEMP_KEYS response: %w", err)
+	}
+	return respRaw, false, nil
 }
