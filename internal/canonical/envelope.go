@@ -11,27 +11,39 @@ package canonical
 //   - seal.session_mac set to ""
 //   - postmark.hop_count omitted        (mutable in transit)
 //
-// The returned Elider is safe to reuse across goroutines.
-//
-// TODO(ENVELOPE.md §4.3): implement once the canonical Marshal pipeline can
-// hand the elider a structured map[string]any view of the envelope.
+// The returned Elider is safe to reuse across goroutines because it carries
+// no state.
 func EnvelopeElider() Elider {
 	return func(value any) error {
-		_ = value
+		root, ok := value.(map[string]any)
+		if !ok {
+			return nil
+		}
+		if seal, ok := root["seal"].(map[string]any); ok {
+			seal["signature"] = ""
+			seal["session_mac"] = ""
+		}
+		if postmark, ok := root["postmark"].(map[string]any); ok {
+			delete(postmark, "hop_count")
+		}
 		return nil
 	}
 }
 
 // HandshakeMessageElider returns an Elider preconfigured for handshake
-// message canonicalization. Currently it omits `server_signature` from the
-// canonical form when computing the data over which that signature is
-// generated. The exact field set is governed by HANDSHAKE.md §2.3 and §2.7.
+// message canonicalization. It elides `server_signature` so that the data
+// fed into signature computation does not contain the signature itself.
+// Used by both message 2 (response) and message 4 (accepted/rejected) on
+// the server side.
 //
-// TODO(HANDSHAKE.md §2.5.3): finalize the elision rules for confirmation
-// hash inputs.
+// Reference: HANDSHAKE.md §2.3, §2.7.
 func HandshakeMessageElider() Elider {
 	return func(value any) error {
-		_ = value
+		root, ok := value.(map[string]any)
+		if !ok {
+			return nil
+		}
+		delete(root, "server_signature")
 		return nil
 	}
 }

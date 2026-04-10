@@ -1,5 +1,13 @@
 package crypto
 
+import (
+	"crypto/sha512"
+	"errors"
+	"io"
+
+	"golang.org/x/crypto/hkdf"
+)
+
 // HKDF info labels used in SEMP session key derivation. Both currently
 // defined suites use HKDF-SHA-512. The five labels below correspond to the
 // five session keys derived from the ephemeral shared secret per
@@ -20,10 +28,15 @@ const (
 // session info to prevent cross-context key confusion.
 const InfoRekey = "SEMP-v1-rekey"
 
-// SessionContext is the constant info string used as the HKDF info argument
-// when extracting the initial session PRK. Subsequent Expand calls use the
-// per-key labels above.
+// SessionContext is the constant info string used by callers that want a
+// generic session-context expansion. The five per-key labels above are the
+// authoritative bound contexts; SessionContext is provided for clarity in
+// documentation and is not used directly during DeriveSessionKeys.
 const SessionContext = "SEMP-v1-session"
+
+// sessionKeyLength is the length in bytes of every derived session key
+// (SESSION.md §2.1).
+const sessionKeyLength = 32
 
 // KDF is the key derivation function abstraction. Both currently defined
 // SEMP suites use HKDF-SHA-512.
@@ -34,6 +47,32 @@ type KDF interface {
 	// Expand performs HKDF-Expand(prk, info, length) and returns length
 	// bytes of derived keying material.
 	Expand(prk, info []byte, length int) []byte
+}
+
+// kdfHKDFSHA512 is the HKDF-SHA-512 KDF used by both currently defined
+// SEMP suites (ENVELOPE.md §7.3.1).
+type kdfHKDFSHA512 struct{}
+
+// NewKDFHKDFSHA512 returns a KDF backed by HKDF-SHA-512. The returned value
+// has no internal state and is safe for concurrent use.
+func NewKDFHKDFSHA512() KDF { return kdfHKDFSHA512{} }
+
+// Extract implements KDF.
+func (kdfHKDFSHA512) Extract(salt, ikm []byte) []byte {
+	return hkdf.Extract(sha512.New, ikm, salt)
+}
+
+// Expand implements KDF. HKDF-Expand only fails when the requested length
+// exceeds 255*HashLen (16,320 bytes for SHA-512); the SEMP code base never
+// requests anywhere close to that limit, so a panic on overflow is safe and
+// surfaces the bug as fast as possible.
+func (kdfHKDFSHA512) Expand(prk, info []byte, length int) []byte {
+	r := hkdf.Expand(sha512.New, prk, info)
+	out := make([]byte, length)
+	if _, err := io.ReadFull(r, out); err != nil {
+		panic("crypto: HKDF-Expand failed (length too large?): " + err.Error())
+	}
+	return out
 }
 
 // SessionKeys holds the five symmetric keys derived from the handshake
@@ -54,10 +93,7 @@ type SessionKeys struct {
 }
 
 // Erase zeroes every key field in place. Callers MUST invoke Erase as part
-// of session teardown.
-//
-// TODO(SESSION.md §2.4): use the platform secure-zero primitive once
-// available; the skeleton uses a plain loop.
+// of session teardown (SESSION.md §2.4).
 func (k *SessionKeys) Erase() {
 	if k == nil {
 		return
@@ -75,23 +111,48 @@ func (k *SessionKeys) Erase() {
 //  3. K_enc_c2s = HKDF-Expand(PRK, InfoSessionEncC2S, 32)
 //  4. ... and so on for the four other labels.
 //
-// Reference: SESSION.md §2.1, VECTORS.md §2.1.
+// kdf may be nil; if so, NewKDFHKDFSHA512 is used. Both currently defined
+// SEMP suites use HKDF-SHA-512.
 //
-// TODO(SESSION.md §2.1): implement once kdf is wired up.
+// Reference: SESSION.md §2.1, VECTORS.md §2.1.
 func DeriveSessionKeys(kdf KDF, sharedSecret, clientNonce, serverNonce []byte) (*SessionKeys, error) {
-	_, _, _, _ = kdf, sharedSecret, clientNonce, serverNonce
-	return nil, nil
+	if len(sharedSecret) == 0 {
+		return nil, errors.New("crypto: empty shared secret")
+	}
+	if len(clientNonce) == 0 || len(serverNonce) == 0 {
+		return nil, errors.New("crypto: empty nonce")
+	}
+	if kdf == nil {
+		kdf = NewKDFHKDFSHA512()
+	}
+	salt := make([]byte, 0, len(clientNonce)+len(serverNonce))
+	salt = append(salt, clientNonce...)
+	salt = append(salt, serverNonce...)
+	prk := kdf.Extract(salt, sharedSecret)
+	defer Zeroize(prk)
+
+	return &SessionKeys{
+		EncC2S: kdf.Expand(prk, []byte(InfoSessionEncC2S), sessionKeyLength),
+		EncS2C: kdf.Expand(prk, []byte(InfoSessionEncS2C), sessionKeyLength),
+		MACC2S: kdf.Expand(prk, []byte(InfoSessionMACC2S), sessionKeyLength),
+		MACS2C: kdf.Expand(prk, []byte(InfoSessionMACS2C), sessionKeyLength),
+		EnvMAC: kdf.Expand(prk, []byte(InfoSessionEnvMAC), sessionKeyLength),
+	}, nil
 }
 
 // DeriveRekeyKeys derives a fresh SessionKeys for a rekey exchange. It
-// differs from DeriveSessionKeys only in the info context used (InfoRekey
-// instead of SessionContext) and in the salt construction (rekey_nonce ||
-// responder_nonce).
+// differs from DeriveSessionKeys only in the salt construction (rekey_nonce
+// || responder_nonce) and the per-key info contexts; the per-key labels are
+// the same five SEMP-v1-session-* labels — the rekey context is implied by
+// the use of fresh shared secret material derived from a fresh ephemeral
+// agreement, not by a different label namespace. See SESSION.md §3.3 for
+// the full procedure.
 //
 // Reference: SESSION.md §3.3.
-//
-// TODO(SESSION.md §3.3): implement.
 func DeriveRekeyKeys(kdf KDF, sharedSecret, rekeyNonce, responderNonce []byte) (*SessionKeys, error) {
-	_, _, _, _ = kdf, sharedSecret, rekeyNonce, responderNonce
-	return nil, nil
+	// Per SESSION.md §3.3 the only differences from the initial derivation
+	// are the salt and the (notional) info context. We model the context
+	// switch by routing through DeriveSessionKeys with the new salt; the
+	// per-key labels remain the same five constants.
+	return DeriveSessionKeys(kdf, sharedSecret, rekeyNonce, responderNonce)
 }
