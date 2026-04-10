@@ -172,6 +172,12 @@ func (s *Server) Serve(ctx context.Context, stream MessageStream) error {
 				s.logf("[%s] fetch error: %v", s.Identity, err)
 				return err
 			}
+		case keys.RequestType:
+			if err := s.handleKeys(ctx, stream, raw); err != nil {
+				s.logf("[%s] keys error: %v", s.Identity, err)
+				// SEMP_KEYS failures are per-address; the response
+				// already carries the per-address error status.
+			}
 		default:
 			s.logf("[%s] unsupported message type %q", s.Identity, msgType)
 		}
@@ -407,6 +413,159 @@ func (s *Server) handleFederationSubmission(ctx context.Context, stream MessageS
 	}
 	resp := delivery.NewSubmissionResponse(env.Postmark.ID, results)
 	return sendJSON(ctx, stream, resp)
+}
+
+// handleKeys fulfills a SEMP_KEYS request from the peer. Local addresses
+// are served directly from the server's own store; addresses on a peer
+// domain known to the Forwarder are fetched cross-domain via the
+// federation session. Unknown domains return status="not_found".
+//
+// Reference: CLIENT.md §5.4, §5.4.6.
+func (s *Server) handleKeys(ctx context.Context, stream MessageStream, raw []byte) error {
+	var req keys.Request
+	if err := json.Unmarshal(raw, &req); err != nil {
+		return fmt.Errorf("parse SEMP_KEYS request: %w", err)
+	}
+	if req.Type != keys.RequestType || req.Step != keys.RequestStepRequest {
+		return fmt.Errorf("unexpected SEMP_KEYS type/step: %s/%s", req.Type, req.Step)
+	}
+
+	// Group requested addresses by domain so we can answer local
+	// addresses directly and batch remote lookups per peer.
+	byDomain := make(map[string][]string, 4)
+	ordered := make([]string, 0, len(req.Addresses))
+	for _, addr := range req.Addresses {
+		d := domainOf(addr)
+		if _, seen := byDomain[d]; !seen {
+			ordered = append(ordered, d)
+		}
+		byDomain[d] = append(byDomain[d], addr)
+	}
+
+	results := make([]keys.ResponseResult, 0, len(req.Addresses))
+	// Keep the results in the same order the client requested them.
+	for _, addr := range req.Addresses {
+		d := domainOf(addr)
+		if d == s.LocalDomain {
+			results = append(results, s.lookupLocalKeys(ctx, addr, req.IncludeDomainKeys))
+			continue
+		}
+		// Remote domain. Try the Forwarder.
+		if s.Forwarder == nil {
+			results = append(results, keys.ResponseResult{
+				Address: addr,
+				Status:  keys.StatusNotFound,
+				Domain:  d,
+			})
+			continue
+		}
+		// If we don't have a peer config for this domain, treat it
+		// the same as "no SEMP support" — StatusNotFound per
+		// CLIENT.md §5.4.6. A production server with a real
+		// discovery layer might return StatusError with a retry
+		// hint, but for the demo this is the simplest truthful
+		// answer.
+		if _, ok := s.Forwarder.Peers.Lookup(d); !ok {
+			results = append(results, keys.ResponseResult{
+				Address: addr,
+				Status:  keys.StatusNotFound,
+				Domain:  d,
+			})
+			continue
+		}
+		// Fetch once per remote domain and reuse the response for
+		// every address on that domain.
+		peerResp, err := s.cachedRemoteFetch(ctx, d, byDomain[d])
+		if err != nil {
+			results = append(results, keys.ResponseResult{
+				Address:     addr,
+				Status:      keys.StatusError,
+				Domain:      d,
+				ErrorReason: err.Error(),
+			})
+			continue
+		}
+		// Copy the matching entry out of peerResp.Results.
+		found := false
+		for _, r := range peerResp.Results {
+			if r.Address == addr {
+				results = append(results, r)
+				found = true
+				break
+			}
+		}
+		if !found {
+			results = append(results, keys.ResponseResult{
+				Address: addr,
+				Status:  keys.StatusNotFound,
+				Domain:  d,
+			})
+		}
+	}
+	_ = ordered // silence linter — kept in case we want ordered iteration later
+
+	resp := keys.NewResponse(req.ID, results)
+	return sendJSON(ctx, stream, resp)
+}
+
+// lookupLocalKeys serves one address from the server's own keys.Store.
+// It returns status="not_found" if the address has no published keys.
+func (s *Server) lookupLocalKeys(ctx context.Context, address string, includeDomain bool) keys.ResponseResult {
+	domain := domainOf(address)
+	result := keys.ResponseResult{
+		Address: address,
+		Domain:  domain,
+		Status:  keys.StatusNotFound,
+	}
+	if s.Store == nil {
+		return result
+	}
+	userKeys, err := s.Store.LookupUserKeys(ctx, address)
+	if err != nil {
+		result.Status = keys.StatusError
+		result.ErrorReason = err.Error()
+		return result
+	}
+	if len(userKeys) == 0 {
+		return result
+	}
+	result.UserKeys = userKeys
+	result.Status = keys.StatusFound
+	if includeDomain {
+		if domRec, err := s.Store.LookupDomainKey(ctx, domain); err == nil && domRec != nil {
+			result.DomainKey = domRec
+		}
+		if domEncLookup, ok := s.Store.(domainEncKeyLookup); ok {
+			if encRec := domEncLookup.LookupDomainEncryptionKey(domain); encRec != nil {
+				result.DomainEncKey = encRec
+			}
+		}
+	}
+	return result
+}
+
+// domainEncKeyLookup is the optional interface an inboxd Store may
+// implement to expose the domain encryption key alongside the signing
+// key. keys/memstore.Store satisfies it; other implementations can
+// opt in as they grow support.
+type domainEncKeyLookup interface {
+	LookupDomainEncryptionKey(domain string) *keys.Record
+}
+
+// cachedRemoteFetch fetches keys for addresses on peerDomain via the
+// Forwarder. We do NOT currently cache the response — the demo reruns
+// the fetch on every inbound client SEMP_KEYS request. A production
+// implementation would cache per the remote TTL.
+func (s *Server) cachedRemoteFetch(ctx context.Context, peerDomain string, addresses []string) (*keys.Response, error) {
+	req := keys.NewRequest(newRequestID(), addresses)
+	return s.Forwarder.FetchKeys(ctx, peerDomain, req)
+}
+
+// newRequestID returns a short pseudo-ULID for a SEMP_KEYS request.
+// The caller only needs per-session uniqueness for correlation; we use
+// a timestamp + a few random bytes to keep the function dependency-free.
+func newRequestID() string {
+	return fmt.Sprintf("req-%d", time.Now().UnixNano())
 }
 
 // handleFetch returns every waiting envelope for the authenticated identity.

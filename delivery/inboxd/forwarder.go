@@ -311,3 +311,48 @@ func (f *Forwarder) dropSession(peerDomain string) {
 // Currently unused for that purpose but here for symmetry with the
 // handshake package.
 var nowFunc = time.Now
+
+// FetchKeys forwards a SEMP_KEYS request over the cached federation
+// session with peerDomain. It opens a fresh session if none is cached.
+//
+// Unlike Forward, FetchKeys does NOT touch any envelope — it simply
+// marshals the request, writes it to the federation stream, and parses
+// the response. The peer is expected to be running inboxd in
+// ModeFederation, which handles SEMP_KEYS on the federation path.
+//
+// The peer's response is returned verbatim; the caller is responsible
+// for verifying any signatures on the enclosed key records.
+func (f *Forwarder) FetchKeys(ctx context.Context, peerDomain string, req *keys.Request) (*keys.Response, error) {
+	if req == nil {
+		return nil, errors.New("inboxd: nil SEMP_KEYS request")
+	}
+	if f.Dial == nil {
+		return nil, errors.New("inboxd: forwarder has no Dial")
+	}
+	peerCfg, ok := f.Peers.Lookup(peerDomain)
+	if !ok {
+		return nil, fmt.Errorf("inboxd: no peer config for %s", peerDomain)
+	}
+	fs, err := f.getSession(ctx, peerCfg)
+	if err != nil {
+		return nil, err
+	}
+	reqBytes, err := json.Marshal(req)
+	if err != nil {
+		return nil, fmt.Errorf("inboxd: marshal SEMP_KEYS request: %w", err)
+	}
+	if err := fs.conn.Send(ctx, reqBytes); err != nil {
+		f.dropSession(peerDomain)
+		return nil, fmt.Errorf("inboxd: send SEMP_KEYS request: %w", err)
+	}
+	respRaw, err := fs.conn.Recv(ctx)
+	if err != nil {
+		f.dropSession(peerDomain)
+		return nil, fmt.Errorf("inboxd: recv SEMP_KEYS response: %w", err)
+	}
+	var resp keys.Response
+	if err := json.Unmarshal(respRaw, &resp); err != nil {
+		return nil, fmt.Errorf("inboxd: parse SEMP_KEYS response: %w", err)
+	}
+	return &resp, nil
+}

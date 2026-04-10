@@ -26,25 +26,27 @@ import (
 
 // Store is the in-memory store. The zero value is not usable; call New.
 type Store struct {
-	mu          sync.RWMutex
-	domainKeys  map[string]*keys.Record               // domain -> domain public key record
-	userKeys    map[string][]*keys.Record             // address -> all user key records
-	privateKeys map[keys.Fingerprint][]byte           // fingerprint -> raw private key bytes
-	deviceCerts map[keys.Fingerprint]*keys.DeviceCertificate
+	mu           sync.RWMutex
+	domainKeys   map[string]*keys.Record               // domain -> signing (Ed25519) key
+	domainEncKey map[string]*keys.Record               // domain -> encryption (X25519) key
+	userKeys     map[string][]*keys.Record             // address -> all user key records
+	privateKeys  map[keys.Fingerprint][]byte           // fingerprint -> raw private key bytes
+	deviceCerts  map[keys.Fingerprint]*keys.DeviceCertificate
 }
 
 // New constructs a fresh in-memory store.
 func New() *Store {
 	return &Store{
-		domainKeys:  make(map[string]*keys.Record),
-		userKeys:    make(map[string][]*keys.Record),
-		privateKeys: make(map[keys.Fingerprint][]byte),
-		deviceCerts: make(map[keys.Fingerprint]*keys.DeviceCertificate),
+		domainKeys:   make(map[string]*keys.Record),
+		domainEncKey: make(map[string]*keys.Record),
+		userKeys:     make(map[string][]*keys.Record),
+		privateKeys:  make(map[keys.Fingerprint][]byte),
+		deviceCerts:  make(map[keys.Fingerprint]*keys.DeviceCertificate),
 	}
 }
 
-// PutDomainKey records a domain public key record for domain. Returns the
-// computed fingerprint.
+// PutDomainKey records a domain signing (Ed25519) public key for
+// domain. Returns the computed fingerprint.
 func (s *Store) PutDomainKey(domain string, pub []byte) keys.Fingerprint {
 	fp := keys.Compute(pub)
 	rec := &keys.Record{
@@ -59,6 +61,35 @@ func (s *Store) PutDomainKey(domain string, pub []byte) keys.Fingerprint {
 	defer s.mu.Unlock()
 	s.domainKeys[domain] = rec
 	return fp
+}
+
+// PutDomainEncryptionKey records a domain encryption (X25519) public key
+// for domain. The underlying store tracks signing and encryption keys
+// separately because a SEMP server needs BOTH to participate in
+// federation (the signing key verifies envelope signatures; the
+// encryption key unwraps K_brief). Returns the computed fingerprint.
+func (s *Store) PutDomainEncryptionKey(domain string, pub []byte) keys.Fingerprint {
+	fp := keys.Compute(pub)
+	rec := &keys.Record{
+		Type:      keys.TypeDomain,
+		Algorithm: "x25519",
+		PublicKey: base64.StdEncoding.EncodeToString(pub),
+		KeyID:     fp,
+		Created:   time.Now(),
+		Expires:   time.Now().Add(365 * 24 * time.Hour),
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.domainEncKey[domain] = rec
+	return fp
+}
+
+// LookupDomainEncryptionKey returns the domain encryption key record
+// for domain, or (nil, nil) if none is registered.
+func (s *Store) LookupDomainEncryptionKey(domain string) *keys.Record {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.domainEncKey[domain]
 }
 
 // PutUserKey records a user public key for address with the given key

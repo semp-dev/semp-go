@@ -63,7 +63,7 @@ func TestInboxRouting(t *testing.T) {
 	if err != nil {
 		t.Fatalf("derive domain encryption: %v", err)
 	}
-	domainEncFP := keys.Compute(domainEncPub)
+	domainEncFP := store.PutDomainEncryptionKey(domain, domainEncPub)
 
 	for _, u := range []string{alice, bob} {
 		identityPub, _ := demoseed.Identity(seed, u)
@@ -106,6 +106,7 @@ func TestInboxRouting(t *testing.T) {
 			}
 			loop := &inboxd.Server{
 				Suite:          suite,
+				Store:          store,
 				Inbox:          inbox,
 				LocalDomain:    domain,
 				DomainSignFP:   domainSignFP,

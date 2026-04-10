@@ -200,7 +200,7 @@ func bringUpServer(t *testing.T, seed, domain string, users []string) *testServe
 	if err != nil {
 		t.Fatalf("derive domain encryption: %v", err)
 	}
-	domainEncFP := keys.Compute(domainEncPub)
+	domainEncFP := store.PutDomainEncryptionKey(domain, domainEncPub)
 
 	for _, u := range users {
 		identityPub, _ := demoseed.Identity(seed, u)
