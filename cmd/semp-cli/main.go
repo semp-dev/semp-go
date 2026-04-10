@@ -201,15 +201,16 @@ func runSend(args []string) error {
 	// from the remote domain (via its cached federation session) on
 	// the client's behalf. See CLIENT.md §5.4.
 	_ = seed // kept as a flag for continuity; no longer used on the send path
-	recipEncPub, recipDomainEncPub, senderDomainEncPub, err := fetchRecipientKeys(hsCtx, conn, *to, *from)
+	rk, err := fetchRecipientKeys(hsCtx, conn, *to, *from)
 	if err != nil {
 		return fmt.Errorf("fetch recipient keys: %w", err)
 	}
-	recipEncFP := keys.Compute(recipEncPub)
-	recipDomainEncFP := keys.Compute(recipDomainEncPub)
-	senderDomainEncFP := keys.Compute(senderDomainEncPub)
 
-	// Compose the envelope.
+	// Compose the envelope. BriefRecipients includes the sender's
+	// home server, the recipient's home server, AND one entry per
+	// registered device encryption key. EnclosureRecipients gets one
+	// entry per device (no domain entries — the server MUST NOT be
+	// able to decrypt the enclosure per ENVELOPE.md §10.5).
 	postmarkID, err := newDemoULID()
 	if err != nil {
 		return err
@@ -231,6 +232,22 @@ func runSend(args []string) error {
 			"text/plain": *body,
 		},
 	}
+	briefRecipients := []seal.RecipientKey{
+		{Fingerprint: rk.SenderServerEncFP, PublicKey: rk.SenderServerEnc},
+		{Fingerprint: rk.RecipientServerEncFP, PublicKey: rk.RecipientServerEnc},
+	}
+	enclosureRecipients := make([]seal.RecipientKey, 0, len(rk.RecipientDevices))
+	for _, dev := range rk.RecipientDevices {
+		briefRecipients = append(briefRecipients, seal.RecipientKey{
+			Fingerprint: dev.Fingerprint,
+			PublicKey:   dev.PublicKey,
+		})
+		enclosureRecipients = append(enclosureRecipients, seal.RecipientKey{
+			Fingerprint: dev.Fingerprint,
+			PublicKey:   dev.PublicKey,
+		})
+	}
+	fmt.Fprintf(os.Stderr, "wrapping for %d recipient device(s)\n", len(rk.RecipientDevices))
 	in := &envelope.ComposeInput{
 		Suite: suite,
 		Postmark: envelope.Postmark{
@@ -240,17 +257,11 @@ func runSend(args []string) error {
 			ToDomain:   domainOf(*to),
 			Expires:    time.Now().UTC().Add(time.Hour),
 		},
-		Brief:             bf,
-		Enclosure:         enc,
-		SenderDomainKeyID: keys.Fingerprint("server-fills-in"), // server overwrites on Sign
-		BriefRecipients: []seal.RecipientKey{
-			{Fingerprint: senderDomainEncFP, PublicKey: senderDomainEncPub},
-			{Fingerprint: recipDomainEncFP, PublicKey: recipDomainEncPub},
-			{Fingerprint: recipEncFP, PublicKey: recipEncPub},
-		},
-		EnclosureRecipients: []seal.RecipientKey{
-			{Fingerprint: recipEncFP, PublicKey: recipEncPub},
-		},
+		Brief:               bf,
+		Enclosure:           enc,
+		SenderDomainKeyID:   keys.Fingerprint("server-fills-in"), // server overwrites on Sign
+		BriefRecipients:     briefRecipients,
+		EnclosureRecipients: enclosureRecipients,
 	}
 	env, err := envelope.Compose(in)
 	if err != nil {
@@ -329,12 +340,19 @@ func runReceive(args []string) error {
 	suite := crypto.SuiteBaseline
 
 	// Derive my own encryption keypair so I can unwrap K_brief and
-	// K_enclosure on every envelope I fetch.
+	// K_enclosure on every envelope I fetch. The demo CLI holds a
+	// single derived key, but the open path uses OpenBriefAny /
+	// OpenEnclosureAny with a candidate list so a future CLI that
+	// holds a retired key plus a current key (post-rotation) or
+	// multiple device keys can decrypt without code changes.
 	myEncPub, myEncPriv, err := demoseed.Encryption(*seed, *identity)
 	if err != nil {
 		return fmt.Errorf("derive encryption key: %w", err)
 	}
 	myEncFP := keys.Compute(myEncPub)
+	candidates := []envelope.RecipientPrivateKey{
+		{Fingerprint: myEncFP, PrivateKey: myEncPriv},
+	}
 
 	// Open a session.
 	conn, err := dialServer(cfg)
@@ -390,12 +408,12 @@ func runReceive(args []string) error {
 			fmt.Fprintf(os.Stderr, "  [%d] envelope decode failed: %v\n", i, err)
 			continue
 		}
-		bf, err := envelope.OpenBrief(env, suite, myEncFP, myEncPriv)
+		bf, err := envelope.OpenBriefAny(env, suite, candidates)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "  [%d] open brief failed: %v\n", i, err)
 			continue
 		}
-		enc, err := envelope.OpenEnclosure(env, suite, myEncFP, myEncPriv)
+		enc, err := envelope.OpenEnclosureAny(env, suite, candidates)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "  [%d] open enclosure failed: %v\n", i, err)
 			continue
@@ -490,20 +508,46 @@ func dialServer(cfg *commonFlags) (transport.Conn, error) {
 	return conn, nil
 }
 
-// fetchRecipientKeys sends a SEMP_KEYS request over conn asking for
-// both the recipient and the sender's own domain encryption key. It
-// returns (recipientClientEncKey, recipientDomainEncKey,
-// senderDomainEncKey, err).
-//
-// The caller sends envelopes addressed to `to` from `from`. The three
-// returned keys are exactly the three slots needed by
-// envelope.ComposeInput.BriefRecipients per ENVELOPE.md §4.4.
-func fetchRecipientKeys(ctx context.Context, conn transport.Conn, to, from string) (recipEncPub, recipDomainEncPub, senderDomainEncPub []byte, err error) {
+// recipientKeys bundles the key material the CLI needs to compose a
+// multi-device envelope: the recipient server's domain encryption
+// key (one entry), the sender server's domain encryption key (one
+// entry), and EVERY registered device encryption key for the
+// recipient (zero or more entries). A multi-device recipient will
+// have multiple device keys; the sender wraps K_brief and
+// K_enclosure under each one so any of the recipient's devices can
+// decrypt.
+type recipientKeys struct {
+	// RecipientServerEnc is the recipient server's domain encryption
+	// key (raw bytes + fingerprint).
+	RecipientServerEnc    []byte
+	RecipientServerEncFP  keys.Fingerprint
+	// SenderServerEnc is the sender's home server's domain
+	// encryption key. The sender wraps K_brief under this so the
+	// home server can read brief.to for routing.
+	SenderServerEnc    []byte
+	SenderServerEncFP  keys.Fingerprint
+	// RecipientDevices is one entry per registered device
+	// encryption key for the recipient address. At least one entry.
+	RecipientDevices []deviceKey
+}
+
+// deviceKey is a single recipient device's encryption key material.
+type deviceKey struct {
+	PublicKey   []byte
+	Fingerprint keys.Fingerprint
+}
+
+// fetchRecipientKeys sends a SEMP_KEYS request asking for both the
+// recipient and the sender's own keys. It verifies the response per
+// CLIENT.md §3.3 and returns the full multi-device key set so the
+// caller can wrap K_brief / K_enclosure under every registered
+// recipient device.
+func fetchRecipientKeys(ctx context.Context, conn transport.Conn, to, from string) (*recipientKeys, error) {
 	fetcher := keys.NewFetcher(conn)
 	req := keys.NewRequest(fmt.Sprintf("cli-%d", time.Now().UnixNano()), []string{to, from})
 	resp, err := fetcher.FetchKeys(ctx, req)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, err
 	}
 
 	// Verify the response before trusting any key material, per
@@ -521,7 +565,7 @@ func fetchRecipientKeys(ctx context.Context, conn transport.Conn, to, from strin
 	// the trust boundary that prevents that.
 	verifier := &keys.Verifier{Suite: crypto.SuiteBaseline}
 	if err := verifier.Verify(resp); err != nil {
-		return nil, nil, nil, fmt.Errorf("verify SEMP_KEYS response: %w", err)
+		return nil, fmt.Errorf("verify SEMP_KEYS response: %w", err)
 	}
 
 	var recipResult, senderResult *keys.ResponseResult
@@ -534,45 +578,68 @@ func fetchRecipientKeys(ctx context.Context, conn transport.Conn, to, from strin
 		}
 	}
 	if recipResult == nil || recipResult.Status != keys.StatusFound {
-		return nil, nil, nil, fmt.Errorf("keys for %s not found", to)
+		return nil, fmt.Errorf("keys for %s not found", to)
 	}
 	if senderResult == nil || senderResult.Status != keys.StatusFound {
-		return nil, nil, nil, fmt.Errorf("keys for %s not found", from)
+		return nil, fmt.Errorf("keys for %s not found", from)
 	}
-	recipEncRec := firstKeyOfType(recipResult.UserKeys, keys.TypeEncryption)
-	if recipEncRec == nil {
-		return nil, nil, nil, fmt.Errorf("no encryption key for %s", to)
-	}
-	recipEncPub, err = decodeBase64(recipEncRec.PublicKey)
+
+	// Collect EVERY encryption key record for the recipient. Each
+	// one corresponds to a registered device; the sender wraps
+	// K_brief and K_enclosure under every device so any of them
+	// can decrypt.
+	devices, err := collectEncryptionKeys(recipResult.UserKeys)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("decode recipient enc key: %w", err)
+		return nil, fmt.Errorf("recipient encryption keys: %w", err)
 	}
+	if len(devices) == 0 {
+		return nil, fmt.Errorf("no encryption keys for %s", to)
+	}
+
 	if recipResult.DomainEncKey == nil {
-		return nil, nil, nil, fmt.Errorf("no domain encryption key for %s", recipResult.Domain)
+		return nil, fmt.Errorf("no domain encryption key for %s", recipResult.Domain)
 	}
-	recipDomainEncPub, err = decodeBase64(recipResult.DomainEncKey.PublicKey)
+	recipDomainEncPub, err := decodeBase64(recipResult.DomainEncKey.PublicKey)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("decode recipient domain enc key: %w", err)
+		return nil, fmt.Errorf("decode recipient domain enc key: %w", err)
 	}
 	if senderResult.DomainEncKey == nil {
-		return nil, nil, nil, fmt.Errorf("no domain encryption key for %s", senderResult.Domain)
+		return nil, fmt.Errorf("no domain encryption key for %s", senderResult.Domain)
 	}
-	senderDomainEncPub, err = decodeBase64(senderResult.DomainEncKey.PublicKey)
+	senderDomainEncPub, err := decodeBase64(senderResult.DomainEncKey.PublicKey)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("decode sender domain enc key: %w", err)
+		return nil, fmt.Errorf("decode sender domain enc key: %w", err)
 	}
-	return recipEncPub, recipDomainEncPub, senderDomainEncPub, nil
+
+	return &recipientKeys{
+		RecipientServerEnc:   recipDomainEncPub,
+		RecipientServerEncFP: recipResult.DomainEncKey.KeyID,
+		SenderServerEnc:      senderDomainEncPub,
+		SenderServerEncFP:    senderResult.DomainEncKey.KeyID,
+		RecipientDevices:     devices,
+	}, nil
 }
 
-// firstKeyOfType returns the first keys.Record in records whose Type
-// matches kt, or nil if none matches.
-func firstKeyOfType(records []*keys.Record, kt keys.Type) *keys.Record {
-	for _, r := range records {
-		if r.Type == kt {
-			return r
+// collectEncryptionKeys filters records to the encryption-key subset
+// and decodes each public key. A record with a present Revocation
+// would have been caught by the Verifier already; this is a second
+// belt-and-suspenders check.
+func collectEncryptionKeys(records []*keys.Record) ([]deviceKey, error) {
+	out := make([]deviceKey, 0, len(records))
+	for _, rec := range records {
+		if rec == nil || rec.Type != keys.TypeEncryption {
+			continue
 		}
+		if rec.Revocation != nil {
+			continue
+		}
+		pub, err := decodeBase64(rec.PublicKey)
+		if err != nil {
+			return nil, fmt.Errorf("decode encryption key %s: %w", rec.KeyID, err)
+		}
+		out = append(out, deviceKey{PublicKey: pub, Fingerprint: rec.KeyID})
 	}
-	return nil
+	return out, nil
 }
 
 // decodeBase64 accepts standard or URL-safe base64, with or without
