@@ -18,13 +18,13 @@ const (
 )
 
 // RegistryEntry describes a registered extension. The registry holds one
-// entry per `semp.org/<name>` identifier; vendor extensions
+// entry per `semp.dev/<name>` identifier; vendor extensions
 // (`vendor.example.com/<name>`) and experimental extensions (`x-<name>`) do
 // not require registration.
 //
 // Reference: EXTENSIONS.md §5.2.
 type RegistryEntry struct {
-	// Identifier is the namespaced extension key, e.g. "semp.org/message-expiry".
+	// Identifier is the namespaced extension key, e.g. "semp.dev/message-expiry".
 	Identifier string
 
 	// Status is the current lifecycle stage.
@@ -93,7 +93,7 @@ func (r *Registry) Register(entry RegistryEntry) {
 // ValidateKey reports an error if identifier is not a syntactically valid
 // extension key per EXTENSIONS.md §2.3:
 //
-//   - one of the three permitted namespace prefixes (semp.org/, vendor
+//   - one of the three permitted namespace prefixes (semp.dev/, vendor
 //     domain followed by /, or x-),
 //   - no whitespace, no path separators beyond the single namespace slash,
 //     no control characters,
