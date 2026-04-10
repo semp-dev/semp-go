@@ -53,6 +53,15 @@ type Result struct {
 	Features   []string             `json:"features,omitempty"`
 	Server     string               `json:"server,omitempty"`
 	TTL        int                  `json:"ttl"`
+
+	// Configuration is the full well-known capability document,
+	// populated when the Result was produced via the well-known URI
+	// path. DNS-only resolution (SRV+TXT without well-known) leaves
+	// this nil. This field is NOT part of the SEMP_DISCOVERY wire
+	// format — it's library-internal state that lets downstream
+	// callers (e.g. the inboxd Forwarder) inspect the full endpoint
+	// map without re-fetching.
+	Configuration *Configuration `json:"-"`
 }
 
 // Resolver is the high-level discovery interface a sending server uses to
@@ -215,12 +224,13 @@ func (r *defaultResolver) tryWellKnown(ctx context.Context, address, domain stri
 		}
 	}
 	return &Result{
-		Address:    address,
-		Status:     semp.DiscoverySEMP,
-		Transports: transports,
-		Features:   cfg.Features,
-		Server:     server,
-		TTL:        int(DefaultTTLSEMP.Seconds()),
+		Address:       address,
+		Status:        semp.DiscoverySEMP,
+		Transports:    transports,
+		Features:      cfg.Features,
+		Server:        server,
+		TTL:           int(DefaultTTLSEMP.Seconds()),
+		Configuration: cfg,
 	}
 }
 
@@ -263,12 +273,14 @@ func (r *defaultResolver) cacheResult(ctx context.Context, address string, resul
 	_ = r.cfg.Cache.Put(ctx, address, result, ttl)
 }
 
-// domainPartOf returns the domain suffix of an email-style address,
-// or the empty string if the address has no '@'.
+// domainPartOf returns the domain suffix of an email-style address.
+// When the input has no '@' it is treated as a bare domain and
+// returned as-is, so callers can pass either "user@example.com" or
+// just "example.com" to Resolver.Resolve.
 func domainPartOf(address string) string {
 	at := strings.LastIndexByte(address, '@')
 	if at < 0 {
-		return ""
+		return address
 	}
 	return address[at+1:]
 }
