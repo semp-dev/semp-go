@@ -1,6 +1,7 @@
 package envelope
 
 import (
+	"github.com/semp-dev/semp-go/internal/canonical"
 	"github.com/semp-dev/semp-go/seal"
 )
 
@@ -47,11 +48,12 @@ func New() *Envelope {
 // with Seal.Signature and Seal.SessionMAC set to the empty string and
 // Postmark.HopCount omitted, ready for signature or MAC computation.
 //
-// Reference: ENVELOPE.md §4.3.
+// This is the byte sequence over which both seal.signature (Ed25519) and
+// seal.session_mac (HMAC-SHA-256) are computed. The two proofs are
+// independent — neither covers the other — so the elision applies to both
+// the input to signing and the input to MAC computation.
 //
-// TODO(ENVELOPE.md §4.3): implement using internal/canonical with the
-// EnvelopeElider.
+// Reference: ENVELOPE.md §4.3.
 func (e *Envelope) CanonicalBytes() ([]byte, error) {
-	_ = e
-	return nil, nil
+	return canonical.MarshalWithElision(e, canonical.EnvelopeElider())
 }
