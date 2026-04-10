@@ -8,8 +8,10 @@ import (
 	"sync"
 	"time"
 
+	semp "github.com/semp-dev/semp-go"
 	"github.com/semp-dev/semp-go/crypto"
 	"github.com/semp-dev/semp-go/delivery"
+	"github.com/semp-dev/semp-go/discovery"
 	"github.com/semp-dev/semp-go/envelope"
 	"github.com/semp-dev/semp-go/handshake"
 	"github.com/semp-dev/semp-go/keys"
@@ -41,11 +43,20 @@ type PeerConfig struct {
 
 	// Endpoint is the peer's federation endpoint URL
 	// (e.g. "ws://127.0.0.1:18082/v1/federate" for the demo binary).
+	//
+	// An empty Endpoint means "look up at connect time via the
+	// Forwarder's Resolver". The resolved endpoint is cached back
+	// into the registry on the first successful lookup.
 	Endpoint string
 
 	// DomainSigningKey is the peer's long-term Ed25519 signing public
 	// key. Used to verify the peer's ServerResponse / Accepted messages
 	// during the federation handshake.
+	//
+	// A real deployment would fetch this via DANE, SEMP_KEYS, or a
+	// pinned list; the demo binary supplies it from a shared seed.
+	// It is NOT fetched via discovery because the well-known URI
+	// does not carry signing keys.
 	DomainSigningKey []byte
 }
 
@@ -115,6 +126,29 @@ type Forwarder struct {
 	// peer's signatures.
 	Store SharedStore
 
+	// Resolver, if non-nil, is used to look up federation endpoints
+	// for peers whose PeerConfig.Endpoint is empty. The resolver
+	// walks the DISCOVERY.md §5.1 flow (DNS SRV/TXT, well-known
+	// URI, MX fallback) and returns a discovery.Result from which
+	// FederationEndpointFunc extracts a URL.
+	//
+	// If Resolver is nil, PeerConfigs without an Endpoint cause
+	// Forward/FetchKeys to return an error.
+	Resolver discovery.Resolver
+
+	// FederationEndpointFunc converts a discovery result into the
+	// federation endpoint URL the Forwarder should dial. It is
+	// called only when PeerConfig.Endpoint is empty and Resolver
+	// has produced a status=semp result.
+	//
+	// When nil, DefaultFederationEndpointFunc is used, which picks
+	// the first ws:// endpoint from the discovered Configuration
+	// and returns it verbatim. Operators whose federation endpoint
+	// differs from the client endpoint path should supply their own
+	// (e.g. to substitute "/v1/ws" with "/v1/federate" as the demo
+	// binaries do).
+	FederationEndpointFunc FederationEndpointFunc
+
 	// rekeyThreshold is the fraction of TTL at which the auto-rekey
 	// goroutine fires. Defaults to 0.8 per SESSION.md §3.1.
 	rekeyThreshold float64
@@ -152,6 +186,58 @@ type forwarderSession struct {
 	cancel context.CancelFunc
 }
 
+// FederationEndpointFunc converts a discovery result into the
+// federation endpoint URL the Forwarder should dial. The result's
+// Configuration (if non-nil) is the full well-known capability
+// document; DNS-only resolution leaves it nil and the caller must
+// fall back to Result.Server + some convention (e.g. a pinned
+// "/v1/federate" suffix).
+//
+// An error return blocks the session open: the caller treats it as
+// "no usable federation endpoint for this peer" and fails the
+// forward with a meaningful error.
+type FederationEndpointFunc func(result *discovery.Result) (string, error)
+
+// DefaultFederationEndpointFunc is the out-of-the-box endpoint
+// picker. It expects the result to carry a well-known Configuration
+// and returns the first ws://-scheme endpoint verbatim. This
+// matches a server that serves client and federation traffic on
+// the same endpoint (which DISCOVERY.md's endpoints map implicitly
+// assumes — the spec does not separate client and federation
+// endpoints).
+//
+// Operators whose federation endpoint path differs from the client
+// endpoint (e.g. the cmd/semp-server demo binary, which splits
+// "/v1/ws" and "/v1/federate") MUST supply their own
+// FederationEndpointFunc.
+func DefaultFederationEndpointFunc(result *discovery.Result) (string, error) {
+	if result == nil {
+		return "", errors.New("inboxd: nil discovery result")
+	}
+	if result.Configuration == nil {
+		return "", fmt.Errorf("inboxd: discovery result for %s has no well-known configuration", result.Address)
+	}
+	for _, scheme := range []string{"wss", "ws"} {
+		for transport, url := range result.Configuration.Endpoints {
+			if transport == "ws" && hasScheme(url, scheme) {
+				return url, nil
+			}
+		}
+	}
+	// No ws-scheme match; return whatever is at the "ws" key.
+	if ep, ok := result.Configuration.Endpoints["ws"]; ok {
+		return ep, nil
+	}
+	return "", fmt.Errorf("inboxd: discovery result for %s has no ws endpoint", result.Address)
+}
+
+// hasScheme reports whether url starts with the given scheme
+// followed by "://". Cheap string prefix check.
+func hasScheme(url, scheme string) bool {
+	prefix := scheme + "://"
+	return len(url) >= len(prefix) && url[:len(prefix)] == prefix
+}
+
 // NewForwarder constructs a Forwarder. cfg provides the static
 // configuration (suite, keys, peer registry, dialer); the internal
 // session cache is initialized fresh.
@@ -165,16 +251,18 @@ func NewForwarder(cfg ForwarderConfig) *Forwarder {
 		threshold = 0.8
 	}
 	return &Forwarder{
-		Suite:                 cfg.Suite,
-		LocalDomain:           cfg.LocalDomain,
-		LocalDomainKeyID:      cfg.LocalDomainKeyID,
-		LocalDomainPrivateKey: cfg.LocalDomainPrivateKey,
-		Peers:                 peers,
-		Dial:                  cfg.Dial,
-		Store:                 cfg.Store,
-		rekeyThreshold:        threshold,
-		disableAutoRekey:      cfg.DisableAutoRekey,
-		sessions:              make(map[string]*forwarderSession),
+		Suite:                  cfg.Suite,
+		LocalDomain:            cfg.LocalDomain,
+		LocalDomainKeyID:       cfg.LocalDomainKeyID,
+		LocalDomainPrivateKey:  cfg.LocalDomainPrivateKey,
+		Peers:                  peers,
+		Dial:                   cfg.Dial,
+		Store:                  cfg.Store,
+		Resolver:               cfg.Resolver,
+		FederationEndpointFunc: cfg.FederationEndpointFunc,
+		rekeyThreshold:         threshold,
+		disableAutoRekey:       cfg.DisableAutoRekey,
+		sessions:               make(map[string]*forwarderSession),
 	}
 }
 
@@ -189,6 +277,15 @@ type ForwarderConfig struct {
 	Peers                 *PeerRegistry
 	Dial                  Dialer
 	Store                 SharedStore
+
+	// Resolver enables discovery-driven peer endpoint resolution.
+	// When set, PeerConfigs with an empty Endpoint are looked up
+	// on first use via the DISCOVERY.md §5.1 flow.
+	Resolver discovery.Resolver
+
+	// FederationEndpointFunc converts a discovery result to the
+	// federation endpoint URL. Defaults to DefaultFederationEndpointFunc.
+	FederationEndpointFunc FederationEndpointFunc
 
 	// RekeyThreshold is the fraction of TTL at which the background
 	// auto-rekey goroutine fires. SESSION.md §3.1 recommends 0.8.
@@ -301,6 +398,11 @@ func (f *Forwarder) forwardOnSession(ctx context.Context, fs *forwarderSession, 
 // session is opened, a background auto-rekey goroutine is spawned
 // (unless disableAutoRekey is set) and cancelled when the session is
 // dropped.
+//
+// If peerCfg.Endpoint is empty, the Resolver (if configured) is
+// consulted to look up the federation endpoint for the peer domain.
+// The resolved endpoint is cached back into the registry via
+// Peers.Put so subsequent calls hit the static path.
 func (f *Forwarder) getSession(ctx context.Context, peerCfg PeerConfig) (*forwarderSession, error) {
 	f.mu.Lock()
 	fs, ok := f.sessions[peerCfg.Domain]
@@ -312,6 +414,18 @@ func (f *Forwarder) getSession(ctx context.Context, peerCfg PeerConfig) (*forwar
 	if f.Store == nil {
 		return nil, errors.New("inboxd: forwarder has no Store for peer key material")
 	}
+
+	// Resolve the federation endpoint if we don't have one cached
+	// on the PeerConfig.
+	if peerCfg.Endpoint == "" {
+		resolved, err := f.resolveFederationEndpoint(ctx, peerCfg.Domain)
+		if err != nil {
+			return nil, err
+		}
+		peerCfg.Endpoint = resolved
+		f.Peers.Put(peerCfg)
+	}
+
 	// Publish the peer's domain signing key so the Initiator can verify
 	// the peer's signatures during the handshake.
 	f.Store.PutDomainKey(peerCfg.Domain, peerCfg.DomainSigningKey)
@@ -362,6 +476,40 @@ func (f *Forwarder) getSession(ctx context.Context, peerCfg PeerConfig) (*forwar
 		go f.autoRekey(bgCtx, peerCfg.Domain, newFS)
 	}
 	return newFS, nil
+}
+
+// resolveFederationEndpoint uses the Forwarder's Resolver and
+// FederationEndpointFunc to look up a federation endpoint URL for
+// a peer whose PeerConfig.Endpoint is empty. It returns an error
+// when no Resolver is configured, when discovery does not find a
+// SEMP-capable endpoint for the domain, or when the endpoint func
+// rejects the resolved result.
+func (f *Forwarder) resolveFederationEndpoint(ctx context.Context, peerDomain string) (string, error) {
+	if f.Resolver == nil {
+		return "", fmt.Errorf("inboxd: peer %s has no endpoint and no Resolver is configured", peerDomain)
+	}
+	result, err := f.Resolver.Resolve(ctx, peerDomain)
+	if err != nil {
+		return "", fmt.Errorf("inboxd: resolve peer %s: %w", peerDomain, err)
+	}
+	if result == nil {
+		return "", fmt.Errorf("inboxd: resolver returned nil result for %s", peerDomain)
+	}
+	if result.Status != semp.DiscoverySEMP {
+		return "", fmt.Errorf("inboxd: peer %s discovery status %s (not semp)", peerDomain, result.Status)
+	}
+	endpointFunc := f.FederationEndpointFunc
+	if endpointFunc == nil {
+		endpointFunc = DefaultFederationEndpointFunc
+	}
+	endpoint, err := endpointFunc(result)
+	if err != nil {
+		return "", fmt.Errorf("inboxd: derive federation endpoint for %s: %w", peerDomain, err)
+	}
+	if endpoint == "" {
+		return "", fmt.Errorf("inboxd: federation endpoint func returned empty URL for %s", peerDomain)
+	}
+	return endpoint, nil
 }
 
 // dropSession removes the cached session for peerDomain, stopping its
