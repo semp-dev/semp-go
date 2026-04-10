@@ -3,34 +3,43 @@
 //
 // # Scope
 //
-// This package currently provides two primitives that a consumer can
-// use to build HTTP/2-backed SEMP flows:
+// This package provides two layers of HTTP/2-backed SEMP plumbing:
 //
-//   - Client: a client-side request-response helper that POSTs SEMP
-//     messages to a server endpoint and threads the Semp-Session-Id
-//     header across multiple requests for a single logical session.
+// Low-level request-response primitives:
+//
+//   - Client: a client-side helper that POSTs SEMP messages to a
+//     server endpoint and threads the Semp-Session-Id header across
+//     multiple requests for a single logical session.
 //   - NewHandler: an http.Handler factory that wraps a per-POST
 //     HandlerFunc. Each incoming POST invokes the function once and
 //     writes the returned bytes as the response body, setting the
 //     Semp-Session-Id header on the way out.
 //
-// These primitives are enough to drive single-POST exchanges
-// (envelope submission, SEMP_KEYS lookup, SEMP_DISCOVERY) and
-// multi-POST exchanges (handshake, where each message is a separate
-// request-response round trip per TRANSPORT.md §4.2.3).
+// Symmetric transport.Conn adapter (milestone 3ff):
+//
+//   - Transport.Dial returns a transport.Conn that POSTs on Send and
+//     returns the POST body on Recv, presenting a plain bidirectional
+//     message stream to handshake.RunClient, inboxd.Server.Serve and
+//     the rest of the SEMP stack.
+//   - Transport.Listen starts an http.Server backed by
+//     NewPersistentHandler and returns a transport.Listener whose
+//     Accept yields one virtual conn per new Semp-Session-Id.
+//   - NewPersistentHandler is the http.Handler factory consumers can
+//     use directly when they want to mount SEMP on an existing HTTP
+//     server and receive transport.Conns via an accept callback.
+//
+// The Conn adapter is strictly turn-based (Send → Recv → Send → Recv)
+// which matches how every SEMP handshake and request-response flow
+// already behaves. After this milestone inboxd.Server.Serve can run
+// over HTTP/2 as transparently as it does over WebSocket.
 //
 // # What this package does NOT do yet
 //
-// transport.Transport.Dial and .Listen are implemented as wrappers
-// that return errors with a clear "not yet wired" message. The full
-// symmetric transport.Conn model for HTTP/2 requires cross-request
-// server-side goroutine coordination (a persistent "virtual connection"
-// behind multiple HTTP handlers correlated by Semp-Session-Id) which
-// is a follow-up milestone.
-//
 // The SSE-based session stream described in TRANSPORT.md §4.2.4
-// (server-push of delivery events and rekey init messages) is also
-// deferred.
+// (server-push of delivery events and rekey init messages) is still
+// deferred. Until it lands, unsolicited server-to-client messages over
+// HTTP/2 are not supported; the adapter handles strict
+// client-initiated request-response flows only.
 package h2
 
 import (
@@ -39,6 +48,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -267,17 +277,25 @@ func NewHandler(cfg Config, fn HandlerFunc) http.Handler {
 	})
 }
 
-// Transport is a placeholder implementation of transport.Transport
-// for HTTP/2. Dial and Listen return errors because the full
-// symmetric transport.Conn model for HTTP/2 requires per-session
-// cross-request goroutine coordination on the server side, which is
-// deferred to a follow-up milestone.
-//
-// Use Client and NewHandler directly for the time being.
-type Transport struct{}
+// Transport is the HTTP/2 implementation of transport.Transport. Dial
+// returns a turn-based transport.Conn that wraps an h2.Client; Listen
+// starts an http.Server backed by NewPersistentHandler and returns a
+// transport.Listener whose Accept yields one virtual conn per new
+// Semp-Session-Id. Both sides run SEMP handshake and inboxd flows
+// transparently.
+type Transport struct {
+	cfg PersistentConfig
+}
 
-// New returns a fresh HTTP/2 Transport.
+// New returns a fresh HTTP/2 Transport with default configuration
+// (HTTPS required, 25 MiB message size limit, 60 s idle timeout).
 func New() *Transport { return &Transport{} }
+
+// NewWithConfig returns an HTTP/2 Transport configured per cfg. Pass
+// AllowInsecure: true for local dev and tests.
+func NewWithConfig(cfg PersistentConfig) *Transport {
+	return &Transport{cfg: cfg}
+}
 
 // ID returns transport.IDHTTP2.
 func (*Transport) ID() transport.ID { return transport.IDHTTP2 }
@@ -286,17 +304,68 @@ func (*Transport) ID() transport.ID { return transport.IDHTTP2 }
 // asynchronous profiles.
 func (*Transport) Profiles() transport.Profile { return transport.ProfileBoth }
 
-// Dial is not yet implemented as a symmetric transport.Conn. Use
-// h2.Dial (returning *Client) instead.
-func (*Transport) Dial(ctx context.Context, endpoint string) (transport.Conn, error) {
-	_, _ = ctx, endpoint
-	return nil, errors.New("h2: symmetric transport.Conn Dial not yet implemented; use h2.Dial(cfg, endpoint) for Client")
+// Dial opens a turn-based transport.Conn to endpoint. The endpoint
+// MUST be an https:// URL unless cfg.AllowInsecure is true. Dial does
+// no network I/O — the first POST happens on the first Send.
+//
+// The returned Conn is strictly turn-based: callers MUST follow
+// Send → Recv → Send → Recv. This matches the SEMP handshake
+// (TRANSPORT.md §4.2.3) and the inboxd request-response pattern.
+func (t *Transport) Dial(ctx context.Context, endpoint string) (transport.Conn, error) {
+	_ = ctx // Dial is non-blocking; ctx is accepted for interface compatibility.
+	cli, err := Dial(t.cfg.Config, endpoint)
+	if err != nil {
+		return nil, err
+	}
+	return newPersistentClient(cli, endpoint), nil
 }
 
-// Listen is not yet implemented as a symmetric transport.Listener.
-// Use h2.NewHandler to mount the HTTP/2 SEMP binding on an existing
-// http.Server.
-func (*Transport) Listen(ctx context.Context, addr string) (transport.Listener, error) {
-	_, _ = ctx, addr
-	return nil, errors.New("h2: symmetric transport.Listener Listen not yet implemented; use h2.NewHandler to mount on an http.Server")
+// Listen starts an HTTP server bound to addr and returns a
+// transport.Listener whose Accept yields one transport.Conn per new
+// session. The server mounts NewPersistentHandler at the root so any
+// incoming POST without a Semp-Session-Id header starts a new session.
+//
+// The returned Listener speaks plain HTTP. Operators that want TLS
+// termination at the binding level should construct their own
+// http.Server with a TLSConfig and mount NewPersistentHandler
+// themselves; Transport.Listen is primarily for tests and trusted
+// internal networks.
+func (t *Transport) Listen(ctx context.Context, addr string) (transport.Listener, error) {
+	netListener, err := net.Listen("tcp", addr)
+	if err != nil {
+		return nil, fmt.Errorf("h2: listen on %s: %w", addr, err)
+	}
+	l := &listener{
+		cfg:         t.cfg,
+		netListener: netListener,
+		queue:       make(chan transport.Conn, 32),
+	}
+	handler := NewPersistentHandler(t.cfg, func(c transport.Conn) {
+		l.mu.Lock()
+		closed := l.closed
+		l.mu.Unlock()
+		if closed {
+			_ = c.Close()
+			return
+		}
+		select {
+		case l.queue <- c:
+		case <-time.After(time.Second):
+			// Queue full — drop the new session rather than block
+			// the HTTP handler indefinitely. The HTTP client will
+			// observe a 503-ish outcome when its POST hangs.
+			_ = c.Close()
+		}
+	})
+	srv := &http.Server{
+		Handler: handler,
+		BaseContext: func(net.Listener) context.Context {
+			return ctx
+		},
+	}
+	l.srv = srv
+	go func() {
+		_ = srv.Serve(netListener)
+	}()
+	return l, nil
 }
