@@ -160,6 +160,30 @@ func TestInboxRouting(t *testing.T) {
 		t.Errorf("from mismatch: got %q want %q", got.from, alice)
 	}
 
+	// Privacy boundary: the server holds K_brief (so it can route on
+	// brief.to) but it MUST NEVER hold K_enclosure. The client wraps
+	// K_enclosure only under the recipient client's encryption key in
+	// seal.enclosure_recipients, never under the server's domain
+	// encryption key. Re-decode the same envelope bytes the server
+	// stored and confirm that decrypting the enclosure with the
+	// server's domain encryption key fails. (TestEnvelopeRoundTrip and
+	// TestCrossDomainEnvelopeFlow assert the same property in their
+	// own scopes; this assertion catches the case where someone
+	// accidentally adds the server to EnclosureRecipients in the
+	// inbox routing path.)
+	storedEnv, err := envelope.Decode(got.raw)
+	if err != nil {
+		t.Fatalf("decode stored envelope for privacy check: %v", err)
+	}
+	if _, err := envelope.OpenEnclosure(storedEnv, suite, domainEncFP, domainEncPriv); err == nil {
+		t.Error("server's domain encryption key was able to decrypt the enclosure — privacy boundary broken")
+	}
+	// Sanity: the same key SHOULD be able to unwrap the brief, since
+	// that's exactly what inboxd uses it for during routing.
+	if _, err := envelope.OpenBrief(storedEnv, suite, domainEncFP, domainEncPriv); err != nil {
+		t.Errorf("server's domain encryption key cannot unwrap K_brief: %v", err)
+	}
+
 	// After fetch, bob's inbox should be empty.
 	if got := inbox.Pending(bob); got != 0 {
 		t.Errorf("inbox pending after fetch = %d, want 0", got)
@@ -274,11 +298,14 @@ func submitEnvelope(t *testing.T, suite crypto.Suite, wsURL, seed, domain, from,
 }
 
 // receivedEnvelope is a small bag for the fetched-and-decrypted contents
-// of a single envelope.
+// of a single envelope. raw retains the on-the-wire bytes so tests can
+// run additional cryptographic checks (e.g. confirming that the server's
+// domain key cannot decrypt the enclosure).
 type receivedEnvelope struct {
 	from    string
 	subject string
 	body    string
+	raw     []byte
 }
 
 // fetchInbox opens a session as `identity`, sends SEMP_FETCH, and returns
@@ -352,6 +379,7 @@ func fetchInbox(t *testing.T, suite crypto.Suite, wsURL, seed, domain, identity 
 			from:    string(bf.From),
 			subject: enc.Subject,
 			body:    enc.Body["text/plain"],
+			raw:     raw,
 		})
 	}
 	return out

@@ -38,6 +38,11 @@ import (
 	"github.com/semp-dev/semp-go/keys"
 )
 
+var (
+	base64Std    = base64.StdEncoding
+	base64RawStd = base64.RawStdEncoding
+)
+
 // MessageStream is the minimal interface inboxd needs from a transport.
 // transport.Conn satisfies it; tests can substitute an in-memory channel
 // pair without pulling in the transport package.
@@ -52,23 +57,60 @@ type Logger interface {
 	Printf(format string, args ...any)
 }
 
-// Server holds the state needed to serve one connected client. A fresh
+// Mode identifies how an inboxd Server should treat incoming envelopes.
+type Mode int
+
+// Mode values.
+const (
+	// ModeClient — the peer is a local client submitting envelopes on
+	// behalf of its owning user. The server fills in seal.signature
+	// and seal.session_mac, unwraps the brief, routes locally or via
+	// the federation Forwarder, and replies with SubmissionResponse.
+	ModeClient Mode = iota
+
+	// ModeFederation — the peer is a remote server forwarding
+	// envelopes from its own users. The server does NOT re-sign: the
+	// original sender-domain signature is already in place and must be
+	// left intact as the provenance proof. The server verifies both
+	// seal.signature (against the remote sender's published domain
+	// key) and seal.session_mac (against THIS federation session's
+	// K_env_mac, which is what the initiator bound it to before
+	// forwarding). It unwraps the brief, routes locally, and replies
+	// with a SubmissionResponse.
+	ModeFederation
+)
+
+// Server holds the state needed to serve one connected peer. A fresh
 // Server is constructed per accepted connection by the demo binary.
 type Server struct {
+	// Mode controls whether Serve runs in ModeClient or ModeFederation.
+	// Defaults to ModeClient (the zero value).
+	Mode Mode
+
 	// Suite is the negotiated cryptographic suite for this session. Same
 	// value the handshake used.
 	Suite crypto.Suite
+
+	// Store is the keys.Store used for peer lookups (currently only
+	// federation mode uses it, to verify the original sender domain's
+	// signature on incoming envelopes).
+	Store keys.Store
 
 	// Inbox is the shared in-memory queue. Multiple Server instances
 	// (one per connection) write into the same Inbox.
 	Inbox *delivery.Inbox
 
+	// Forwarder, if non-nil, is consulted in ModeClient when an envelope
+	// is addressed to a recipient outside LocalDomain. A nil Forwarder
+	// means cross-domain recipients get recipient_not_found.
+	Forwarder *Forwarder
+
 	// LocalDomain is the server's own domain. Recipients on this domain
-	// are delivered locally; everyone else gets recipient_not_found.
+	// are delivered locally; everyone else is routed via Forwarder.
 	LocalDomain string
 
 	// DomainSignFP and DomainSignPriv are the server's long-term
-	// signing key, used to sign envelopes during submission.
+	// signing key, used to sign envelopes during submission (ModeClient).
 	DomainSignFP   keys.Fingerprint
 	DomainSignPriv []byte
 
@@ -78,14 +120,17 @@ type Server struct {
 	DomainEncFP   keys.Fingerprint
 	DomainEncPriv []byte
 
-	// Identity is the authenticated client identity established by the
-	// preceding handshake. Used to scope envelope fetches and to record
-	// the sender on outbound envelopes.
+	// Identity is the authenticated peer identity established by the
+	// preceding handshake. In ModeClient this is the client's user
+	// address; in ModeFederation it is the peer server's domain.
 	Identity string
 
 	// EnvMAC is K_env_mac from the established session. Used by
-	// envelope.Sign to compute seal.session_mac on the envelopes the
-	// server signs on the client's behalf.
+	// envelope.Sign in ModeClient (to seal envelopes on submission)
+	// and by envelope.VerifySessionMAC in ModeFederation (to verify
+	// forwarded envelopes). In both modes it is the K_env_mac of the
+	// session carrying this connection, not of the envelope's original
+	// composition session.
 	EnvMAC []byte
 
 	// Logger receives operational notes (one line per accepted/rejected
@@ -133,61 +178,213 @@ func (s *Server) Serve(ctx context.Context, stream MessageStream) error {
 	}
 }
 
-// handleSubmission processes one envelope upload.
+// handleSubmission processes one envelope upload. The behavior differs
+// between ModeClient (sender-side: sign, then route) and ModeFederation
+// (receiver-side: verify, then route locally only).
 func (s *Server) handleSubmission(ctx context.Context, stream MessageStream, raw []byte) error {
 	env, err := envelope.Decode(raw)
 	if err != nil {
-		// Send a per-recipient rejection so the client knows the
-		// envelope was malformed. We don't have an envelope_id, so we
-		// emit a synthetic one.
 		resp := delivery.NewSubmissionResponse("malformed", []delivery.SubmissionResult{{
-			Recipient: s.Identity,
-			Status:    semp.StatusRejected,
+			Recipient:  s.Identity,
+			Status:     semp.StatusRejected,
 			ReasonCode: semp.ReasonSealInvalid,
-			Reason:    err.Error(),
+			Reason:     err.Error(),
 		}})
 		_ = sendJSON(ctx, stream, resp)
 		return fmt.Errorf("decode envelope: %w", err)
 	}
 
+	switch s.Mode {
+	case ModeClient:
+		return s.handleClientSubmission(ctx, stream, env)
+	case ModeFederation:
+		return s.handleFederationSubmission(ctx, stream, env)
+	default:
+		return fmt.Errorf("inboxd: unknown mode %d", s.Mode)
+	}
+}
+
+// handleClientSubmission is the ModeClient path. The envelope arrives
+// unsigned from the client; the server signs it, unwraps the brief,
+// delivers to local inboxes, and forwards to remote domains via the
+// Forwarder (if configured).
+func (s *Server) handleClientSubmission(ctx context.Context, stream MessageStream, env *envelope.Envelope) error {
 	// The client transmits the envelope WITHOUT seal.signature or
 	// seal.session_mac populated. The home server fills both in per
 	// CLIENT.md §1.3 / ENVELOPE.md §7.1 step 8.
 	if err := envelope.Sign(env, s.Suite, s.DomainSignPriv, s.EnvMAC); err != nil {
 		resp := delivery.NewSubmissionResponse(env.Postmark.ID, []delivery.SubmissionResult{{
-			Recipient: s.Identity,
-			Status:    semp.StatusRejected,
+			Recipient:  s.Identity,
+			Status:     semp.StatusRejected,
 			ReasonCode: semp.ReasonSealInvalid,
-			Reason:    err.Error(),
+			Reason:     err.Error(),
 		}})
 		_ = sendJSON(ctx, stream, resp)
 		return fmt.Errorf("sign envelope: %w", err)
 	}
 
-	// Unwrap the brief so we know who it's for. The server's domain
-	// encryption key MUST be present in seal.brief_recipients (the
-	// client put it there during composition).
 	bf, err := envelope.OpenBrief(env, s.Suite, s.DomainEncFP, s.DomainEncPriv)
 	if err != nil {
 		resp := delivery.NewSubmissionResponse(env.Postmark.ID, []delivery.SubmissionResult{{
-			Recipient: s.Identity,
-			Status:    semp.StatusRejected,
+			Recipient:  s.Identity,
+			Status:     semp.StatusRejected,
 			ReasonCode: semp.ReasonSealInvalid,
-			Reason:    fmt.Sprintf("server cannot unwrap brief: %v", err),
+			Reason:     fmt.Sprintf("server cannot unwrap brief: %v", err),
 		}})
 		_ = sendJSON(ctx, stream, resp)
 		return fmt.Errorf("open brief: %w", err)
 	}
 
-	// Re-encode the (now signed) envelope for storage.
 	wire, err := envelope.Encode(env)
 	if err != nil {
 		return fmt.Errorf("re-encode envelope: %w", err)
 	}
 
-	// Build per-recipient results. Local recipients are delivered to
-	// the in-memory inbox; remote recipients receive recipient_not_found
-	// (no cross-domain routing in the demo).
+	allRecipients := append([]brief.Address{}, bf.To...)
+	allRecipients = append(allRecipients, bf.CC...)
+	results := make([]delivery.SubmissionResult, 0, len(allRecipients))
+	for _, addr := range allRecipients {
+		address := string(addr)
+		if s.isLocal(address) {
+			s.Inbox.Store(address, wire)
+			results = append(results, delivery.SubmissionResult{
+				Recipient: address,
+				Status:    semp.StatusDelivered,
+			})
+			s.logf("[%s] delivered envelope %s → %s (local)", s.Identity, env.Postmark.ID, address)
+			continue
+		}
+		// Remote recipient: forward via the federation Forwarder if
+		// one is configured. The Forwarder re-binds session_mac under
+		// the federation session's K_env_mac and ships the envelope
+		// to the peer; the peer verifies and routes into its own
+		// inbox.
+		if s.Forwarder == nil {
+			results = append(results, delivery.SubmissionResult{
+				Recipient: address,
+				Status:    semp.StatusRecipientNotFound,
+				Reason:    "cross-domain forwarding is not enabled on this server",
+			})
+			s.logf("[%s] no forwarder: %s → recipient_not_found", s.Identity, address)
+			continue
+		}
+		peerDomain := domainOf(address)
+		// Clone the envelope per peer so each forward gets its own
+		// session_mac re-bind without stomping on the other recipients.
+		forwardEnv, err := envelope.Decode(wire)
+		if err != nil {
+			results = append(results, delivery.SubmissionResult{
+				Recipient:  address,
+				Status:     semp.StatusRejected,
+				ReasonCode: semp.ReasonSealInvalid,
+				Reason:     fmt.Sprintf("clone envelope for forwarding: %v", err),
+			})
+			continue
+		}
+		peerResp, err := s.Forwarder.Forward(ctx, peerDomain, forwardEnv)
+		if err != nil {
+			results = append(results, delivery.SubmissionResult{
+				Recipient: address,
+				Status:    semp.StatusRejected,
+				Reason:    fmt.Sprintf("forward to %s: %v", peerDomain, err),
+			})
+			s.logf("[%s] forward %s → %s failed: %v", s.Identity, env.Postmark.ID, address, err)
+			continue
+		}
+		// The peer's response carries per-recipient results of its
+		// own (typically one per forwarded envelope). Surface each one
+		// back to the client verbatim.
+		for _, peerResult := range peerResp.Results {
+			results = append(results, peerResult)
+			s.logf("[%s] forwarded envelope %s → %s: status=%s",
+				s.Identity, env.Postmark.ID, peerResult.Recipient, peerResult.Status)
+		}
+	}
+
+	resp := delivery.NewSubmissionResponse(env.Postmark.ID, results)
+	return sendJSON(ctx, stream, resp)
+}
+
+// handleFederationSubmission is the ModeFederation path. The envelope
+// arrives ALREADY signed by the original sender domain and ALREADY
+// session-MACed under this federation session's K_env_mac (the peer
+// rebound it before forwarding). This server MUST verify both proofs
+// and MUST NOT re-sign — the domain signature is provenance and any
+// change would break it.
+func (s *Server) handleFederationSubmission(ctx context.Context, stream MessageStream, env *envelope.Envelope) error {
+	// Verify the session MAC against OUR K_env_mac. The initiator
+	// rebinds session_mac to the federation session's MAC key before
+	// forwarding.
+	if err := envelope.VerifySessionMAC(env, s.Suite, s.EnvMAC); err != nil {
+		resp := delivery.NewSubmissionResponse(env.Postmark.ID, []delivery.SubmissionResult{{
+			Recipient:  s.Identity,
+			Status:     semp.StatusRejected,
+			ReasonCode: semp.ReasonSessionMACInvalid,
+			Reason:     err.Error(),
+		}})
+		_ = sendJSON(ctx, stream, resp)
+		return fmt.Errorf("verify session_mac: %w", err)
+	}
+
+	// Verify the domain signature against the original sender domain's
+	// published key. The peer is just forwarding — the signature must
+	// match the envelope's from_domain, not the peer.
+	senderDomain := env.Postmark.FromDomain
+	if s.Store != nil {
+		rec, err := s.Store.LookupDomainKey(ctx, senderDomain)
+		if err != nil || rec == nil {
+			resp := delivery.NewSubmissionResponse(env.Postmark.ID, []delivery.SubmissionResult{{
+				Recipient:  s.Identity,
+				Status:     semp.StatusRejected,
+				ReasonCode: semp.ReasonSealInvalid,
+				Reason:     fmt.Sprintf("no domain key for sender %s", senderDomain),
+			}})
+			_ = sendJSON(ctx, stream, resp)
+			return fmt.Errorf("lookup sender domain key for %s: %w", senderDomain, err)
+		}
+		pub, err := decodeBase64(rec.PublicKey)
+		if err != nil {
+			return fmt.Errorf("decode sender domain key: %w", err)
+		}
+		if err := envelope.VerifySignature(env, s.Suite, pub); err != nil {
+			resp := delivery.NewSubmissionResponse(env.Postmark.ID, []delivery.SubmissionResult{{
+				Recipient:  s.Identity,
+				Status:     semp.StatusRejected,
+				ReasonCode: semp.ReasonSealInvalid,
+				Reason:     fmt.Sprintf("verify sender domain signature: %v", err),
+			}})
+			_ = sendJSON(ctx, stream, resp)
+			return fmt.Errorf("verify domain signature: %w", err)
+		}
+	}
+
+	// Unwrap brief using our domain encryption key — the original
+	// sender wrapped K_brief for us in seal.brief_recipients during
+	// composition, so this just works.
+	bf, err := envelope.OpenBrief(env, s.Suite, s.DomainEncFP, s.DomainEncPriv)
+	if err != nil {
+		resp := delivery.NewSubmissionResponse(env.Postmark.ID, []delivery.SubmissionResult{{
+			Recipient:  s.Identity,
+			Status:     semp.StatusRejected,
+			ReasonCode: semp.ReasonSealInvalid,
+			Reason:     fmt.Sprintf("server cannot unwrap brief: %v", err),
+		}})
+		_ = sendJSON(ctx, stream, resp)
+		return fmt.Errorf("open brief: %w", err)
+	}
+
+	// Re-encode for storage. The envelope is already fully signed; we
+	// just need a canonical byte form to stash in the inbox.
+	wire, err := envelope.Encode(env)
+	if err != nil {
+		return fmt.Errorf("re-encode envelope: %w", err)
+	}
+
+	// Federation mode only delivers LOCAL recipients — we don't
+	// support multi-hop forwarding. Remote recipients that somehow
+	// showed up in an inbound federation envelope are dropped with
+	// recipient_not_found; in practice the sending peer would have
+	// filtered this out before forwarding.
 	allRecipients := append([]brief.Address{}, bf.To...)
 	allRecipients = append(allRecipients, bf.CC...)
 	results := make([]delivery.SubmissionResult, 0, len(allRecipients))
@@ -197,7 +394,7 @@ func (s *Server) handleSubmission(ctx context.Context, stream MessageStream, raw
 			results = append(results, delivery.SubmissionResult{
 				Recipient: address,
 				Status:    semp.StatusRecipientNotFound,
-				Reason:    "cross-domain delivery not implemented in this demo binary",
+				Reason:    "federation endpoint does not multi-hop",
 			})
 			continue
 		}
@@ -206,9 +403,8 @@ func (s *Server) handleSubmission(ctx context.Context, stream MessageStream, raw
 			Recipient: address,
 			Status:    semp.StatusDelivered,
 		})
-		s.logf("[%s] delivered envelope %s → %s", s.Identity, env.Postmark.ID, address)
+		s.logf("[%s] federated delivery %s → %s", s.Identity, env.Postmark.ID, address)
 	}
-
 	resp := delivery.NewSubmissionResponse(env.Postmark.ID, results)
 	return sendJSON(ctx, stream, resp)
 }
@@ -296,6 +492,27 @@ func isClientClose(err error) bool {
 		}
 	}
 	return false
+}
+
+// domainOf returns the domain part of a user address (the substring
+// after the last '@'), or the empty string if the address has no '@'.
+func domainOf(address string) string {
+	at := strings.LastIndexByte(address, '@')
+	if at < 0 {
+		return ""
+	}
+	return address[at+1:]
+}
+
+// decodeBase64 is a tiny wrapper around encoding/base64 that accepts
+// either the standard or the raw (unpadded) encoding, so callers that
+// receive keys published by different implementations do not need to
+// guess about padding.
+func decodeBase64(s string) ([]byte, error) {
+	if b, err := base64Std.DecodeString(s); err == nil {
+		return b, nil
+	}
+	return base64RawStd.DecodeString(s)
 }
 
 // dummyAccessor exists only so the time import stays referenced if a

@@ -170,20 +170,41 @@ func runSend(args []string) error {
 
 	suite := crypto.SuiteBaseline
 
-	// We also need the recipient's encryption public key (so we can wrap
-	// K_brief and K_enclosure for them) and the server's domain
-	// encryption public key (so the server can read brief.to). Both are
-	// derived from the same seed for the demo.
+	// We need three encryption keys to wrap K_brief and K_enclosure
+	// correctly for cross-domain delivery (ENVELOPE.md §4.4):
+	//
+	//   - recipEncPub: the recipient CLIENT's encryption key — goes
+	//     into both BriefRecipients and EnclosureRecipients so bob can
+	//     unwrap both.
+	//   - senderDomainEncPub: OUR home server's domain encryption key
+	//     — goes into BriefRecipients so our home server can read
+	//     brief.to for local routing / forwarding decisions.
+	//   - recipDomainEncPub: the RECIPIENT server's domain encryption
+	//     key — goes into BriefRecipients so the recipient server can
+	//     unwrap K_brief and deliver the envelope into the recipient's
+	//     inbox. For same-domain sends this is the same as
+	//     senderDomainEncPub.
+	//
+	// All three are derived from the shared -seed for the demo; a
+	// real sender would fetch them via SEMP_KEYS.
 	recipEncPub, _, err := demoseed.Encryption(*seed, *to)
 	if err != nil {
 		return fmt.Errorf("derive recipient encryption key: %w", err)
 	}
 	recipEncFP := keys.Compute(recipEncPub)
-	domainEncPub, _, err := demoseed.DomainEncryption(*seed, *domain)
+
+	senderDomainEncPub, _, err := demoseed.DomainEncryption(*seed, *domain)
 	if err != nil {
-		return fmt.Errorf("derive domain encryption key: %w", err)
+		return fmt.Errorf("derive sender server encryption key: %w", err)
 	}
-	domainEncFP := keys.Compute(domainEncPub)
+	senderDomainEncFP := keys.Compute(senderDomainEncPub)
+
+	recipDomain := domainOf(*to)
+	recipDomainEncPub, _, err := demoseed.DomainEncryption(*seed, recipDomain)
+	if err != nil {
+		return fmt.Errorf("derive recipient server encryption key: %w", err)
+	}
+	recipDomainEncFP := keys.Compute(recipDomainEncPub)
 
 	// Open a session.
 	conn, err := dialServer(cfg)
@@ -244,7 +265,8 @@ func runSend(args []string) error {
 		Enclosure:         enc,
 		SenderDomainKeyID: keys.Fingerprint("server-fills-in"), // server overwrites on Sign
 		BriefRecipients: []seal.RecipientKey{
-			{Fingerprint: domainEncFP, PublicKey: domainEncPub},
+			{Fingerprint: senderDomainEncFP, PublicKey: senderDomainEncPub},
+			{Fingerprint: recipDomainEncFP, PublicKey: recipDomainEncPub},
 			{Fingerprint: recipEncFP, PublicKey: recipEncPub},
 		},
 		EnclosureRecipients: []seal.RecipientKey{
