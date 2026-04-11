@@ -195,9 +195,13 @@ func (r *Rekeyer) Rekey(ctx context.Context, stream RekeyStream) error {
 		return fmt.Errorf("session: responder_nonce base64: %w", err)
 	}
 
-	shared, err := r.Suite.KEM().Agree(ephPriv, responderEphPub)
+	// Initiator-side KEM finalization: decapsulate the responder's
+	// wire blob (baseline X25519: just a pub key; hybrid Kyber768+X25519:
+	// responderX25519Pub || kyberCiphertext) to derive the shared
+	// secret.
+	shared, err := r.Suite.KEM().Decapsulate(responderEphPub, ephPriv)
 	if err != nil {
-		return fmt.Errorf("session: rekey DH: %w", err)
+		return fmt.Errorf("session: rekey KEM: %w", err)
 	}
 	defer crypto.Zeroize(shared)
 
@@ -297,24 +301,25 @@ func (h *RekeyHandler) Handle(ctx context.Context, stream RekeyStream, raw []byt
 			fmt.Sprintf("invalid rekey_nonce: %v", err))
 	}
 
-	// Generate OUR ephemeral keypair and responder nonce.
-	respEphPub, respEphPriv, err := h.Suite.KEM().GenerateKeyPair()
+	// Responder-side KEM step: encapsulate under the initiator's
+	// ephemeral public key to derive the shared secret and produce
+	// the wire blob we send back as responder_ephemeral_key. For
+	// baseline X25519 this is equivalent to the legacy GenerateKeyPair
+	// + Agree flow (Encapsulate internally generates a fresh X25519
+	// pair); for the hybrid suite it packs responderX25519Pub ||
+	// kyberCiphertext. The responder holds no ephemeral private key
+	// after this call — Encapsulate zeroizes it internally.
+	shared, respEphPub, err := h.Suite.KEM().Encapsulate(initiatorEphPub)
 	if err != nil {
-		return fmt.Errorf("session: responder ephemeral: %w", err)
+		return h.reject(ctx, stream, respDir, init.SessionID, "rekey_unsupported",
+			fmt.Sprintf("KEM encapsulate failed: %v", err))
 	}
-	defer crypto.Zeroize(respEphPriv)
+	defer crypto.Zeroize(shared)
 
 	responderNonce := make([]byte, 32)
 	if _, err := rand.Read(responderNonce); err != nil {
 		return fmt.Errorf("session: responder nonce: %w", err)
 	}
-
-	shared, err := h.Suite.KEM().Agree(respEphPriv, initiatorEphPub)
-	if err != nil {
-		return h.reject(ctx, stream, respDir, init.SessionID, "rekey_unsupported",
-			fmt.Sprintf("DH failed: %v", err))
-	}
-	defer crypto.Zeroize(shared)
 	newKeys, err := crypto.DeriveRekeyKeys(h.Suite.KDF(), shared, initiatorNonce, responderNonce)
 	if err != nil {
 		return fmt.Errorf("session: derive rekey keys: %w", err)
