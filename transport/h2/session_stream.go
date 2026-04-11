@@ -33,21 +33,57 @@ var ErrStreamBusy = errors.New("h2: session stream already open")
 // EncodeEvent serializes one SEMP JSON message as one SSE event per
 // TRANSPORT.md §4.2.4: a sequence of `data: <line>` lines followed by a
 // terminating blank line. Embedded newlines in msg are preserved by
-// splitting across multiple `data:` lines per the SSE specification;
-// receivers reassemble them by joining on `\n`. CR characters that
-// precede an LF are stripped so a CRLF-terminated payload does not emit
-// stray CRs on the wire.
+// splitting across multiple `data:` lines per the SSE specification.
+//
+// Note: the SSE wire format uses CR, LF, and CRLF interchangeably as
+// line terminators (WHATWG HTML §9.2). EncodeEvent normalizes any of
+// those three forms to a single LF before emitting each data line,
+// which means bare CR / CRLF bytes in msg do not survive the
+// round trip — they are all collapsed to LF. This is fine for SEMP
+// because every SEMP payload is a JSON document where control bytes
+// are escaped (`\r`, `\n`), so the wire form never actually carries
+// a literal CR or LF. Callers that want to transmit arbitrary binary
+// bytes over an SSE channel need a separate encoding (base64) above
+// this layer.
 func EncodeEvent(msg []byte) []byte {
 	var buf bytes.Buffer
-	lines := bytes.Split(msg, []byte{'\n'})
+	lines := splitSSELines(msg)
 	for _, line := range lines {
-		line = bytes.TrimRight(line, "\r")
 		buf.WriteString("data: ")
 		buf.Write(line)
 		buf.WriteByte('\n')
 	}
 	buf.WriteByte('\n')
 	return buf.Bytes()
+}
+
+// splitSSELines splits msg on any SSE-recognized line terminator (CR,
+// LF, or CRLF), returning one element per line. A trailing terminator
+// does NOT produce a trailing empty line — matching the behavior of
+// strings.Split when the final byte is the separator is explicitly
+// what we want, because an empty trailing element would emit a spurious
+// `data: ` line and the decoder would then see an extra empty-data
+// event.
+func splitSSELines(msg []byte) [][]byte {
+	if len(msg) == 0 {
+		return [][]byte{nil}
+	}
+	var out [][]byte
+	start := 0
+	for i := 0; i < len(msg); i++ {
+		b := msg[i]
+		if b != '\r' && b != '\n' {
+			continue
+		}
+		out = append(out, msg[start:i])
+		if b == '\r' && i+1 < len(msg) && msg[i+1] == '\n' {
+			i++ // skip the LF of a CRLF pair
+		}
+		start = i + 1
+	}
+	// Final segment (may be empty if msg ended in a line terminator).
+	out = append(out, msg[start:])
+	return out
 }
 
 // EventReader decodes SSE events from an io.Reader. Each call to
