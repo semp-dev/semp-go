@@ -101,6 +101,23 @@ type Server struct {
 	// (one per connection) write into the same Inbox.
 	Inbox *delivery.Inbox
 
+	// BlockList is the per-recipient block list lookup applied at
+	// step 8 of the delivery pipeline (DELIVERY.md §2). Optional: a
+	// nil lookup means "no blocks configured" and all envelopes pass
+	// the user-policy step.
+	BlockList delivery.BlockListLookup
+
+	// DomainPolicy is the optional step-5 hook on the delivery
+	// pipeline (DELIVERY.md §2). It is called with the verified
+	// postmark.from_domain so operators can plug in domain-level
+	// reputation gates, rate limiting, or static deny lists.
+	DomainPolicy delivery.DomainPolicyFunc
+
+	// SessionExpiry, if non-nil, is consulted at pipeline step 3
+	// (DELIVERY.md §2 / SESSION.md §5.2) to detect retired session
+	// ids. Optional: nil disables the retirement check.
+	SessionExpiry session.ExpiryLog
+
 	// Forwarder, if non-nil, is consulted in ModeClient when an envelope
 	// is addressed to a recipient outside LocalDomain. A nil Forwarder
 	// means cross-domain recipients get recipient_not_found.
@@ -167,6 +184,69 @@ func (s *Server) envMAC() []byte {
 		return s.Session.EnvMAC()
 	}
 	return s.EnvMAC
+}
+
+// pipelineFor constructs a fresh delivery.Pipeline configured for the
+// given mode. ModeClient skips the signature and session_mac checks
+// because the home server has just produced both during submission;
+// ModeFederation runs every step against the foreign envelope.
+//
+// Both modes share the same brief unwrap, block-list and inbox-store
+// configuration so a refactor that changes the policy or storage
+// surface lands in one place rather than two duplicated handlers.
+func (s *Server) pipelineFor(mode Mode) *delivery.Pipeline {
+	p := &delivery.Pipeline{
+		Suite:         s.Suite,
+		EnvMAC:        s.envMAC,
+		Sessions:      s.SessionExpiry,
+		DomainEncFP:   s.DomainEncFP,
+		DomainEncPriv: s.DomainEncPriv,
+		DomainPolicy:  s.DomainPolicy,
+		BlockList:     s.BlockList,
+		IsLocal:       s.isLocal,
+		Inbox:         s.Inbox,
+		Logger:        s.Logger,
+	}
+	switch mode {
+	case ModeClient:
+		// The home server signs the envelope itself in this path, so
+		// there is no foreign signature or session_mac to verify; both
+		// are present after envelope.Sign but verifying them would
+		// just confirm what we just produced.
+		p.SkipSignatureCheck = true
+		p.SkipSessionMACCheck = true
+	case ModeFederation:
+		// Wire DomainKeys to the configured keys.Store. The pipeline
+		// uses the lookup at step 1 to fetch the original sender
+		// domain's published signing key.
+		if s.Store != nil {
+			p.DomainKeys = &storeDomainKeyLookup{store: s.Store}
+		}
+	}
+	return p
+}
+
+// storeDomainKeyLookup adapts a keys.Store to delivery.DomainKeyLookup.
+// The pipeline expects raw public-key bytes; the store records carry
+// base64-encoded strings, so this thin shim handles the decode and
+// returns ENOKEY-equivalent (nil, nil) when the domain has no record on
+// file.
+type storeDomainKeyLookup struct {
+	store keys.Store
+}
+
+func (s *storeDomainKeyLookup) LookupDomainPublicKey(ctx context.Context, domain string) ([]byte, error) {
+	if s == nil || s.store == nil {
+		return nil, nil
+	}
+	rec, err := s.store.LookupDomainKey(ctx, domain)
+	if err != nil {
+		return nil, err
+	}
+	if rec == nil {
+		return nil, nil
+	}
+	return decodeBase64(rec.PublicKey)
 }
 
 // Serve runs the post-handshake message loop until the peer closes the
@@ -249,9 +329,10 @@ func (s *Server) handleSubmission(ctx context.Context, stream MessageStream, raw
 }
 
 // handleClientSubmission is the ModeClient path. The envelope arrives
-// unsigned from the client; the server signs it, unwraps the brief,
-// delivers to local inboxes, and forwards to remote domains via the
-// Forwarder (if configured).
+// unsigned from the client; the server signs it, runs the delivery
+// pipeline (DELIVERY.md §2 steps 5–9, with the foreign-signature and
+// session_mac checks skipped because we just produced both), and then
+// post-processes any non-local recipients into forwarder calls.
 func (s *Server) handleClientSubmission(ctx context.Context, stream MessageStream, env *envelope.Envelope) error {
 	// The client transmits the envelope WITHOUT seal.signature or
 	// seal.session_mac populated. The home server fills both in per
@@ -267,6 +348,12 @@ func (s *Server) handleClientSubmission(ctx context.Context, stream MessageStrea
 		return fmt.Errorf("sign envelope: %w", err)
 	}
 
+	// We need the brief here too to drive scope enforcement before we
+	// hand the envelope to the pipeline. The pipeline will unwrap the
+	// brief a second time during step 6/7 — that double-unwrap is the
+	// price of running the scope check (a sender-side concern) at
+	// submission time before the envelope reaches the receiver
+	// pipeline (a receiver-side concern).
 	bf, err := envelope.OpenBrief(env, s.Suite, s.DomainEncFP, s.DomainEncPriv)
 	if err != nil {
 		resp := delivery.NewSubmissionResponse(env.Postmark.ID, []delivery.SubmissionResult{{
@@ -279,19 +366,15 @@ func (s *Server) handleClientSubmission(ctx context.Context, stream MessageStrea
 		return fmt.Errorf("open brief: %w", err)
 	}
 
-	wire, err := envelope.Encode(env)
-	if err != nil {
-		return fmt.Errorf("re-encode envelope: %w", err)
-	}
-
 	allRecipients := append([]brief.Address{}, bf.To...)
 	allRecipients = append(allRecipients, bf.CC...)
 
 	// Scope enforcement: if the authenticated device has a
 	// certificate, check every recipient against scope.send per
-	// CLIENT.md §2.4. A missing certificate means "full access"
-	// (primary device); an invalid certificate or a recipient
-	// outside the scope produces a scope_exceeded rejection.
+	// CLIENT.md §2.4. This is a sender-side control and runs BEFORE
+	// the receive pipeline so a delegated device cannot use the
+	// pipeline's policy hooks to leak information about recipients
+	// outside its scope.
 	scopeResults, scopeAllRejected, err := s.enforceSendScope(ctx, env.Postmark.ID, allRecipients)
 	if err != nil {
 		resp := delivery.NewSubmissionResponse(env.Postmark.ID, []delivery.SubmissionResult{{
@@ -311,11 +394,30 @@ func (s *Server) handleClientSubmission(ctx context.Context, stream MessageStrea
 		return sendJSON(ctx, stream, resp)
 	}
 
-	results := make([]delivery.SubmissionResult, 0, len(allRecipients))
-	// Merge any scope_exceeded entries produced by the scope
-	// enforcer into the final result list. scopeResults is keyed
-	// by the same recipient strings, so we skip blocked recipients
-	// in the delivery loop below.
+	// Run the delivery pipeline. ModeClient skips the signature and
+	// session_mac verification steps (we just produced both).
+	pipe := s.pipelineFor(ModeClient)
+	pipeResult, err := pipe.Process(ctx, env)
+	if err != nil {
+		return fmt.Errorf("client pipeline: %w", err)
+	}
+	if pipeResult.Rejected() {
+		rej := pipeResult.Rejection
+		resp := delivery.NewSubmissionResponse(env.Postmark.ID, []delivery.SubmissionResult{{
+			Recipient:  s.Identity,
+			Status:     semp.StatusRejected,
+			ReasonCode: rej.Code,
+			Reason:     rej.Reason,
+		}})
+		return sendJSON(ctx, stream, resp)
+	}
+
+	// Merge scope-rejection rows back in: scopeResults overrides
+	// whatever the pipeline produced for the same recipient because
+	// scope checks are sender-side and authoritative. The pipeline
+	// would have blocked the same recipient as `recipient_not_found`
+	// for non-local destinations, but we want the more informative
+	// `scope_exceeded` rejection to surface to the client instead.
 	blocked := make(map[string]delivery.SubmissionResult, len(scopeResults))
 	for _, r := range scopeResults {
 		if r.Status == semp.StatusRejected {
@@ -323,26 +425,31 @@ func (s *Server) handleClientSubmission(ctx context.Context, stream MessageStrea
 		}
 	}
 
-	for _, addr := range allRecipients {
-		address := string(addr)
-		if r, ok := blocked[address]; ok {
+	// Walk the pipeline results and replace any non-local
+	// `recipient_not_found` rows with the actual forwarder outcome.
+	// Local rows are kept as-is — the pipeline already wrote them to
+	// the inbox at step 9.
+	wire, err := envelope.Encode(env)
+	if err != nil {
+		return fmt.Errorf("re-encode envelope: %w", err)
+	}
+	results := make([]delivery.SubmissionResult, 0, len(pipeResult.Results))
+	for _, row := range pipeResult.Results {
+		if r, ok := blocked[row.Recipient]; ok {
 			results = append(results, r)
 			continue
 		}
-		if s.isLocal(address) {
-			s.Inbox.Store(address, wire)
-			results = append(results, delivery.SubmissionResult{
-				Recipient: address,
-				Status:    semp.StatusDelivered,
-			})
-			s.logf("[%s] delivered envelope %s → %s (local)", s.Identity, env.Postmark.ID, address)
+		if row.Status != semp.StatusRecipientNotFound {
+			// Local outcome (delivered, rejected, silent) — keep it.
+			if row.Status == semp.StatusDelivered {
+				s.logf("[%s] delivered envelope %s → %s (local)",
+					s.Identity, env.Postmark.ID, row.Recipient)
+			}
+			results = append(results, row)
 			continue
 		}
-		// Remote recipient: forward via the federation Forwarder if
-		// one is configured. The Forwarder re-binds session_mac under
-		// the federation session's K_env_mac and ships the envelope
-		// to the peer; the peer verifies and routes into its own
-		// inbox.
+		// Non-local recipient: try the forwarder.
+		address := row.Recipient
 		if s.Forwarder == nil {
 			results = append(results, delivery.SubmissionResult{
 				Recipient: address,
@@ -376,8 +483,7 @@ func (s *Server) handleClientSubmission(ctx context.Context, stream MessageStrea
 			continue
 		}
 		// The peer's response carries per-recipient results of its
-		// own (typically one per forwarded envelope). Surface each one
-		// back to the client verbatim.
+		// own. Surface each one back to the client verbatim.
 		for _, peerResult := range peerResp.Results {
 			results = append(results, peerResult)
 			s.logf("[%s] forwarded envelope %s → %s: status=%s",
@@ -392,104 +498,46 @@ func (s *Server) handleClientSubmission(ctx context.Context, stream MessageStrea
 // handleFederationSubmission is the ModeFederation path. The envelope
 // arrives ALREADY signed by the original sender domain and ALREADY
 // session-MACed under this federation session's K_env_mac (the peer
-// rebound it before forwarding). This server MUST verify both proofs
-// and MUST NOT re-sign — the domain signature is provenance and any
-// change would break it.
+// rebound it before forwarding). The pipeline runs every step of
+// DELIVERY.md §2: it verifies both proofs (signature against the
+// original sender domain's published key, session_mac against OUR
+// K_env_mac), unwraps the brief, applies the user-level block list,
+// and stores envelopes for local recipients. We MUST NOT re-sign —
+// the domain signature is provenance and any change would break it.
+//
+// Federation mode does not multi-hop. Recipients that somehow show up
+// in an inbound federation envelope addressed to a different domain
+// are reported as recipient_not_found; in practice the sending peer
+// would have filtered them out before forwarding.
 func (s *Server) handleFederationSubmission(ctx context.Context, stream MessageStream, env *envelope.Envelope) error {
-	// Verify the session MAC against OUR K_env_mac. The initiator
-	// rebinds session_mac to the federation session's MAC key before
-	// forwarding.
-	if err := envelope.VerifySessionMAC(env, s.Suite, s.envMAC()); err != nil {
+	pipe := s.pipelineFor(ModeFederation)
+	pipeResult, err := pipe.Process(ctx, env)
+	if err != nil {
+		return fmt.Errorf("federation pipeline: %w", err)
+	}
+	if pipeResult.Rejected() {
+		rej := pipeResult.Rejection
 		resp := delivery.NewSubmissionResponse(env.Postmark.ID, []delivery.SubmissionResult{{
 			Recipient:  s.Identity,
 			Status:     semp.StatusRejected,
-			ReasonCode: semp.ReasonSessionMACInvalid,
-			Reason:     err.Error(),
+			ReasonCode: rej.Code,
+			Reason:     rej.Reason,
 		}})
 		_ = sendJSON(ctx, stream, resp)
-		return fmt.Errorf("verify session_mac: %w", err)
+		return fmt.Errorf("federation pipeline rejected envelope: %s", rej.Code)
 	}
-
-	// Verify the domain signature against the original sender domain's
-	// published key. The peer is just forwarding — the signature must
-	// match the envelope's from_domain, not the peer.
-	senderDomain := env.Postmark.FromDomain
-	if s.Store != nil {
-		rec, err := s.Store.LookupDomainKey(ctx, senderDomain)
-		if err != nil || rec == nil {
-			resp := delivery.NewSubmissionResponse(env.Postmark.ID, []delivery.SubmissionResult{{
-				Recipient:  s.Identity,
-				Status:     semp.StatusRejected,
-				ReasonCode: semp.ReasonSealInvalid,
-				Reason:     fmt.Sprintf("no domain key for sender %s", senderDomain),
-			}})
-			_ = sendJSON(ctx, stream, resp)
-			return fmt.Errorf("lookup sender domain key for %s: %w", senderDomain, err)
-		}
-		pub, err := decodeBase64(rec.PublicKey)
-		if err != nil {
-			return fmt.Errorf("decode sender domain key: %w", err)
-		}
-		if err := envelope.VerifySignature(env, s.Suite, pub); err != nil {
-			resp := delivery.NewSubmissionResponse(env.Postmark.ID, []delivery.SubmissionResult{{
-				Recipient:  s.Identity,
-				Status:     semp.StatusRejected,
-				ReasonCode: semp.ReasonSealInvalid,
-				Reason:     fmt.Sprintf("verify sender domain signature: %v", err),
-			}})
-			_ = sendJSON(ctx, stream, resp)
-			return fmt.Errorf("verify domain signature: %w", err)
+	// Override the pipeline's generic "recipient is not local" reason
+	// text with the federation-specific "endpoint does not multi-hop"
+	// for clarity in cross-domain logs.
+	for i := range pipeResult.Results {
+		if pipeResult.Results[i].Status == semp.StatusRecipientNotFound {
+			pipeResult.Results[i].Reason = "federation endpoint does not multi-hop"
+		} else if pipeResult.Results[i].Status == semp.StatusDelivered {
+			s.logf("[%s] federated delivery %s → %s",
+				s.Identity, env.Postmark.ID, pipeResult.Results[i].Recipient)
 		}
 	}
-
-	// Unwrap brief using our domain encryption key — the original
-	// sender wrapped K_brief for us in seal.brief_recipients during
-	// composition, so this just works.
-	bf, err := envelope.OpenBrief(env, s.Suite, s.DomainEncFP, s.DomainEncPriv)
-	if err != nil {
-		resp := delivery.NewSubmissionResponse(env.Postmark.ID, []delivery.SubmissionResult{{
-			Recipient:  s.Identity,
-			Status:     semp.StatusRejected,
-			ReasonCode: semp.ReasonSealInvalid,
-			Reason:     fmt.Sprintf("server cannot unwrap brief: %v", err),
-		}})
-		_ = sendJSON(ctx, stream, resp)
-		return fmt.Errorf("open brief: %w", err)
-	}
-
-	// Re-encode for storage. The envelope is already fully signed; we
-	// just need a canonical byte form to stash in the inbox.
-	wire, err := envelope.Encode(env)
-	if err != nil {
-		return fmt.Errorf("re-encode envelope: %w", err)
-	}
-
-	// Federation mode only delivers LOCAL recipients — we don't
-	// support multi-hop forwarding. Remote recipients that somehow
-	// showed up in an inbound federation envelope are dropped with
-	// recipient_not_found; in practice the sending peer would have
-	// filtered this out before forwarding.
-	allRecipients := append([]brief.Address{}, bf.To...)
-	allRecipients = append(allRecipients, bf.CC...)
-	results := make([]delivery.SubmissionResult, 0, len(allRecipients))
-	for _, addr := range allRecipients {
-		address := string(addr)
-		if !s.isLocal(address) {
-			results = append(results, delivery.SubmissionResult{
-				Recipient: address,
-				Status:    semp.StatusRecipientNotFound,
-				Reason:    "federation endpoint does not multi-hop",
-			})
-			continue
-		}
-		s.Inbox.Store(address, wire)
-		results = append(results, delivery.SubmissionResult{
-			Recipient: address,
-			Status:    semp.StatusDelivered,
-		})
-		s.logf("[%s] federated delivery %s → %s", s.Identity, env.Postmark.ID, address)
-	}
-	resp := delivery.NewSubmissionResponse(env.Postmark.ID, results)
+	resp := delivery.NewSubmissionResponse(env.Postmark.ID, pipeResult.Results)
 	return sendJSON(ctx, stream, resp)
 }
 
