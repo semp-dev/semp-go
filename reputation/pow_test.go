@@ -344,7 +344,7 @@ func TestPoWPolicyDecideHostileRaisesDifficulty(t *testing.T) {
 		store.RecordEnvelope("bad.example", true)
 	}
 	for i := 0; i < 5; i++ {
-		store.RecordAbuseReport("bad.example")
+		store.RecordAbuseReport("bad.example", reputation.AbuseSpam)
 	}
 	ledger := reputation.NewChallengeLedger(time.Minute)
 	policy := &reputation.PoWPolicy{

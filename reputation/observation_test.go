@@ -45,8 +45,8 @@ func TestObservationStoreAbuseReport(t *testing.T) {
 	for i := 0; i < 20; i++ {
 		store.RecordEnvelope("spam.example", true)
 	}
-	store.RecordAbuseReport("spam.example")
-	store.RecordAbuseReport("spam.example")
+	store.RecordAbuseReport("spam.example", reputation.AbuseSpam)
+	store.RecordAbuseReport("spam.example", reputation.AbuseSpam)
 	score := store.Score("spam.example")
 	if score.TotalEnvelopes != 20 {
 		t.Errorf("TotalEnvelopes = %d, want 20", score.TotalEnvelopes)
@@ -91,7 +91,7 @@ func TestObservationStoreScoreHostile(t *testing.T) {
 		store.RecordEnvelope("bad.example", true)
 	}
 	for i := 0; i < 5; i++ {
-		store.RecordAbuseReport("bad.example")
+		store.RecordAbuseReport("bad.example", reputation.AbuseSpam)
 	}
 	score := store.Score("bad.example")
 	if score.Assessment != reputation.AssessmentHostile {
@@ -106,7 +106,7 @@ func TestObservationStoreScoreSuspicious(t *testing.T) {
 	for i := 0; i < 100; i++ {
 		store.RecordEnvelope("meh.example", true)
 	}
-	store.RecordAbuseReport("meh.example") // 1/100 = 1% abuse
+	store.RecordAbuseReport("meh.example", reputation.AbuseSpam) // 1/100 = 1% abuse
 	score := store.Score("meh.example")
 	if score.Assessment != reputation.AssessmentSuspicious {
 		t.Errorf("Assessment = %s, want suspicious (abuse_rate=%v)", score.Assessment, score.AbuseRate)
