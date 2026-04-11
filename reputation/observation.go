@@ -1,52 +1,110 @@
 package reputation
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
+	"sort"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/semp-dev/semp-go/extensions"
+	"github.com/semp-dev/semp-go/internal/canonical"
 	"github.com/semp-dev/semp-go/keys"
 )
 
-// Observation is a single observation record published by one operator
-// about another domain. Observations are signed by the publisher and
-// form the input data behind the trust gossip hash.
-//
-// Reference: REPUTATION.md §4.
+// Wire-level type discriminators used in SEMP_TRUST_OBSERVATION and
+// SEMP_TRUST_OBSERVATIONS messages.
+const (
+	// ObservationType is the wire-level `type` field of a single
+	// signed observation record (REPUTATION.md §4.2).
+	ObservationType = "SEMP_TRUST_OBSERVATION"
+
+	// ObservationsType is the wire-level `type` field of the
+	// publication envelope that carries a list of observations
+	// (REPUTATION.md §5.1).
+	ObservationsType = "SEMP_TRUST_OBSERVATIONS"
+
+	// ObservationVersion is the SEMP protocol version this
+	// implementation writes into observation records and publication
+	// envelopes.
+	ObservationVersion = "1.0.0"
+)
+
+// Observation is a single observation record published by one
+// operator about another domain. Its JSON layout matches
+// REPUTATION.md §4.2 exactly, so the Go struct can marshal/unmarshal
+// through encoding/json without a custom shim and round-trip through
+// the canonical serializer for signing.
 type Observation struct {
-	// SubjectDomain is the domain being observed.
-	SubjectDomain string `json:"subject_domain"`
+	// Type is the wire discriminator. MUST be ObservationType.
+	Type string `json:"type"`
 
-	// PublisherDomain is the operator that published this observation.
-	PublisherDomain string `json:"publisher_domain"`
+	// Version is the SEMP protocol version.
+	Version string `json:"version"`
 
-	// PeriodStart is the start of the observation window.
-	PeriodStart time.Time `json:"period_start"`
+	// ID is the unique observation identifier. ULID RECOMMENDED
+	// (REPUTATION.md §4.3).
+	ID string `json:"id"`
 
-	// PeriodEnd is the end of the observation window.
-	PeriodEnd time.Time `json:"period_end"`
+	// Observer is the domain of the server making the observation.
+	Observer string `json:"observer"`
 
-	// Metrics is the full set of quantitative signals recorded during
-	// the window (REPUTATION.md §4.5).
+	// Subject is the domain being observed.
+	Subject string `json:"subject"`
+
+	// Window is the time window the observation covers.
+	// REPUTATION.md §4.4 recommends windows of 30 days or less.
+	Window Window `json:"window"`
+
+	// Metrics is the quantitative payload per §4.5.
 	Metrics Metrics `json:"metrics"`
 
-	// Assessment is the summary classification (REPUTATION.md §4.6).
+	// Assessment is the summary classification per §4.6.
 	Assessment Assessment `json:"assessment"`
 
-	// Signature is the publisher's signature over the canonical form
-	// of this observation (with Signature itself elided).
+	// EvidenceAvailable reports whether verifiable evidence is
+	// available for this observation.
+	EvidenceAvailable bool `json:"evidence_available"`
+
+	// EvidenceURI is the URL where evidence can be fetched when
+	// EvidenceAvailable is true.
+	EvidenceURI string `json:"evidence_uri,omitempty"`
+
+	// Timestamp is the ISO 8601 UTC time the observation was
+	// published. Distinct from Window.End.
+	Timestamp time.Time `json:"timestamp"`
+
+	// Expires is the hard expiry of this observation record. Per
+	// §4.4 an expired observation MUST be treated as absent.
+	Expires time.Time `json:"expires"`
+
+	// Signature is the publisher's signature over the canonical
+	// form of this observation with signature.value elided.
 	Signature keys.PublicationSignature `json:"signature"`
+
+	// Extensions is the observer-defined extensions map. Always
+	// emitted (even when empty) so the canonical bytes are stable.
+	Extensions extensions.Map `json:"extensions"`
 }
 
-// Metrics is the quantitative payload of an Observation. The field
-// names and semantics follow REPUTATION.md §4.5.
+// Window is the nested time-window object from REPUTATION.md §4.2.
+type Window struct {
+	Start time.Time `json:"start"`
+	End   time.Time `json:"end"`
+}
+
+// Metrics is the quantitative payload of an Observation per
+// REPUTATION.md §4.5.
 type Metrics struct {
-	EnvelopesReceived     int64 `json:"envelopes_received"`
-	EnvelopesRejected     int64 `json:"envelopes_rejected"`
-	AbuseReports          int64 `json:"abuse_reports"`
-	UniqueSendersObserved int64 `json:"unique_senders_observed,omitempty"`
-	HandshakesCompleted   int64 `json:"handshakes_completed,omitempty"`
-	HandshakesRejected    int64 `json:"handshakes_rejected,omitempty"`
+	EnvelopesReceived     int64           `json:"envelopes_received"`
+	EnvelopesRejected     int64           `json:"envelopes_rejected"`
+	AbuseReports          int64           `json:"abuse_reports"`
+	AbuseCategories       []AbuseCategory `json:"abuse_categories,omitempty"`
+	UniqueSendersObserved int64           `json:"unique_senders_observed,omitempty"`
+	HandshakesCompleted   int64           `json:"handshakes_completed,omitempty"`
+	HandshakesRejected    int64           `json:"handshakes_rejected,omitempty"`
 }
 
 // Assessment is the qualitative summary attached to an Observation
@@ -61,10 +119,10 @@ const (
 	AssessmentHostile    Assessment = "hostile"
 )
 
-// GossipHash is the trust gossip hash representation defined in
-// REPUTATION.md §5: a publishable, hashed summary of a domain's
-// observation history that other servers can compare against their
-// own.
+// GossipHash is the publishable hash summary of a domain's
+// observation history from REPUTATION.md §5. It lets two servers
+// compare their observation sets compactly without exchanging the
+// full record body.
 type GossipHash struct {
 	Domain    string    `json:"domain"`
 	Hash      string    `json:"hash"`
@@ -112,6 +170,11 @@ type domainCounters struct {
 	EnvelopesAccepted   int64
 	EnvelopesRejected   int64
 	AbuseReports        int64
+	// AbuseCategories records one entry per abuse report so the
+	// published observation can carry the per-report category list
+	// required by REPUTATION.md §4.5 ("abuse_categories: List of
+	// abuse categories reported. May contain duplicates.").
+	AbuseCategories []AbuseCategory
 }
 
 // NewObservationStore returns an empty ObservationStore. Pass a
@@ -158,15 +221,21 @@ func (s *ObservationStore) RecordEnvelope(domain string, accepted bool) {
 }
 
 // RecordAbuseReport records one abuse report filed against the given
-// subject domain. The caller is expected to have verified the report's
-// signature and authorization before calling; the store does not
-// filter.
-func (s *ObservationStore) RecordAbuseReport(domain string) {
+// subject domain with the stated category. The caller is expected to
+// have verified the report's authenticity and any embedded
+// disclosure authorization before calling; the store does not
+// validate. category may be empty — an empty category is recorded as
+// a count increment without a corresponding abuse_categories entry,
+// which matches the spec allowance that abuse_categories is optional.
+func (s *ObservationStore) RecordAbuseReport(domain string, category AbuseCategory) {
 	if s == nil {
 		return
 	}
 	c := s.touchDomain(domain)
 	c.AbuseReports++
+	if category != "" {
+		c.AbuseCategories = append(c.AbuseCategories, category)
+	}
 }
 
 // Metrics returns a snapshot of the current counters for the given
@@ -183,13 +252,19 @@ func (s *ObservationStore) Metrics(domain string) Metrics {
 	if c == nil {
 		return Metrics{}
 	}
-	return Metrics{
+	m := Metrics{
 		EnvelopesReceived:   c.EnvelopesAccepted + c.EnvelopesRejected,
 		EnvelopesRejected:   c.EnvelopesRejected,
 		AbuseReports:        c.AbuseReports,
 		HandshakesCompleted: c.HandshakesCompleted,
 		HandshakesRejected:  c.HandshakesRejected,
 	}
+	if len(c.AbuseCategories) > 0 {
+		// Copy the slice so the caller cannot mutate the store's
+		// backing array.
+		m.AbuseCategories = append([]AbuseCategory(nil), c.AbuseCategories...)
+	}
+	return m
 }
 
 // Score is the derived reputation verdict for a domain. It combines
@@ -273,12 +348,12 @@ func (s *ObservationStore) Score(domain string) Score {
 // exercise it without going through the full ObservationStore.
 func classify(s Score) Assessment {
 	const (
-		hostileAbuseRate      = 0.05
-		hostileRejectRate     = 0.50
-		suspiciousAbuseRate   = 0.01
-		suspiciousRejectRate  = 0.20
-		trustedMinEnvelopes   = 100
-		trustedMaxRejectRate  = 0.05
+		hostileAbuseRate     = 0.05
+		hostileRejectRate    = 0.50
+		suspiciousAbuseRate  = 0.01
+		suspiciousRejectRate = 0.20
+		trustedMinEnvelopes  = 100
+		trustedMaxRejectRate = 0.05
 	)
 	if s.AbuseRate >= hostileAbuseRate || s.RejectRate >= hostileRejectRate {
 		return AssessmentHostile
@@ -335,14 +410,64 @@ func (s *ObservationStore) touchDomain(domain string) *domainCounters {
 // not.
 func normalize(domain string) string { return strings.ToLower(strings.TrimSpace(domain)) }
 
-// ComputeGossipHash is retained as a stub for future §5 work. The
-// full trust gossip publication format requires canonical observation
-// records and publisher-domain signing, neither of which are in scope
-// for this milestone.
+// -----------------------------------------------------------------------------
+// GossipHash
+// -----------------------------------------------------------------------------
+
+// ComputeGossipHash combines a list of observations into a single
+// GossipHash suitable for publication per REPUTATION.md §5. The hash
+// is SHA-256 over the canonical serialization of a small JSON wrapper
+// that contains the subject domain plus the observation IDs and
+// timestamps in canonical (sorted) order. Two servers with the same
+// observation set produce byte-identical gossip hashes, so they can
+// cheaply detect divergence.
 //
-// TODO(REPUTATION.md §5): implement once the observation record wire
-// format has a canonicalizer.
+// The hash covers only the observation IDs and their timestamps, not
+// the full metrics body, so a comparison remains meaningful even when
+// two observers report the same underlying events with slightly
+// different metrics. An operator that wants a full-body comparison
+// should walk observations themselves.
+//
+// Returns an error if domain is empty. An empty observations slice is
+// allowed and produces a hash over just the domain — a legitimate
+// "I have no observations for this subject" publication.
 func ComputeGossipHash(domain string, observations []Observation) (*GossipHash, error) {
-	_, _ = domain, observations
-	return nil, nil
+	if strings.TrimSpace(domain) == "" {
+		return nil, errors.New("reputation: gossip hash requires a domain")
+	}
+	// Collect (id, timestamp) pairs in a stable order so two
+	// observers who publish the same observation set produce the
+	// same hash regardless of iteration order.
+	type entry struct {
+		ID        string    `json:"id"`
+		Timestamp time.Time `json:"timestamp"`
+	}
+	entries := make([]entry, 0, len(observations))
+	for _, o := range observations {
+		entries = append(entries, entry{ID: o.ID, Timestamp: o.Timestamp.UTC()})
+	}
+	sort.Slice(entries, func(i, j int) bool {
+		if entries[i].ID != entries[j].ID {
+			return entries[i].ID < entries[j].ID
+		}
+		return entries[i].Timestamp.Before(entries[j].Timestamp)
+	})
+	payload := struct {
+		Domain  string  `json:"domain"`
+		Entries []entry `json:"entries"`
+	}{
+		Domain:  normalize(domain),
+		Entries: entries,
+	}
+	canon, err := canonical.Marshal(payload)
+	if err != nil {
+		return nil, err
+	}
+	sum := sha256.Sum256(canon)
+	return &GossipHash{
+		Domain:    normalize(domain),
+		Hash:      hex.EncodeToString(sum[:]),
+		Algorithm: "sha256",
+		AsOf:      time.Now().UTC(),
+	}, nil
 }
