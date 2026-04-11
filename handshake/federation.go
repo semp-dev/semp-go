@@ -471,10 +471,15 @@ func (i *Initiator) OnResponse(data []byte) ([]byte, *session.Session, error) {
 	}
 
 	// Shared secret + session key derivation. The salt order is
-	// (initiator_nonce || responder_nonce), matching the client handshake.
-	shared, err := i.suite.KEM().Agree(i.ephemeralPriv, serverEphPub)
+	// (initiator_nonce || responder_nonce), matching the client
+	// handshake. The responder's wire blob is a KEM ciphertext that
+	// the initiator decapsulates with its ephemeral private key. For
+	// baseline X25519 this is equivalent to the legacy Agree flow;
+	// for the hybrid suite it additionally performs Kyber768
+	// decapsulation so the combined shared secret is K_kyber || K_x25519.
+	shared, err := i.suite.KEM().Decapsulate(serverEphPub, i.ephemeralPriv)
 	if err != nil {
-		return nil, nil, fmt.Errorf("handshake: ephemeral DH: %w", err)
+		return nil, nil, fmt.Errorf("handshake: ephemeral KEM: %w", err)
 	}
 	defer crypto.Zeroize(shared)
 	sessionKeys, err := crypto.DeriveSessionKeys(i.suite.KDF(), shared, i.nonce, serverNonce)
@@ -707,11 +712,22 @@ type ResponderConfig struct {
 	Capabilities Capabilities
 }
 
-// NewResponder constructs a federation Responder from a config.
+// NewResponder constructs a federation Responder from a config. When
+// cfg.Capabilities is zero, the responder advertises ONLY the suite
+// it was constructed with (cfg.Suite.ID()); see NewServer for the
+// rationale.
 func NewResponder(cfg ResponderConfig) *Responder {
 	caps := cfg.Capabilities
 	if len(caps.EncryptionAlgorithms) == 0 {
-		caps = DefaultServerCapabilities()
+		suiteID := ""
+		if cfg.Suite != nil {
+			suiteID = string(cfg.Suite.ID())
+		}
+		caps = Capabilities{
+			EncryptionAlgorithms: []string{suiteID},
+			Compression:          []string{"none"},
+			Features:             []string{},
+		}
 	}
 	verifier := cfg.Verifier
 	if verifier == nil {
@@ -818,40 +834,34 @@ func (r *Responder) OnInit(data []byte) ([]byte, error) {
 		return nil, fmt.Errorf("handshake: canonical init: %w", err)
 	}
 
-	// Generate the responder's ephemeral keypair, nonce, and session ID.
-	ephPub, ephPriv, err := r.suite.KEM().GenerateKeyPair()
+	// Responder-side KEM step: encapsulate under the initiator's
+	// ephemeral public key. Works for both baseline X25519 (returns
+	// a fresh X25519 ephemeral pub as the ciphertext) and the hybrid
+	// Kyber768+X25519 suite (returns responderX25519Pub || kyberCt).
+	shared, ephPub, err := r.suite.KEM().Encapsulate(clientEphPub)
 	if err != nil {
-		return nil, fmt.Errorf("handshake: ephemeral keypair: %w", err)
+		return nil, fmt.Errorf("handshake: ephemeral KEM encapsulate: %w", err)
 	}
+	defer crypto.Zeroize(shared)
+
 	serverNonce := make([]byte, 32)
 	if _, err := rand.Read(serverNonce); err != nil {
-		crypto.Zeroize(ephPriv)
 		return nil, fmt.Errorf("handshake: server nonce: %w", err)
 	}
 	sessionID, err := newULID()
 	if err != nil {
-		crypto.Zeroize(ephPriv)
 		return nil, err
 	}
 	if r.localServerID == "" {
 		id, err := newULID()
 		if err != nil {
-			crypto.Zeroize(ephPriv)
 			return nil, err
 		}
 		r.localServerID = id
 	}
 
-	// Compute shared secret and session keys.
-	shared, err := r.suite.KEM().Agree(ephPriv, clientEphPub)
-	if err != nil {
-		crypto.Zeroize(ephPriv)
-		return nil, fmt.Errorf("handshake: ephemeral DH: %w", err)
-	}
-	defer crypto.Zeroize(shared)
 	sessionKeys, err := crypto.DeriveSessionKeys(r.suite.KDF(), shared, clientNonce, serverNonce)
 	if err != nil {
-		crypto.Zeroize(ephPriv)
 		return nil, fmt.Errorf("handshake: derive session keys: %w", err)
 	}
 
@@ -862,7 +872,6 @@ func (r *Responder) OnInit(data []byte) ([]byte, error) {
 	innerProofMsg = append(innerProofMsg, clientNonce...)
 	innerProofSig, err := r.suite.Signer().Sign(r.localDomainPriv, innerProofMsg)
 	if err != nil {
-		crypto.Zeroize(ephPriv)
 		sessionKeys.Erase()
 		return nil, fmt.Errorf("handshake: inner identity sign: %w", err)
 	}
@@ -893,19 +902,18 @@ func (r *Responder) OnInit(data []byte) ([]byte, error) {
 	}
 	signed, err := SignServerMessage(r.suite, r.localDomainPriv, &resp)
 	if err != nil {
-		crypto.Zeroize(ephPriv)
 		sessionKeys.Erase()
 		return nil, err
 	}
 	resp.ServerSignature = signed
 	respCanonical, err := CanonicalForHashing(&resp)
 	if err != nil {
-		crypto.Zeroize(ephPriv)
 		sessionKeys.Erase()
 		return nil, fmt.Errorf("handshake: canonical response: %w", err)
 	}
 
-	crypto.Zeroize(ephPriv)
+	// The responder holds no ephemeral private key after Encapsulate;
+	// the hybrid KEM zeroed it internally.
 
 	// Commit state.
 	r.sessionID = sessionID

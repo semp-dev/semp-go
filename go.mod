@@ -9,13 +9,11 @@ go 1.25.0
 // Additional dependencies anticipated by future milestones (added when the
 // corresponding package transitions from stub to functional implementation):
 //
-//   - github.com/cloudflare/circl       (Kyber768 KEM, crypto package)
 //   - github.com/oklog/ulid/v2          (ULIDs for postmark.id, session_id)
-//   - github.com/coder/websocket        (transport/ws binding)
-//   - golang.org/x/net                  (HTTP/2 helpers, transport/h2 binding)
 //   - github.com/quic-go/quic-go        (transport/quic binding)
 
 require (
+	github.com/cloudflare/circl v1.6.3
 	github.com/coder/websocket v1.8.14
 	golang.org/x/crypto v0.50.0
 )

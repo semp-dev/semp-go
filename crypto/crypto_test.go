@@ -199,8 +199,9 @@ func TestNegotiateBaseline(t *testing.T) {
 		t.Errorf("got %q, want %q", id, SuiteIDX25519ChaCha20Poly1305)
 	}
 
-	// Both PQ and baseline offered, baseline selected because PQ isn't
-	// wired up in this build (SuitePQ == nil).
+	// Both PQ and baseline offered → PQ selected (preferred per
+	// SESSION.md §4.3: servers MUST prefer the post-quantum hybrid
+	// when both peers support one).
 	id, err = Negotiate(
 		[]SuiteID{SuiteIDPQKyber768X25519, SuiteIDX25519ChaCha20Poly1305},
 		[]SuiteID{SuiteIDPQKyber768X25519, SuiteIDX25519ChaCha20Poly1305},
@@ -208,17 +209,20 @@ func TestNegotiateBaseline(t *testing.T) {
 	if err != nil {
 		t.Fatalf("hybrid negotiation: %v", err)
 	}
-	if id != SuiteIDX25519ChaCha20Poly1305 {
-		t.Errorf("got %q, want baseline (PQ not yet wired)", id)
+	if id != SuiteIDPQKyber768X25519 {
+		t.Errorf("got %q, want %q (PQ preferred)", id, SuiteIDPQKyber768X25519)
 	}
 
-	// Only PQ offered (and unavailable) → error.
-	_, err = Negotiate(
+	// PQ only on both sides → PQ selected.
+	id, err = Negotiate(
 		[]SuiteID{SuiteIDPQKyber768X25519},
 		[]SuiteID{SuiteIDPQKyber768X25519},
 	)
-	if err == nil {
-		t.Error("expected error for unimplemented suite")
+	if err != nil {
+		t.Fatalf("PQ-only negotiation: %v", err)
+	}
+	if id != SuiteIDPQKyber768X25519 {
+		t.Errorf("got %q, want %q", id, SuiteIDPQKyber768X25519)
 	}
 
 	// Disjoint sets → error.
