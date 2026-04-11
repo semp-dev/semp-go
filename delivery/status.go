@@ -1,6 +1,9 @@
 package delivery
 
-import "time"
+import (
+	"strings"
+	"time"
+)
 
 // State is the recipient's published availability state (DELIVERY.md §1.6.3).
 type State string
@@ -54,12 +57,69 @@ type VisibilityEntry struct {
 // in UTF-8 bytes (DELIVERY.md §1.6.2).
 const MaxStatusMessageBytes = 256
 
-// MatchVisibility reports whether the given sender matches the visibility
-// rules and should therefore receive the recipient's status. The default
-// mode (VisibilityNobody) MUST return false.
+// MatchVisibility reports whether the given sender matches the
+// recipient's status visibility rules and should therefore receive the
+// recipient's status. Per DELIVERY.md §1.6.4:
 //
-// TODO(DELIVERY.md §1.6.4): implement domain / server / user matching.
+//   - VisibilityNobody (the default) is the closed mode: never
+//     disclose, regardless of the Allow list.
+//   - VisibilityEveryone is the open mode: always disclose, regardless
+//     of the Allow list.
+//   - VisibilityDomains, VisibilityServers, VisibilityUsers all walk
+//     the Allow list looking for a matching entry. The mode constrains
+//     which entry types are honored: in `domains` mode only entries
+//     with type `domain` are checked, in `servers` mode only entries
+//     with type `server`, and in `users` mode only entries with type
+//     `user`. Mismatched entries in the Allow list are ignored.
+//
+// A nil Visibility (no configuration at all) is equivalent to
+// VisibilityNobody.
+//
+// All comparisons are case-insensitive. Empty sender identifiers
+// disable matching for the corresponding entry type — a status policy
+// cannot match a sender whose domain we do not know.
 func MatchVisibility(v *Visibility, senderAddress, senderDomain, senderServer string) bool {
-	_, _, _, _ = v, senderAddress, senderDomain, senderServer
+	if v == nil {
+		return false
+	}
+	switch v.Mode {
+	case "", VisibilityNobody:
+		return false
+	case VisibilityEveryone:
+		return true
+	case VisibilityDomains, VisibilityServers, VisibilityUsers:
+		// fall through to allow-list walk below.
+	default:
+		// Unknown mode — fail closed.
+		return false
+	}
+	address := strings.ToLower(senderAddress)
+	domain := strings.ToLower(senderDomain)
+	server := strings.ToLower(senderServer)
+	for _, entry := range v.Allow {
+		switch entry.Type {
+		case "domain":
+			if v.Mode != VisibilityDomains {
+				continue
+			}
+			if domain != "" && strings.ToLower(entry.Domain) == domain {
+				return true
+			}
+		case "server":
+			if v.Mode != VisibilityServers {
+				continue
+			}
+			if server != "" && strings.ToLower(entry.Server) == server {
+				return true
+			}
+		case "user":
+			if v.Mode != VisibilityUsers {
+				continue
+			}
+			if address != "" && strings.ToLower(entry.Address) == address {
+				return true
+			}
+		}
+	}
 	return false
 }
