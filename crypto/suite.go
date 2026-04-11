@@ -74,15 +74,41 @@ func (s *suiteX25519ChaCha20Poly1305) MAC(k []byte) MAC { return newHMACSHA256(k
 func (s *suiteX25519ChaCha20Poly1305) KDF() KDF         { return s.kdf }
 func (s *suiteX25519ChaCha20Poly1305) Signer() Signer   { return s.signer }
 
+// suitePQKyber768X25519 is the concrete post-quantum hybrid suite.
+// Same AEAD, MAC, KDF, and signer as the baseline; the only difference
+// is the KEM, which is the X25519+Kyber768 hybrid defined in
+// SESSION.md §4.1.
+type suitePQKyber768X25519 struct {
+	kem    KEM
+	aead   AEAD
+	kdf    KDF
+	signer Signer
+}
+
 // SuitePQ is the pq-kyber768-x25519 hybrid suite, RECOMMENDED for new
-// deployments. The Kyber768 component requires github.com/cloudflare/circl,
-// which is not yet wired into this milestone — SuitePQ is therefore nil
-// until that dependency is added. Code that calls LookupSuite or Negotiate
-// will simply fall back to SuiteBaseline when SuitePQ is unavailable.
+// deployments (SESSION.md §4). It combines Kyber768 (cloudflare/circl)
+// with X25519 in a concat-KDF construction so that forward secrecy
+// holds against both classical and quantum adversaries: a harvest-now-
+// decrypt-later attacker who records traffic today and gains quantum
+// capability in the future cannot retroactively recover the session
+// secret because the Kyber half protects it.
 //
-// TODO(SESSION.md §4.1): wire up Kyber768 from cloudflare/circl and
-// instantiate SuitePQ as a real Suite.
-var SuitePQ Suite
+// SuitePQ uses the same AEAD (ChaCha20-Poly1305), MAC (HMAC-SHA256),
+// KDF (HKDF-SHA512), and signer (Ed25519) as SuiteBaseline. Only the
+// KEM changes.
+var SuitePQ Suite = &suitePQKyber768X25519{
+	kem:    NewKEMHybridKyber768X25519(),
+	aead:   NewAEADChaCha20Poly1305(),
+	kdf:    NewKDFHKDFSHA512(),
+	signer: NewSignerEd25519(),
+}
+
+func (s *suitePQKyber768X25519) ID() SuiteID      { return SuiteIDPQKyber768X25519 }
+func (s *suitePQKyber768X25519) KEM() KEM         { return s.kem }
+func (s *suitePQKyber768X25519) AEAD() AEAD       { return s.aead }
+func (s *suitePQKyber768X25519) MAC(k []byte) MAC { return newHMACSHA256(k) }
+func (s *suitePQKyber768X25519) KDF() KDF         { return s.kdf }
+func (s *suitePQKyber768X25519) Signer() Signer   { return s.signer }
 
 // LookupSuite returns the Suite registered for id, or nil if id is unknown
 // or if the requested suite is not yet wired up in this build (e.g. SuitePQ

@@ -262,10 +262,15 @@ func (c *Client) OnResponse(data []byte) (confirm []byte, sess *session.Session,
 		return nil, nil, fmt.Errorf("handshake: server nonce base64: %w", err)
 	}
 
-	// Shared secret + session key derivation.
-	shared, err := c.suite.KEM().Agree(c.ephemeralPriv, serverEphPub)
+	// Shared secret + session key derivation. For both the baseline
+	// X25519 suite and the hybrid Kyber768+X25519 suite, the
+	// responder-produced wire blob is treated as a KEM ciphertext
+	// that the initiator decapsulates with its private key. For
+	// X25519 this is equivalent to the legacy Agree(priv, pub) call;
+	// for the hybrid it additionally runs the Kyber768 decapsulation.
+	shared, err := c.suite.KEM().Decapsulate(serverEphPub, c.ephemeralPriv)
 	if err != nil {
-		return nil, nil, fmt.Errorf("handshake: ephemeral DH: %w", err)
+		return nil, nil, fmt.Errorf("handshake: ephemeral KEM: %w", err)
 	}
 	defer crypto.Zeroize(shared)
 	sessionKeys, err := crypto.DeriveSessionKeys(c.suite.KDF(), shared, c.nonce, serverNonce)

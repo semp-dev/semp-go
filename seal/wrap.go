@@ -54,10 +54,20 @@ type Wrapper interface {
 // other implementations can derive interoperable wrap_keys.
 const WrapInfo = "SEMP-v1-wrap"
 
-// NewWrapper returns a Wrapper backed by the X25519 component of the given
-// suite. The same wrapper instance is safe for concurrent use across
-// goroutines because it carries no state — every Wrap/Unwrap call generates
-// or consumes a fresh ephemeral key pair.
+// NewWrapper returns a Wrapper backed by X25519 + the given suite's KDF
+// and AEAD. The wrap operation is always X25519-based regardless of
+// the suite because long-term recipient encryption keys (the keys
+// stored in the keys.Store and referenced by
+// seal.brief_recipients / seal.enclosure_recipients) are X25519
+// regardless of whether the current session runs under SuiteBaseline
+// or the post-quantum hybrid SuitePQ. The Kyber768 component only
+// protects ephemeral session key agreement during the handshake; per-
+// recipient seal wrapping operates on stable published keys and stays
+// X25519.
+//
+// The same wrapper instance is safe for concurrent use across
+// goroutines because it carries no state — every Wrap/Unwrap call
+// generates or consumes a fresh ephemeral key pair.
 func NewWrapper(suite crypto.Suite) Wrapper {
 	if suite == nil {
 		return nil
@@ -69,6 +79,14 @@ type wrapper struct {
 	suite crypto.Suite
 }
 
+// wrapKEM is the KEM used by the seal layer for per-recipient key
+// wrapping. Always X25519, regardless of the session suite, because
+// long-term recipient encryption keys are X25519 — see NewWrapper's
+// doc comment for the rationale.
+func (w *wrapper) wrapKEM() crypto.KEM {
+	return crypto.NewKEMX25519()
+}
+
 // Wrap encrypts symmetricKey under recipientPublicKey using HPKE-Base style
 // ephemeral X25519 + HKDF-SHA-512 + ChaCha20-Poly1305.
 func (w *wrapper) Wrap(recipientPublicKey, symmetricKey []byte) (string, error) {
@@ -78,10 +96,7 @@ func (w *wrapper) Wrap(recipientPublicKey, symmetricKey []byte) (string, error) 
 	if len(symmetricKey) == 0 {
 		return "", errors.New("seal: empty symmetric key")
 	}
-	kem := w.suite.KEM()
-	if kem == nil {
-		return "", errors.New("seal: suite has no KEM")
-	}
+	kem := w.wrapKEM()
 
 	// 1. Fresh ephemeral key pair.
 	ephPub, ephPriv, err := kem.GenerateKeyPair()
@@ -145,10 +160,7 @@ func (w *wrapper) Unwrap(recipientPrivateKey []byte, wrapped string) ([]byte, er
 		return nil, fmt.Errorf("seal: wrapped key base64: %w", err)
 	}
 
-	kem := w.suite.KEM()
-	if kem == nil {
-		return nil, errors.New("seal: suite has no KEM")
-	}
+	kem := w.wrapKEM()
 
 	// X25519 public keys are 32 bytes. Anything shorter is malformed.
 	const x25519PubSize = 32
