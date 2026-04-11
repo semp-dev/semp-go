@@ -104,11 +104,28 @@ type Policy interface {
 	Permissions(identity string) []string
 }
 
-// NewServer constructs a Server from a ServerConfig.
+// NewServer constructs a Server from a ServerConfig. When
+// cfg.Capabilities is zero, the returned server advertises ONLY the
+// suite it was constructed with (cfg.Suite.ID()) — any mismatch
+// between what the server advertises and what it can actually speak
+// would cause Negotiate to pick an unsupported suite and the
+// handshake to fail mid-flight. Operators that run a single binary
+// behind multiple suites should construct one Server per suite and
+// route incoming connections to the right one, or build an explicit
+// Capabilities object that lists every suite they have a Server
+// configured for.
 func NewServer(cfg ServerConfig) *Server {
 	caps := cfg.Capabilities
 	if len(caps.EncryptionAlgorithms) == 0 {
-		caps = DefaultServerCapabilities()
+		suiteID := ""
+		if cfg.Suite != nil {
+			suiteID = string(cfg.Suite.ID())
+		}
+		caps = Capabilities{
+			EncryptionAlgorithms: []string{suiteID},
+			Compression:          []string{"none"},
+			Features:             []string{},
+		}
 	}
 	return &Server{
 		suite:            cfg.Suite,
@@ -230,45 +247,50 @@ func (s *Server) processInit(init *ClientInit) ([]byte, error) {
 		return nil, fmt.Errorf("handshake: canonical init: %w", err)
 	}
 
-	// Generate the server's ephemeral keypair, nonce, and session ID.
-	ephPub, ephPriv, err := s.suite.KEM().GenerateKeyPair()
+	// Responder-side KEM step: encapsulate under the initiator's
+	// ephemeral public key to derive the shared secret and produce
+	// the wire blob we send back as "server ephemeral key". For the
+	// baseline X25519 suite this is equivalent to the legacy
+	// GenerateKeyPair + Agree(ephPriv, clientEphPub) flow; for the
+	// hybrid Kyber768+X25519 suite it additionally encapsulates a
+	// Kyber shared key under the initiator's Kyber pub and packs
+	// (responderX25519Pub || kyberCiphertext) as ephPub. The server
+	// holds no ephemeral private key after this call — Encapsulate
+	// zeroizes it internally.
+	shared, ephPub, err := s.suite.KEM().Encapsulate(clientEphPub)
 	if err != nil {
-		return nil, fmt.Errorf("handshake: ephemeral keypair: %w", err)
+		return nil, fmt.Errorf("handshake: ephemeral KEM encapsulate: %w", err)
 	}
+	defer crypto.Zeroize(shared)
+
 	serverNonce := make([]byte, 32)
 	if _, err := rand.Read(serverNonce); err != nil {
-		crypto.Zeroize(ephPriv)
 		return nil, fmt.Errorf("handshake: server nonce: %w", err)
 	}
 	sessionID, err := newULID()
 	if err != nil {
-		crypto.Zeroize(ephPriv)
 		return nil, err
 	}
 
-	// Compute the shared secret and derive session keys.
-	shared, err := s.suite.KEM().Agree(ephPriv, clientEphPub)
-	if err != nil {
-		crypto.Zeroize(ephPriv)
-		return nil, fmt.Errorf("handshake: ephemeral DH: %w", err)
-	}
-	defer crypto.Zeroize(shared)
 	sessionKeys, err := crypto.DeriveSessionKeys(s.suite.KDF(), shared, clientNonce, serverNonce)
 	if err != nil {
-		crypto.Zeroize(ephPriv)
 		return nil, fmt.Errorf("handshake: derive session keys: %w", err)
 	}
 
 	// Inner identity proof: signature over server_eph_pub || server_nonce
 	// || client_nonce. Proves the server controls the long-term domain key
-	// over its own contribution to the handshake.
+	// over its own contribution to the handshake. For the hybrid suite
+	// the "server_eph_pub" bytes are the wire-level ciphertext blob
+	// (responderX25519Pub || kyberCiphertext); that's what the client
+	// will feed into Decapsulate, so signing those exact bytes gives
+	// the client a binding between the server's identity and the
+	// shared-secret-deriving blob it will process.
 	innerProofMessage := make([]byte, 0, len(ephPub)+len(serverNonce)+len(clientNonce))
 	innerProofMessage = append(innerProofMessage, ephPub...)
 	innerProofMessage = append(innerProofMessage, serverNonce...)
 	innerProofMessage = append(innerProofMessage, clientNonce...)
 	innerSig, err := s.suite.Signer().Sign(s.domainPrivateKey, innerProofMessage)
 	if err != nil {
-		crypto.Zeroize(ephPriv)
 		sessionKeys.Erase()
 		return nil, fmt.Errorf("handshake: server identity proof sign: %w", err)
 	}
@@ -296,7 +318,6 @@ func (s *Server) processInit(init *ClientInit) ([]byte, error) {
 	}
 	signed, err := s.signServerMessage(&resp)
 	if err != nil {
-		crypto.Zeroize(ephPriv)
 		sessionKeys.Erase()
 		return nil, err
 	}
@@ -304,15 +325,13 @@ func (s *Server) processInit(init *ClientInit) ([]byte, error) {
 
 	respCanonical, err := CanonicalForHashing(&resp)
 	if err != nil {
-		crypto.Zeroize(ephPriv)
 		sessionKeys.Erase()
 		return nil, fmt.Errorf("handshake: canonical response: %w", err)
 	}
 
-	// Erase the ephemeral private key now that the shared secret is derived.
-	crypto.Zeroize(ephPriv)
-
-	// Commit state.
+	// Commit state. The server no longer holds an ephemeral private
+	// key — Encapsulate zeroized it internally — so ephemeralPriv is
+	// left nil on the Server struct.
 	s.sessionID = sessionID
 	s.clientNonce = clientNonce
 	s.serverNonce = serverNonce
