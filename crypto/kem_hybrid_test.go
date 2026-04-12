@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/semp-dev/semp-go/crypto"
+	"semp.dev/semp-go/crypto"
 )
 
 // TestHybridKEMGenerateKeyPairShape confirms GenerateKeyPair returns

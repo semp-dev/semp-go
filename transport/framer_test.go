@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/semp-dev/semp-go/transport"
+	"semp.dev/semp-go/transport"
 )
 
 // TestLengthPrefixRoundTrip writes three messages into a buffer with

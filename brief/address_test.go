@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/semp-dev/semp-go/brief"
+	"semp.dev/semp-go/brief"
 )
 
 // TestAddressValidateAccepts exercises a range of valid addresses the

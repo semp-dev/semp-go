@@ -46,8 +46,8 @@ import (
 
 	"github.com/quic-go/quic-go/http3"
 
-	"github.com/semp-dev/semp-go/transport"
-	"github.com/semp-dev/semp-go/transport/h2"
+	"semp.dev/semp-go/transport"
+	"semp.dev/semp-go/transport/h2"
 )
 
 // Config controls the behavior of the QUIC transport.

@@ -1,4 +1,4 @@
-module github.com/semp-dev/semp-go
+module semp.dev/semp-go
 
 // The minimum Go version required to build this module. Bumped to 1.25
 // because golang.org/x/crypto v0.50+ requires it; this version is current

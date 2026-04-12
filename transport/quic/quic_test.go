@@ -14,8 +14,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/semp-dev/semp-go/transport"
-	tquic "github.com/semp-dev/semp-go/transport/quic"
+	"semp.dev/semp-go/transport"
+	tquic "semp.dev/semp-go/transport/quic"
 )
 
 // selfSignedCert generates an ephemeral self-signed TLS certificate

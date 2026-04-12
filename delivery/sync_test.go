@@ -5,10 +5,10 @@ import (
 	"testing"
 	"time"
 
-	semp "github.com/semp-dev/semp-go"
-	"github.com/semp-dev/semp-go/crypto"
-	"github.com/semp-dev/semp-go/delivery"
-	"github.com/semp-dev/semp-go/keys"
+	semp "semp.dev/semp-go"
+	"semp.dev/semp-go/crypto"
+	"semp.dev/semp-go/delivery"
+	"semp.dev/semp-go/keys"
 )
 
 // newDeviceKeypair generates an Ed25519 keypair for a device.

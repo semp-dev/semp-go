@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/semp-dev/semp-go/crypto"
-	"github.com/semp-dev/semp-go/handshake"
-	"github.com/semp-dev/semp-go/session"
+	"semp.dev/semp-go/crypto"
+	"semp.dev/semp-go/handshake"
+	"semp.dev/semp-go/session"
 )
 
 // TestFederationHandshakeRoundTrip drives the full four-message federation

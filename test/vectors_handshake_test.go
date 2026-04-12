@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/semp-dev/semp-go/handshake"
+	"semp.dev/semp-go/handshake"
 )
 
 // Spec vectors for the handshake layer (VECTORS.md §§4.1, 4.2, 5.1).

@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/semp-dev/semp-go/transport/h2"
+	"semp.dev/semp-go/transport/h2"
 )
 
 // TestEncodeEventSingleLine confirms a single-line JSON payload is

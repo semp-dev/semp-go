@@ -11,10 +11,10 @@ import (
 	"testing"
 	"time"
 
-	semp "github.com/semp-dev/semp-go"
-	"github.com/semp-dev/semp-go/crypto"
-	"github.com/semp-dev/semp-go/discovery"
-	"github.com/semp-dev/semp-go/keys"
+	semp "semp.dev/semp-go"
+	"semp.dev/semp-go/crypto"
+	"semp.dev/semp-go/discovery"
+	"semp.dev/semp-go/keys"
 )
 
 // TestParseTXTCapabilities covers the happy path plus the

@@ -13,7 +13,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/semp-dev/semp-go/transport"
+	"semp.dev/semp-go/transport"
 )
 
 // DefaultIdleTimeout is the default duration after which a server-side
