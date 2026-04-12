@@ -29,32 +29,32 @@ type Framer interface {
 	ReadMessage(r io.Reader) ([]byte, error)
 }
 
-// MaxMessageSize is the ceiling the length-prefix framer enforces on
+// MaxEnvelopeSize is the ceiling the length-prefix framer enforces on
 // a single message's length, preventing a hostile peer from tricking
 // the reader into allocating gigabytes. Defaults to 25 MiB, matching
-// the DISCOVERY.md §3.1 default for max_message_size.
-const MaxMessageSize = 25 * 1024 * 1024
+// the DISCOVERY.md §3.1 default for max_envelope_size.
+const MaxEnvelopeSize = 25 * 1024 * 1024
 
 // LengthPrefix returns a Framer implementing the TRANSPORT.md §7.3
 // length-prefix scheme with the default message size ceiling. Each
 // frame is a 4-byte big-endian length followed by that many bytes of
 // message body.
 func LengthPrefix() Framer {
-	return lengthPrefix{maxMessageSize: MaxMessageSize}
+	return lengthPrefix{maxEnvelopeSize: MaxEnvelopeSize}
 }
 
 // LengthPrefixWithLimit is the same as LengthPrefix but lets the
 // caller set a custom message size ceiling. Values <= 0 fall back to
-// MaxMessageSize.
+// MaxEnvelopeSize.
 func LengthPrefixWithLimit(limit int) Framer {
 	if limit <= 0 {
-		limit = MaxMessageSize
+		limit = MaxEnvelopeSize
 	}
-	return lengthPrefix{maxMessageSize: limit}
+	return lengthPrefix{maxEnvelopeSize: limit}
 }
 
 type lengthPrefix struct {
-	maxMessageSize int
+	maxEnvelopeSize int
 }
 
 // WriteMessage writes a single length-prefixed frame. The header is
@@ -65,8 +65,8 @@ func (f lengthPrefix) WriteMessage(w io.Writer, msg []byte) error {
 	if w == nil {
 		return errors.New("transport: nil writer")
 	}
-	if int64(len(msg)) > int64(f.maxMessageSize) {
-		return fmt.Errorf("transport: message length %d exceeds max %d", len(msg), f.maxMessageSize)
+	if int64(len(msg)) > int64(f.maxEnvelopeSize) {
+		return fmt.Errorf("transport: message length %d exceeds max %d", len(msg), f.maxEnvelopeSize)
 	}
 	var header [4]byte
 	binary.BigEndian.PutUint32(header[:], uint32(len(msg)))
@@ -100,8 +100,8 @@ func (f lengthPrefix) ReadMessage(r io.Reader) ([]byte, error) {
 		return nil, fmt.Errorf("transport: read header: %w", err)
 	}
 	length := binary.BigEndian.Uint32(header[:])
-	if int(length) > f.maxMessageSize {
-		return nil, fmt.Errorf("transport: incoming message length %d exceeds max %d", length, f.maxMessageSize)
+	if int(length) > f.maxEnvelopeSize {
+		return nil, fmt.Errorf("transport: incoming message length %d exceeds max %d", length, f.maxEnvelopeSize)
 	}
 	if length == 0 {
 		return []byte{}, nil

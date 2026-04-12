@@ -24,7 +24,7 @@ type MessageStream interface {
 // Sequence (HANDSHAKE.md §2.1):
 //
 //  1. Send init
-//  2. Recv response (or pow_required interstitial — handled transparently)
+//  2. Recv response (or challenge interstitial — handled transparently)
 //  3. Send confirm
 //  4. Recv accepted (or rejected)
 //
@@ -52,7 +52,7 @@ func RunClient(ctx context.Context, stream MessageStream, c *Client) (*session.S
 		return nil, fmt.Errorf("handshake: send init: %w", err)
 	}
 
-	// Loop to absorb the optional pow_required interstitial.
+	// Loop to absorb the optional challenge interstitial.
 	for {
 		incoming, err := stream.Recv(ctx)
 		if err != nil {
@@ -63,13 +63,13 @@ func RunClient(ctx context.Context, stream MessageStream, c *Client) (*session.S
 			return nil, err
 		}
 		switch step {
-		case StepPoWRequired:
-			solution, err := c.OnPoWRequired(incoming)
+		case StepChallenge:
+			solution, err := c.OnChallenge(incoming)
 			if err != nil {
-				return nil, fmt.Errorf("handshake: solve PoW: %w", err)
+				return nil, fmt.Errorf("handshake: solve challenge: %w", err)
 			}
 			if err := stream.Send(ctx, solution); err != nil {
-				return nil, fmt.Errorf("handshake: send pow_solution: %w", err)
+				return nil, fmt.Errorf("handshake: send challenge_response: %w", err)
 			}
 			continue
 		case StepRejected:
@@ -112,7 +112,7 @@ func RunClient(ctx context.Context, stream MessageStream, c *Client) (*session.S
 // Sequence (HANDSHAKE.md §2.1):
 //
 //  1. Recv init
-//  2. Send response (or pow_required interstitial — handled transparently)
+//  2. Send response (or challenge interstitial — handled transparently)
 //  3. Recv confirm
 //  4. Send accepted
 //
@@ -135,7 +135,7 @@ func RunServer(ctx context.Context, stream MessageStream, s *Server) (*session.S
 		return nil, fmt.Errorf("handshake: recv init: %w", err)
 	}
 
-	// 2. Process init. May return PoWRequired bytes.
+	// 2. Process init. May return Challenge bytes.
 	out, err := s.OnInit(initBytes)
 	if err != nil {
 		_ = sendRejection(ctx, stream, s, "policy_violation", err.Error())
@@ -145,24 +145,24 @@ func RunServer(ctx context.Context, stream MessageStream, s *Server) (*session.S
 		return nil, fmt.Errorf("handshake: send response: %w", err)
 	}
 
-	// If we just sent a pow_required, the next message from the client is
-	// a pow_solution and we need to make a second OnInit-equivalent step.
+	// If we just sent a challenge, the next message from the client
+	// is a challenge_response and we need to advance the handshake.
 	step, err := peekStep(out)
 	if err != nil {
 		return nil, err
 	}
-	if step == StepPoWRequired {
+	if step == StepChallenge {
 		solution, err := stream.Recv(ctx)
 		if err != nil {
-			return nil, fmt.Errorf("handshake: recv pow_solution: %w", err)
+			return nil, fmt.Errorf("handshake: recv challenge_response: %w", err)
 		}
-		respBytes, err := s.OnPoWSolution(solution)
+		respBytes, err := s.OnChallengeResponse(solution)
 		if err != nil {
-			_ = sendRejection(ctx, stream, s, "pow_failed", err.Error())
-			return nil, fmt.Errorf("handshake: server OnPoWSolution: %w", err)
+			_ = sendRejection(ctx, stream, s, "challenge_failed", err.Error())
+			return nil, fmt.Errorf("handshake: server OnChallengeResponse: %w", err)
 		}
 		if err := stream.Send(ctx, respBytes); err != nil {
-			return nil, fmt.Errorf("handshake: send response after PoW: %w", err)
+			return nil, fmt.Errorf("handshake: send response after challenge: %w", err)
 		}
 	}
 

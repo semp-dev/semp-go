@@ -1,6 +1,7 @@
 package handshake
 
 import (
+	"encoding/json"
 	"time"
 
 	"semp.dev/semp-go/extensions"
@@ -14,13 +15,27 @@ type Step string
 
 // Defined handshake steps.
 const (
-	StepInit        Step = "init"
-	StepResponse    Step = "response"
-	StepPoWRequired Step = "pow_required"
-	StepPoWSolution Step = "pow_solution"
-	StepConfirm     Step = "confirm"
-	StepAccepted    Step = "accepted"
-	StepRejected    Step = "rejected"
+	StepInit              Step = "init"
+	StepResponse          Step = "response"
+	StepChallenge         Step = "challenge"
+	StepChallengeResponse Step = "challenge_response"
+	StepConfirm           Step = "confirm"
+	StepAccepted          Step = "accepted"
+	StepRejected          Step = "rejected"
+)
+
+// ChallengeType is the discriminator for the kind of challenge a
+// server issues during the handshake. The first (and currently only)
+// defined type is ChallengeTypeProofOfWork. Clients that do not
+// recognize the challenge_type MUST abort the handshake.
+type ChallengeType string
+
+// Defined challenge types.
+const (
+	// ChallengeTypeProofOfWork requires the client to find a nonce
+	// such that SHA-256(prefix || ":" || challenge_id || ":" || nonce)
+	// has at least `difficulty` leading zero bits.
+	ChallengeTypeProofOfWork ChallengeType = "proof_of_work"
 )
 
 // Party is the handshake party discriminator (HANDSHAKE.md §1.4).
@@ -46,7 +61,7 @@ type Capabilities struct {
 	EncryptionAlgorithms []string `json:"encryption_algorithms"`
 	Compression          []string `json:"compression"`
 	Features             []string `json:"features"`
-	MaxMessageSize       int64    `json:"max_message_size,omitempty"`
+	MaxEnvelopeSize       int64    `json:"max_envelope_size,omitempty"`
 	MaxBatchSize         int      `json:"max_batch_size,omitempty"`
 }
 
@@ -56,7 +71,7 @@ type Negotiated struct {
 	EncryptionAlgorithm string   `json:"encryption_algorithm"`
 	Compression         string   `json:"compression"`
 	Features            []string `json:"features"`
-	MaxMessageSize      int64    `json:"max_message_size,omitempty"`
+	MaxEnvelopeSize      int64    `json:"max_envelope_size,omitempty"`
 	MaxBatchSize        int      `json:"max_batch_size,omitempty"`
 }
 
@@ -81,31 +96,55 @@ type ClientInit struct {
 	Extensions         extensions.Map `json:"extensions"`
 }
 
-// PoWRequired is the conditional message 1b returned by a server when it
-// requires a proof-of-work solution before allocating session resources
-// (HANDSHAKE.md §2.2a, REPUTATION.md §8.3).
-type PoWRequired struct {
-	Type            string    `json:"type"`
-	Step            Step      `json:"step"` // StepPoWRequired
-	Party           Party     `json:"party"`
-	Version         string    `json:"version"`
-	ChallengeID     string    `json:"challenge_id"`
-	Algorithm       string    `json:"algorithm"` // always "sha256"
-	Prefix          string    `json:"prefix"`
-	Difficulty      int       `json:"difficulty"`
-	Expires         time.Time `json:"expires"`
-	ServerSignature string    `json:"server_signature"`
+// Challenge is the conditional message 1b returned by a server when it
+// requires the client to solve a challenge before allocating session
+// resources (HANDSHAKE.md §2.2a). The ChallengeType field identifies
+// which kind of challenge this is; Parameters carries the type-specific
+// payload as raw JSON.
+//
+// The first (and currently only) defined challenge type is
+// ChallengeTypeProofOfWork, whose Parameters unmarshal into
+// PoWChallengeParams. Future challenge types can be added without
+// changing this struct — clients that do not recognize the
+// challenge_type MUST abort the handshake.
+type Challenge struct {
+	Type            string          `json:"type"`
+	Step            Step            `json:"step"` // StepChallenge
+	Party           Party           `json:"party"`
+	Version         string          `json:"version"`
+	ChallengeID     string          `json:"challenge_id"`
+	ChallengeType   ChallengeType   `json:"challenge_type"`
+	Parameters      json.RawMessage `json:"parameters"`
+	Expires         time.Time       `json:"expires"`
+	ServerSignature string          `json:"server_signature"`
 }
 
-// PoWSolution is the message 1c sent in response to PoWRequired.
-type PoWSolution struct {
-	Type        string `json:"type"`
-	Step        Step   `json:"step"` // StepPoWSolution
-	Party       Party  `json:"party"`
-	Version     string `json:"version"`
-	ChallengeID string `json:"challenge_id"`
-	Nonce       string `json:"nonce"`
-	Hash        string `json:"hash"`
+// ChallengeResponse is the message 1c sent by a client in response
+// to a Challenge. The ChallengeType echoes the challenge's type, and
+// Solution carries the type-specific solution payload as raw JSON.
+type ChallengeResponse struct {
+	Type          string          `json:"type"`
+	Step          Step            `json:"step"` // StepChallengeResponse
+	Party         Party           `json:"party"`
+	Version       string          `json:"version"`
+	ChallengeID   string          `json:"challenge_id"`
+	ChallengeType ChallengeType   `json:"challenge_type"`
+	Solution      json.RawMessage `json:"solution"`
+}
+
+// PoWChallengeParams is the Parameters payload for
+// ChallengeTypeProofOfWork challenges.
+type PoWChallengeParams struct {
+	Algorithm  string `json:"algorithm"`  // always "sha256"
+	Prefix     string `json:"prefix"`     // base64-encoded random bytes
+	Difficulty int    `json:"difficulty"` // leading zero bits required
+}
+
+// PoWSolutionData is the Solution payload for
+// ChallengeTypeProofOfWork challenge responses.
+type PoWSolutionData struct {
+	Nonce string `json:"nonce"` // base64-encoded nonce
+	Hash  string `json:"hash"`  // hex-encoded SHA-256 hash
 }
 
 // ServerResponse is message 2 returned by the server (HANDSHAKE.md §2.3).

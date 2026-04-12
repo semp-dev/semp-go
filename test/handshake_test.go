@@ -3,6 +3,7 @@ package test
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -11,6 +12,18 @@ import (
 	"semp.dev/semp-go/keys"
 	"semp.dev/semp-go/session"
 )
+
+// mustMarshalJSON is a test helper that marshals v and fails the test
+// on error. Used to construct json.RawMessage values for Challenge
+// Parameters.
+func mustMarshalJSON(t *testing.T, v any) json.RawMessage {
+	t.Helper()
+	b, err := json.Marshal(v)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	return b
+}
 
 // TestClientHandshakeRoundTrip drives the full four-message client handshake
 // in a single process. The test wires a Client and a Server back to back via
@@ -235,12 +248,13 @@ func TestHandshakeRejectsWrongClientIdentityKey(t *testing.T) {
 	}
 }
 
-// TestHandshakeWithPoWChallenge exercises the conditional pow_required /
-// pow_solution interstitial. The server is configured with a powGatePolicy
-// that issues a (low-difficulty) challenge once. The client must solve it
-// before the handshake can proceed. Difficulty 8 is sufficient to be
-// observably an interstitial without making the test slow.
-func TestHandshakeWithPoWChallenge(t *testing.T) {
+// TestHandshakeWithChallenge exercises the conditional challenge /
+// challenge_response interstitial. The server is configured with a
+// challengeGatePolicy that issues a (low-difficulty) proof-of-work
+// challenge once. The client must solve it before the handshake can
+// proceed. Difficulty 8 is sufficient to be observably an interstitial
+// without making the test slow.
+func TestHandshakeWithChallenge(t *testing.T) {
 	suite := crypto.SuiteBaseline
 	store := newMemStore()
 
@@ -255,17 +269,21 @@ func TestHandshakeWithPoWChallenge(t *testing.T) {
 	for i := range prefix {
 		prefix[i] = byte(i + 1)
 	}
-	policy := &powGatePolicy{
-		challenge: &handshake.PoWRequired{
-			Type:        "SEMP_HANDSHAKE",
-			Step:        handshake.StepPoWRequired,
-			Party:       handshake.PartyServer,
-			Version:     "1.0.0",
-			ChallengeID: "TESTCHALLENGE0000000001",
-			Algorithm:   handshake.PoWAlgorithm,
-			Prefix:      base64.StdEncoding.EncodeToString(prefix),
-			Difficulty:  8, // ~256 iterations on average — fast enough for tests
-			Expires:     time.Now().Add(60 * time.Second),
+	params := mustMarshalJSON(t, handshake.PoWChallengeParams{
+		Algorithm:  handshake.PoWAlgorithm,
+		Prefix:     base64.StdEncoding.EncodeToString(prefix),
+		Difficulty: 8, // ~256 iterations on average — fast enough for tests
+	})
+	policy := &challengeGatePolicy{
+		challenge: &handshake.Challenge{
+			Type:          "SEMP_HANDSHAKE",
+			Step:          handshake.StepChallenge,
+			Party:         handshake.PartyServer,
+			Version:       "1.0.0",
+			ChallengeID:   "TESTCHALLENGE0000000001",
+			ChallengeType: handshake.ChallengeTypeProofOfWork,
+			Parameters:    params,
+			Expires:       time.Now().Add(60 * time.Second),
 		},
 	}
 	client := handshake.NewClient(handshake.ClientConfig{
@@ -288,20 +306,20 @@ func TestHandshakeWithPoWChallenge(t *testing.T) {
 
 	initBytes, _ := client.Init()
 
-	// Server should respond with a pow_required.
-	powBytes, err := server.OnInit(initBytes)
+	// Server should respond with a challenge.
+	challengeBytes, err := server.OnInit(initBytes)
 	if err != nil {
 		t.Fatalf("server.OnInit: %v", err)
 	}
 	// Client solves the challenge.
-	solBytes, err := client.OnPoWRequired(powBytes)
+	solBytes, err := client.OnChallenge(challengeBytes)
 	if err != nil {
-		t.Fatalf("client.OnPoWRequired: %v", err)
+		t.Fatalf("client.OnChallenge: %v", err)
 	}
 	// Server validates the solution and produces the actual response.
-	respBytes, err := server.OnPoWSolution(solBytes)
+	respBytes, err := server.OnChallengeResponse(solBytes)
 	if err != nil {
-		t.Fatalf("server.OnPoWSolution: %v", err)
+		t.Fatalf("server.OnChallengeResponse: %v", err)
 	}
 	confirmBytes, clientSession, err := client.OnResponse(respBytes)
 	if err != nil {
