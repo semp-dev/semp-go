@@ -1,6 +1,6 @@
 package enclosure
 
-import "github.com/semp-dev/semp-go/extensions"
+import "semp.dev/semp-go/extensions"
 
 // Enclosure is the decrypted form of the envelope.enclosure field. It
 // contains the message body in one or more representations, plus any

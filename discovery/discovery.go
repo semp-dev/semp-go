@@ -8,9 +8,9 @@ import (
 	"strings"
 	"time"
 
-	semp "github.com/semp-dev/semp-go"
-	"github.com/semp-dev/semp-go/extensions"
-	"github.com/semp-dev/semp-go/keys"
+	semp "semp.dev/semp-go"
+	"semp.dev/semp-go/extensions"
+	"semp.dev/semp-go/keys"
 )
 
 // MessageType is the wire-level type discriminator for discovery messages.

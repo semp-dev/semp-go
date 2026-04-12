@@ -7,8 +7,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/semp-dev/semp-go/crypto"
-	"github.com/semp-dev/semp-go/internal/canonical"
+	"semp.dev/semp-go/crypto"
+	"semp.dev/semp-go/internal/canonical"
 )
 
 // canonicalDeviceCertificateBytes returns the canonical JSON form of

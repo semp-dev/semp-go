@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/semp-dev/semp-go/transport/h2"
+	"semp.dev/semp-go/transport/h2"
 )
 
 // TestClientHandlerRoundTrip exercises a single POST through the

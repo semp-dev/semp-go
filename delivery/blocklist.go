@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	semp "github.com/semp-dev/semp-go"
+	semp "semp.dev/semp-go"
 )
 
 // EntityType identifies what kind of entity a block entry targets.

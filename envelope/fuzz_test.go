@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/semp-dev/semp-go/envelope"
+	"semp.dev/semp-go/envelope"
 )
 
 // FuzzEnvelopeDecode feeds arbitrary bytes into envelope.Decode and

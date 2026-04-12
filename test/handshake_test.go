@@ -6,10 +6,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/semp-dev/semp-go/crypto"
-	"github.com/semp-dev/semp-go/handshake"
-	"github.com/semp-dev/semp-go/keys"
-	"github.com/semp-dev/semp-go/session"
+	"semp.dev/semp-go/crypto"
+	"semp.dev/semp-go/handshake"
+	"semp.dev/semp-go/keys"
+	"semp.dev/semp-go/session"
 )
 
 // TestClientHandshakeRoundTrip drives the full four-message client handshake

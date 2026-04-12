@@ -3,7 +3,7 @@ package delivery
 import (
 	"time"
 
-	semp "github.com/semp-dev/semp-go"
+	semp "semp.dev/semp-go"
 )
 
 // FetchType is the wire-level type discriminator for the demo-only fetch

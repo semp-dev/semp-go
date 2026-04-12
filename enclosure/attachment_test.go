@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/semp-dev/semp-go/enclosure"
+	"semp.dev/semp-go/enclosure"
 )
 
 // -----------------------------------------------------------------------------

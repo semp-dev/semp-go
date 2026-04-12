@@ -3,7 +3,7 @@ package delivery
 import (
 	"time"
 
-	semp "github.com/semp-dev/semp-go"
+	semp "semp.dev/semp-go"
 )
 
 // SubmissionType is the wire-level type discriminator for envelope

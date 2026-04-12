@@ -9,9 +9,9 @@ import (
 	"fmt"
 	"time"
 
-	semp "github.com/semp-dev/semp-go"
-	"github.com/semp-dev/semp-go/crypto"
-	"github.com/semp-dev/semp-go/keys"
+	semp "semp.dev/semp-go"
+	"semp.dev/semp-go/crypto"
+	"semp.dev/semp-go/keys"
 )
 
 // RekeyStream is the minimal message-stream interface a rekey driver

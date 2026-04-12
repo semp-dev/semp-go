@@ -21,7 +21,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/semp-dev/semp-go/keys"
+	"semp.dev/semp-go/keys"
 )
 
 // Store is the in-memory store. The zero value is not usable; call New.

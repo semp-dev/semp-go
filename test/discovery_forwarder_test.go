@@ -9,11 +9,11 @@ import (
 	"strings"
 	"testing"
 
-	semp "github.com/semp-dev/semp-go"
-	"github.com/semp-dev/semp-go/crypto"
-	"github.com/semp-dev/semp-go/delivery/inboxd"
-	"github.com/semp-dev/semp-go/discovery"
-	"github.com/semp-dev/semp-go/internal/demoseed"
+	semp "semp.dev/semp-go"
+	"semp.dev/semp-go/crypto"
+	"semp.dev/semp-go/delivery/inboxd"
+	"semp.dev/semp-go/discovery"
+	"semp.dev/semp-go/internal/demoseed"
 )
 
 // fakeDNS is a minimal discovery.DNSLookup for tests that only need

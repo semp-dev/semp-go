@@ -1,8 +1,8 @@
 package envelope
 
 import (
-	"github.com/semp-dev/semp-go/internal/canonical"
-	"github.com/semp-dev/semp-go/seal"
+	"semp.dev/semp-go/internal/canonical"
+	"semp.dev/semp-go/seal"
 )
 
 // MessageType is the wire-level type discriminator for an envelope. Per

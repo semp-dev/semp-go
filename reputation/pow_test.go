@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/semp-dev/semp-go/reputation"
+	"semp.dev/semp-go/reputation"
 )
 
 // TestDifficultyForAgeCurve confirms the default age curve: new

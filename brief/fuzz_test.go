@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/semp-dev/semp-go/brief"
+	"semp.dev/semp-go/brief"
 )
 
 // FuzzAddressParse feeds arbitrary strings into brief.Address and
