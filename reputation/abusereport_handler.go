@@ -9,9 +9,9 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/semp-dev/semp-go/crypto"
-	"github.com/semp-dev/semp-go/internal/canonical"
-	"github.com/semp-dev/semp-go/keys"
+	"semp.dev/semp-go/crypto"
+	"semp.dev/semp-go/internal/canonical"
+	"semp.dev/semp-go/keys"
 )
 
 // AbuseReportPath is the well-known path a user client POSTs abuse

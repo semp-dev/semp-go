@@ -29,7 +29,7 @@ import (
 
 	"github.com/coder/websocket"
 
-	"github.com/semp-dev/semp-go/transport"
+	"semp.dev/semp-go/transport"
 )
 
 // Subprotocol is the WebSocket subprotocol identifier sent in the HTTP

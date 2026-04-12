@@ -3,8 +3,8 @@ package reputation
 import (
 	"time"
 
-	"github.com/semp-dev/semp-go/extensions"
-	"github.com/semp-dev/semp-go/keys"
+	"semp.dev/semp-go/extensions"
+	"semp.dev/semp-go/keys"
 )
 
 // AbuseReportType is the wire-level type discriminator for abuse

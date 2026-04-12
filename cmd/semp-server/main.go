@@ -46,17 +46,17 @@ import (
 	"syscall"
 	"time"
 
-	semp "github.com/semp-dev/semp-go"
-	"github.com/semp-dev/semp-go/crypto"
-	"github.com/semp-dev/semp-go/delivery"
-	"github.com/semp-dev/semp-go/delivery/inboxd"
-	"github.com/semp-dev/semp-go/discovery"
-	"github.com/semp-dev/semp-go/handshake"
-	"github.com/semp-dev/semp-go/internal/demoseed"
-	"github.com/semp-dev/semp-go/keys"
-	"github.com/semp-dev/semp-go/keys/memstore"
-	"github.com/semp-dev/semp-go/transport"
-	"github.com/semp-dev/semp-go/transport/ws"
+	semp "semp.dev/semp-go"
+	"semp.dev/semp-go/crypto"
+	"semp.dev/semp-go/delivery"
+	"semp.dev/semp-go/delivery/inboxd"
+	"semp.dev/semp-go/discovery"
+	"semp.dev/semp-go/handshake"
+	"semp.dev/semp-go/internal/demoseed"
+	"semp.dev/semp-go/keys"
+	"semp.dev/semp-go/keys/memstore"
+	"semp.dev/semp-go/transport"
+	"semp.dev/semp-go/transport/ws"
 )
 
 type permitAllPolicy struct{}

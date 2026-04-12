@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/semp-dev/semp-go/transport"
-	"github.com/semp-dev/semp-go/transport/h2"
+	"semp.dev/semp-go/transport"
+	"semp.dev/semp-go/transport/h2"
 )
 
 // makePost is a tiny helper for the handful of tests that need to

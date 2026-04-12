@@ -11,9 +11,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/semp-dev/semp-go/crypto"
-	"github.com/semp-dev/semp-go/keys"
-	"github.com/semp-dev/semp-go/keys/memstore"
+	"semp.dev/semp-go/crypto"
+	"semp.dev/semp-go/keys"
+	"semp.dev/semp-go/keys/memstore"
 )
 
 // newSigningKeypair generates an Ed25519 signing keypair for tests.

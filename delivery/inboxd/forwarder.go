@@ -8,15 +8,15 @@ import (
 	"sync"
 	"time"
 
-	semp "github.com/semp-dev/semp-go"
-	"github.com/semp-dev/semp-go/crypto"
-	"github.com/semp-dev/semp-go/delivery"
-	"github.com/semp-dev/semp-go/discovery"
-	"github.com/semp-dev/semp-go/envelope"
-	"github.com/semp-dev/semp-go/handshake"
-	"github.com/semp-dev/semp-go/keys"
-	"github.com/semp-dev/semp-go/session"
-	"github.com/semp-dev/semp-go/transport"
+	semp "semp.dev/semp-go"
+	"semp.dev/semp-go/crypto"
+	"semp.dev/semp-go/delivery"
+	"semp.dev/semp-go/discovery"
+	"semp.dev/semp-go/envelope"
+	"semp.dev/semp-go/handshake"
+	"semp.dev/semp-go/keys"
+	"semp.dev/semp-go/session"
+	"semp.dev/semp-go/transport"
 )
 
 // PeerRegistry maps a remote domain to the set of endpoints and key

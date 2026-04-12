@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/semp-dev/semp-go/brief"
-	"github.com/semp-dev/semp-go/extensions"
+	"semp.dev/semp-go/brief"
+	"semp.dev/semp-go/extensions"
 )
 
 // briefWithBCC is a tiny fixture builder used by every test in this

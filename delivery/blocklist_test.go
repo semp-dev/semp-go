@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	semp "github.com/semp-dev/semp-go"
-	"github.com/semp-dev/semp-go/delivery"
+	semp "semp.dev/semp-go"
+	"semp.dev/semp-go/delivery"
 )
 
 func userEntry(addr string, ack semp.Acknowledgment) delivery.BlockEntry {

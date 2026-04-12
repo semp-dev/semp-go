@@ -9,9 +9,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/semp-dev/semp-go/extensions"
-	"github.com/semp-dev/semp-go/internal/canonical"
-	"github.com/semp-dev/semp-go/keys"
+	"semp.dev/semp-go/extensions"
+	"semp.dev/semp-go/internal/canonical"
+	"semp.dev/semp-go/keys"
 )
 
 // Wire-level type discriminators used in SEMP_TRUST_OBSERVATION and

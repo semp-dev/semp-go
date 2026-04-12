@@ -3,7 +3,7 @@ package handshake
 import (
 	"time"
 
-	"github.com/semp-dev/semp-go/extensions"
+	"semp.dev/semp-go/extensions"
 )
 
 // MessageType is the wire-level type discriminator for handshake messages.

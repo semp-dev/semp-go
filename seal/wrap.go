@@ -5,8 +5,8 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/semp-dev/semp-go/crypto"
-	"github.com/semp-dev/semp-go/keys"
+	"semp.dev/semp-go/crypto"
+	"semp.dev/semp-go/keys"
 )
 
 // Wrapper wraps and unwraps the per-envelope symmetric keys (K_brief and

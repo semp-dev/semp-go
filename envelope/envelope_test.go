@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/semp-dev/semp-go/seal"
+	"semp.dev/semp-go/seal"
 )
 
 // TestEncodeDecodeRoundTrip confirms that an Envelope round-trips losslessly

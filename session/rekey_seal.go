@@ -7,8 +7,8 @@ import (
 	"errors"
 	"fmt"
 
-	semp "github.com/semp-dev/semp-go"
-	"github.com/semp-dev/semp-go/crypto"
+	semp "semp.dev/semp-go"
+	"semp.dev/semp-go/crypto"
 )
 
 // SealedRekey is the wire-level envelope that carries an AEAD-encrypted

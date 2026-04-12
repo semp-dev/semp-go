@@ -5,15 +5,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/semp-dev/semp-go/brief"
-	"github.com/semp-dev/semp-go/crypto"
-	"github.com/semp-dev/semp-go/enclosure"
-	"github.com/semp-dev/semp-go/envelope"
-	"github.com/semp-dev/semp-go/handshake"
-	"github.com/semp-dev/semp-go/internal/demoseed"
-	"github.com/semp-dev/semp-go/keys"
-	"github.com/semp-dev/semp-go/seal"
-	"github.com/semp-dev/semp-go/transport/ws"
+	"semp.dev/semp-go/brief"
+	"semp.dev/semp-go/crypto"
+	"semp.dev/semp-go/enclosure"
+	"semp.dev/semp-go/envelope"
+	"semp.dev/semp-go/handshake"
+	"semp.dev/semp-go/internal/demoseed"
+	"semp.dev/semp-go/keys"
+	"semp.dev/semp-go/seal"
+	"semp.dev/semp-go/transport/ws"
 )
 
 // TestMultiDeviceSEMPKeysReturnsAllDevices drives a real SEMP_KEYS

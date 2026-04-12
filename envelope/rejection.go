@@ -3,7 +3,7 @@ package envelope
 import (
 	"time"
 
-	semp "github.com/semp-dev/semp-go"
+	semp "semp.dev/semp-go"
 )
 
 // Rejection is the structured rejection response a server returns when it
