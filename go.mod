@@ -10,7 +10,6 @@ go 1.25.0
 // corresponding package transitions from stub to functional implementation):
 //
 //   - github.com/oklog/ulid/v2          (ULIDs for postmark.id, session_id)
-//   - github.com/quic-go/quic-go        (transport/quic binding)
 
 require (
 	github.com/cloudflare/circl v1.6.3
@@ -18,4 +17,10 @@ require (
 	golang.org/x/crypto v0.50.0
 )
 
-require golang.org/x/sys v0.43.0 // indirect
+require (
+	github.com/quic-go/qpack v0.6.0 // indirect
+	github.com/quic-go/quic-go v0.59.0 // indirect
+	golang.org/x/net v0.52.0 // indirect
+	golang.org/x/sys v0.43.0 // indirect
+	golang.org/x/text v0.36.0 // indirect
+)
