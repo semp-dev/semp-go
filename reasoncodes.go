@@ -17,10 +17,10 @@ const (
 	ReasonHandshakeExpired ReasonCode = "handshake_expired"
 	ReasonHandshakeInvalid ReasonCode = "handshake_invalid"
 	ReasonNoSession        ReasonCode = "no_session"
-	ReasonRateLimited      ReasonCode = "rate_limited"
-	ReasonPoWRequired      ReasonCode = "pow_required"
-	ReasonPoWFailed        ReasonCode = "pow_failed"
-	ReasonServerAtCapacity ReasonCode = "server_at_capacity"
+	ReasonRateLimited        ReasonCode = "rate_limited"
+	ReasonChallengeRequired  ReasonCode = "challenge_required"
+	ReasonChallengeFailed    ReasonCode = "challenge_failed"
+	ReasonServerAtCapacity   ReasonCode = "server_at_capacity"
 )
 
 // Envelope reason codes (ENVELOPE.md §9.3, ERRORS.md §3). Several handshake
@@ -53,8 +53,8 @@ func (c ReasonCode) Recoverable() bool {
 		ReasonHandshakeInvalid,
 		ReasonNoSession,
 		ReasonRateLimited,
-		ReasonPoWRequired,
-		ReasonPoWFailed,
+		ReasonChallengeRequired,
+		ReasonChallengeFailed,
 		ReasonServerAtCapacity:
 		return true
 	default:
