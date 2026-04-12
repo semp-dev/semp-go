@@ -57,7 +57,7 @@ type PoWPolicy struct {
 // given origin domain, or (nil, nil) when no challenge is required.
 // The returned challenge has already been recorded in the ledger.
 // A non-nil error means the caller should fail the handshake with
-// a transport-level error rather than a pow_failed rejection.
+// a transport-level error rather than a challenge_failed rejection.
 func (p *PoWPolicy) Decide(domain string) (*Challenge, error) {
 	if p == nil {
 		return nil, nil
@@ -153,7 +153,7 @@ func (p *PoWPolicy) RedeemAndVerify(challengeID string, verify func(prefix []byt
 // handshake (and thereby creating a cycle — handshake already depends
 // on reputation-shaped concepts). The adapter embeds a DelegatePolicy
 // for the non-PoW decisions (block lists, session TTL, permissions)
-// and delegates to it for everything other than RequirePoW.
+// and delegates to it for everything other than RequireChallenge.
 //
 // Usage from a server:
 //
@@ -201,43 +201,48 @@ type DelegatePolicy interface {
 	Permissions(identity string) []string
 }
 
-// PoWRequirement is the struct the adapter returns from its
-// RequirePoW equivalent. It mirrors handshake.PoWRequired's wire
+// ChallengeRequirement is the struct the adapter returns from its
+// RequireChallenge method. It mirrors handshake.Challenge's wire
 // fields but is declared here so reputation can stay
 // handshake-independent. Callers that use the adapter with
 // handshake.Server wrap it once in a small shim that copies the
-// fields into handshake.PoWRequired; see the tests for an example.
-type PoWRequirement struct {
-	ChallengeID string
-	Algorithm   string
-	PrefixB64   string
-	Difficulty  int
-	Expires     time.Time
+// fields into handshake.Challenge; see the tests for an example.
+type ChallengeRequirement struct {
+	ChallengeID   string
+	ChallengeType string
+	Algorithm     string
+	PrefixB64     string
+	Difficulty    int
+	Expires       time.Time
 }
 
-// RequirePoW is the adapter's decision hook. Call it from the shim
-// that implements handshake.Policy.RequirePoW:
+// RequireChallenge is the adapter's decision hook. Call it from the
+// shim that implements handshake.Policy.RequireChallenge:
 //
-//	func (s *shim) RequirePoW(initNonce, transport string) *handshake.PoWRequired {
-//	    req := s.adapter.RequirePoW(initNonce, transport)
+//	func (s *shim) RequireChallenge(initNonce, transport string) *handshake.Challenge {
+//	    req := s.adapter.RequireChallenge(initNonce, transport)
 //	    if req == nil {
 //	        return nil
 //	    }
-//	    return &handshake.PoWRequired{
-//	        Type:        handshake.MessageType,
-//	        Step:        handshake.StepPoWRequired,
-//	        Party:       handshake.PartyServer,
-//	        Version:     semp.ProtocolVersion,
-//	        ChallengeID: req.ChallengeID,
-//	        Algorithm:   req.Algorithm,
-//	        Prefix:      req.PrefixB64,
-//	        Difficulty:  req.Difficulty,
-//	        Expires:     req.Expires,
+//	    params, _ := json.Marshal(handshake.PoWChallengeParams{
+//	        Algorithm:  req.Algorithm,
+//	        Prefix:     req.PrefixB64,
+//	        Difficulty: req.Difficulty,
+//	    })
+//	    return &handshake.Challenge{
+//	        Type:          handshake.MessageType,
+//	        Step:          handshake.StepChallenge,
+//	        Party:         handshake.PartyServer,
+//	        Version:       semp.ProtocolVersion,
+//	        ChallengeID:   req.ChallengeID,
+//	        ChallengeType: handshake.ChallengeTypeProofOfWork,
+//	        Parameters:    params,
+//	        Expires:       req.Expires,
 //	    }
 //	}
 //
-// Returns nil when no PoW is required (trusted or no-policy case).
-func (a *HandshakeAdapter) RequirePoW(initNonce, transport string) *PoWRequirement {
+// Returns nil when no challenge is required (trusted or no-policy).
+func (a *HandshakeAdapter) RequireChallenge(initNonce, transport string) *ChallengeRequirement {
 	if a == nil || a.PoW == nil {
 		return nil
 	}
@@ -250,12 +255,13 @@ func (a *HandshakeAdapter) RequirePoW(initNonce, transport string) *PoWRequireme
 		return nil
 	}
 	a.remember(initNonce, ch)
-	return &PoWRequirement{
-		ChallengeID: ch.ID,
-		Algorithm:   ch.Algorithm,
-		PrefixB64:   base64.StdEncoding.EncodeToString(ch.Prefix),
-		Difficulty:  ch.Difficulty,
-		Expires:     ch.Expires,
+	return &ChallengeRequirement{
+		ChallengeID:   ch.ID,
+		ChallengeType: "proof_of_work",
+		Algorithm:     ch.Algorithm,
+		PrefixB64:     base64.StdEncoding.EncodeToString(ch.Prefix),
+		Difficulty:    ch.Difficulty,
+		Expires:       ch.Expires,
 	}
 }
 
@@ -284,7 +290,7 @@ func (a *HandshakeAdapter) Permissions(identity string) []string {
 }
 
 // remember stashes a challenge keyed by the client's init nonce so
-// the outcome of the subsequent pow_solution exchange can be
+// the outcome of the subsequent challenge_response exchange can be
 // attributed back to a domain for observation recording.
 func (a *HandshakeAdapter) remember(initNonce string, ch *Challenge) {
 	a.mu.Lock()

@@ -29,7 +29,7 @@ type Configuration struct {
 	Features       []string          `json:"features"`
 	PostQuantum    string            `json:"post_quantum"`
 	AuthMethods    []string          `json:"auth_methods,omitempty"`
-	MaxMessageSize int64             `json:"max_message_size,omitempty"`
+	MaxEnvelopeSize int64             `json:"max_envelope_size,omitempty"`
 	MaxAttachments int               `json:"max_attachments,omitempty"`
 	Extensions     map[string]any    `json:"extensions,omitempty"`
 }

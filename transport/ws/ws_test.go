@@ -19,7 +19,7 @@ import (
 
 type permitAllPolicy struct{}
 
-func (permitAllPolicy) RequirePoW(_, _ string) *handshake.PoWRequired { return nil }
+func (permitAllPolicy) RequireChallenge(_, _ string) *handshake.Challenge { return nil }
 func (permitAllPolicy) BlockedDomain(_ string) bool                   { return false }
 func (permitAllPolicy) SessionTTL(_ string) int                       { return 300 }
 func (permitAllPolicy) Permissions(_ string) []string                 { return []string{"send", "receive"} }

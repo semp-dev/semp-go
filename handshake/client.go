@@ -31,9 +31,9 @@ import (
 //	_ = c.OnAccepted(acceptedBytes, sess)
 //	// session is now usable
 //
-// If the server returns a pow_required message before the response, the
-// caller MUST call OnPoWRequired and transmit its result before retrying
-// for the response.
+// If the server returns a challenge message before the response, the
+// caller MUST call OnChallenge and transmit the resulting
+// challenge_response before reading the actual response.
 type Client struct {
 	suite        crypto.Suite
 	store        keys.PrivateStore
@@ -155,25 +155,29 @@ func (c *Client) Init() ([]byte, error) {
 	return canonicalBytes, nil
 }
 
-// OnPoWRequired processes a pow_required message and returns the bytes of
-// the pow_solution message to send next.
+// OnChallenge processes a challenge message and returns the bytes of
+// the challenge_response message to send next.
 //
-// The server's signature on the pow_required message is verified before any
-// solving work begins. If verification fails the handshake MUST be aborted
-// (HANDSHAKE.md §2.2a).
-func (c *Client) OnPoWRequired(data []byte) ([]byte, error) {
+// The server's signature on the challenge message is verified before
+// any solving work begins. If verification fails the handshake MUST
+// be aborted (HANDSHAKE.md §2.2a).
+//
+// If the challenge_type is not recognized, OnChallenge returns an error
+// and the client MUST abort the handshake — per the spec a client that
+// does not recognize the challenge_type MUST NOT proceed.
+func (c *Client) OnChallenge(data []byte) ([]byte, error) {
 	if c == nil || c.suite == nil {
 		return nil, errors.New("handshake: nil client or suite")
 	}
-	var req PoWRequired
+	var req Challenge
 	if err := json.Unmarshal(data, &req); err != nil {
-		return nil, fmt.Errorf("handshake: parse pow_required: %w", err)
+		return nil, fmt.Errorf("handshake: parse challenge: %w", err)
 	}
-	if req.Type != MessageType || req.Step != StepPoWRequired {
-		return nil, errors.New("handshake: pow_required type/step mismatch")
+	if req.Type != MessageType || req.Step != StepChallenge {
+		return nil, errors.New("handshake: challenge type/step mismatch")
 	}
-	if req.Algorithm != PoWAlgorithm {
-		return nil, fmt.Errorf("handshake: unsupported PoW algorithm %q", req.Algorithm)
+	if req.ChallengeType != ChallengeTypeProofOfWork {
+		return nil, fmt.Errorf("handshake: unsupported challenge type %q", req.ChallengeType)
 	}
 	// Verify the server signature before doing any solving work.
 	domainPub, err := c.lookupServerDomainKey()
@@ -183,22 +187,34 @@ func (c *Client) OnPoWRequired(data []byte) ([]byte, error) {
 	if err := VerifyServerMessage(c.suite, domainPub, &req, req.ServerSignature); err != nil {
 		return nil, err
 	}
-	prefix, err := base64.StdEncoding.DecodeString(req.Prefix)
-	if err != nil {
-		return nil, fmt.Errorf("handshake: pow prefix base64: %w", err)
+	// Unmarshal the PoW-specific parameters.
+	var params PoWChallengeParams
+	if err := json.Unmarshal(req.Parameters, &params); err != nil {
+		return nil, fmt.Errorf("handshake: parse challenge parameters: %w", err)
 	}
-	nonceB64, hashHex, err := SolveChallenge(prefix, req.ChallengeID, req.Difficulty, req.Expires)
-	if err != nil {
-		return nil, fmt.Errorf("handshake: solve PoW: %w", err)
+	if params.Algorithm != PoWAlgorithm {
+		return nil, fmt.Errorf("handshake: unsupported PoW algorithm %q", params.Algorithm)
 	}
-	out := PoWSolution{
-		Type:        MessageType,
-		Step:        StepPoWSolution,
-		Party:       PartyClient,
-		Version:     "1.0.0",
-		ChallengeID: req.ChallengeID,
-		Nonce:       nonceB64,
-		Hash:        hashHex,
+	prefix, err := base64.StdEncoding.DecodeString(params.Prefix)
+	if err != nil {
+		return nil, fmt.Errorf("handshake: challenge prefix base64: %w", err)
+	}
+	nonceB64, hashHex, err := SolveChallenge(prefix, req.ChallengeID, params.Difficulty, req.Expires)
+	if err != nil {
+		return nil, fmt.Errorf("handshake: solve challenge: %w", err)
+	}
+	solData, err := json.Marshal(PoWSolutionData{Nonce: nonceB64, Hash: hashHex})
+	if err != nil {
+		return nil, fmt.Errorf("handshake: marshal solution: %w", err)
+	}
+	out := ChallengeResponse{
+		Type:          MessageType,
+		Step:          StepChallengeResponse,
+		Party:         PartyClient,
+		Version:       "1.0.0",
+		ChallengeID:   req.ChallengeID,
+		ChallengeType: req.ChallengeType,
+		Solution:      solData,
 	}
 	return CanonicalForHashing(&out)
 }

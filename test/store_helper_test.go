@@ -190,25 +190,25 @@ func (e errStr) Error() string { return string(e) }
 // 5-minute TTL, send+receive permissions.
 type permitAllPolicy struct{}
 
-func (permitAllPolicy) RequirePoW(_, _ string) *handshake.PoWRequired { return nil }
+func (permitAllPolicy) RequireChallenge(_, _ string) *handshake.Challenge { return nil }
 func (permitAllPolicy) BlockedDomain(_ string) bool                   { return false }
 func (permitAllPolicy) SessionTTL(_ string) int                       { return 300 }
 func (permitAllPolicy) Permissions(_ string) []string                 { return []string{"send", "receive"} }
 
-// powGatePolicy returns a fixed PoW challenge once and then never again.
+// challengeGatePolicy returns a fixed challenge once and then never again.
 // Used by the PoW round-trip test to exercise the conditional path.
-type powGatePolicy struct {
-	challenge *handshake.PoWRequired
+type challengeGatePolicy struct {
+	challenge *handshake.Challenge
 	served    bool
 }
 
-func (p *powGatePolicy) RequirePoW(_, _ string) *handshake.PoWRequired {
+func (p *challengeGatePolicy) RequireChallenge(_, _ string) *handshake.Challenge {
 	if p.served {
 		return nil
 	}
 	p.served = true
 	return p.challenge
 }
-func (p *powGatePolicy) BlockedDomain(_ string) bool   { return false }
-func (p *powGatePolicy) SessionTTL(_ string) int       { return 300 }
-func (p *powGatePolicy) Permissions(_ string) []string { return []string{"send", "receive"} }
+func (p *challengeGatePolicy) BlockedDomain(_ string) bool   { return false }
+func (p *challengeGatePolicy) SessionTTL(_ string) int       { return 300 }
+func (p *challengeGatePolicy) Permissions(_ string) []string { return []string{"send", "receive"} }

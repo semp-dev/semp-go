@@ -36,9 +36,9 @@ func TestHandshakeAdapterIssuesChallengeForUnknownOrigin(t *testing.T) {
 			return "unknown.example"
 		},
 	}
-	req := adapter.RequirePoW("some-nonce", "ws")
+	req := adapter.RequireChallenge("some-nonce", "ws")
 	if req == nil {
-		t.Fatal("RequirePoW should have issued a challenge")
+		t.Fatal("RequireChallenge should have issued a challenge")
 	}
 	if req.Algorithm != reputation.DefaultPoWAlgorithm {
 		t.Errorf("Algorithm = %q, want %q", req.Algorithm, reputation.DefaultPoWAlgorithm)
@@ -78,7 +78,7 @@ func TestHandshakeAdapterSkipsForTrustedDomain(t *testing.T) {
 		Delegate:   &mockDelegate{ttl: 600},
 		OriginFrom: func(initNonce, transport string) string { return "trusted.example" },
 	}
-	if req := adapter.RequirePoW("nonce", "ws"); req != nil {
+	if req := adapter.RequireChallenge("nonce", "ws"); req != nil {
 		t.Errorf("trusted domain should get no challenge, got %+v", req)
 	}
 }
@@ -97,9 +97,9 @@ func TestHandshakeAdapterForgetDrainsScratch(t *testing.T) {
 		Delegate:   &mockDelegate{},
 		OriginFrom: func(string, string) string { return "fresh.example" },
 	}
-	req := adapter.RequirePoW("n1", "ws")
+	req := adapter.RequireChallenge("n1", "ws")
 	if req == nil {
-		t.Fatal("RequirePoW issued nothing")
+		t.Fatal("RequireChallenge issued nothing")
 	}
 	ch := adapter.Forget("n1")
 	if ch == nil || ch.ID != req.ChallengeID {
@@ -152,7 +152,7 @@ func TestHandshakeAdapterNilOriginFallsBackToBaseline(t *testing.T) {
 		Delegate: &mockDelegate{},
 		// OriginFrom: nil
 	}
-	req := adapter.RequirePoW("nonce", "ws")
+	req := adapter.RequireChallenge("nonce", "ws")
 	if req == nil {
 		t.Fatal("expected baseline challenge with nil OriginFrom")
 	}
