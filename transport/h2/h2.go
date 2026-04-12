@@ -94,7 +94,7 @@ const DefaultTimeout = 30 * time.Second
 // DefaultMaxBodyBytes is the maximum body size the server-side
 // handler will read from an incoming POST and the Client will read
 // from a response. 25 MiB matches the DISCOVERY.md §3.1 default
-// max_message_size and keeps a hostile peer from tricking the
+// max_envelope_size and keeps a hostile peer from tricking the
 // reader into unbounded allocation.
 const DefaultMaxBodyBytes int64 = 25 * 1024 * 1024
 

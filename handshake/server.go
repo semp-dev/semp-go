@@ -22,8 +22,8 @@ import (
 // Lifecycle:
 //
 //	s := handshake.NewServer(cfg)
-//	resp, _ := s.OnInit(initBytes)        // may return PoWRequired bytes
-//	// ... optional PoW round trip via OnPoWSolution ...
+//	resp, _ := s.OnInit(initBytes)        // may return Challenge bytes
+//	// ... optional challenge round trip via OnChallengeResponse ...
 //	accepted, sess, err := s.OnConfirm(confirmBytes)
 //	// transmit accepted; session is ready
 type Server struct {
@@ -50,9 +50,9 @@ type Server struct {
 	clientIdentity    string
 	clientDeviceKeyID keys.Fingerprint
 
-	// PoW gating state.
-	pendingPoW   *PoWRequired
-	deferredInit []byte
+	// Challenge gating state.
+	pendingChallenge *Challenge
+	deferredInit     []byte
 }
 
 // ServerConfig groups the inputs to NewServer.
@@ -64,8 +64,8 @@ type ServerConfig struct {
 	// identity_signature inside the encrypted identity proof).
 	Store keys.Store
 
-	// Policy supplies operator decisions: block lists, PoW gating, TTL,
-	// permissions.
+	// Policy supplies operator decisions: block lists, challenge gating,
+	// TTL, permissions.
 	Policy Policy
 
 	// Domain is the server's domain, e.g. "example.com".
@@ -82,13 +82,16 @@ type ServerConfig struct {
 	Capabilities Capabilities
 }
 
-// Policy is the set of decisions a server delegates to its operator: should
-// this handshake be PoW-gated, is the sender blocked, what TTL should the
-// session get, what permissions should be granted on success.
+// Policy is the set of decisions a server delegates to its operator:
+// should this handshake be challenge-gated, is the sender blocked,
+// what TTL should the session get, what permissions should be granted
+// on success.
 type Policy interface {
-	// RequirePoW returns a non-nil challenge if the server requires the
-	// client to solve a PoW before proceeding.
-	RequirePoW(initNonce, transport string) *PoWRequired
+	// RequireChallenge returns a non-nil Challenge if the server
+	// requires the client to solve a challenge before proceeding.
+	// The returned Challenge must have ChallengeType, Parameters,
+	// and Expires populated. Returns nil when no challenge is needed.
+	RequireChallenge(initNonce, transport string) *Challenge
 
 	// BlockedDomain reports whether the given domain is blocked at the
 	// pre-handshake level. SEMP servers MUST check block lists before
@@ -139,12 +142,12 @@ func NewServer(cfg ServerConfig) *Server {
 }
 
 // OnInit processes a message 1 (init/client) and returns either:
-//   - a serialized PoWRequired (the caller transmits it; the next call to
-//     the server is OnPoWSolution),
-//   - a serialized ServerResponse (the caller transmits it; the next call
-//     is OnConfirm),
-//   - or a non-nil error (the caller serializes a Rejected with NewRejection
-//     and closes).
+//   - a serialized Challenge (the caller transmits it; the next call
+//     to the server is OnChallengeResponse),
+//   - a serialized ServerResponse (the caller transmits it; the next
+//     call is OnConfirm),
+//   - or a non-nil error (the caller serializes a Rejected with
+//     NewRejection and closes).
 func (s *Server) OnInit(data []byte) ([]byte, error) {
 	if s == nil || s.suite == nil {
 		return nil, errors.New("handshake: nil server or suite")
@@ -157,17 +160,17 @@ func (s *Server) OnInit(data []byte) ([]byte, error) {
 		return nil, errors.New("handshake: init type/step/party mismatch")
 	}
 
-	// PoW gating: defer further processing until the client solves the
-	// challenge. We stash the original init bytes so we can re-parse them in
-	// OnPoWSolution.
+	// Challenge gating: defer further processing until the client
+	// solves the challenge. We stash the original init bytes so we
+	// can re-parse them in OnChallengeResponse.
 	if s.policy != nil {
-		if challenge := s.policy.RequirePoW(init.Nonce, init.Transport); challenge != nil {
+		if challenge := s.policy.RequireChallenge(init.Nonce, init.Transport); challenge != nil {
 			signed, err := s.signServerMessage(challenge)
 			if err != nil {
 				return nil, err
 			}
 			challenge.ServerSignature = signed
-			s.pendingPoW = challenge
+			s.pendingChallenge = challenge
 			s.deferredInit = append([]byte(nil), data...)
 			return CanonicalForHashing(challenge)
 		}
@@ -175,36 +178,50 @@ func (s *Server) OnInit(data []byte) ([]byte, error) {
 	return s.processInit(&init)
 }
 
-// OnPoWSolution processes a pow_solution message and either advances the
-// handshake (returning the ServerResponse bytes) or returns an error from
-// which the caller builds a `pow_failed` Rejected
-// (HANDSHAKE.md §2.2b, REPUTATION.md §8.3.4).
-func (s *Server) OnPoWSolution(data []byte) ([]byte, error) {
+// OnChallengeResponse processes a challenge_response message and
+// either advances the handshake (returning the ServerResponse bytes)
+// or returns an error from which the caller builds a
+// `challenge_failed` Rejected (HANDSHAKE.md §2.2b).
+func (s *Server) OnChallengeResponse(data []byte) ([]byte, error) {
 	if s == nil || s.suite == nil {
 		return nil, errors.New("handshake: nil server or suite")
 	}
-	if s.pendingPoW == nil {
-		return nil, errors.New("handshake: no PoW challenge outstanding")
+	if s.pendingChallenge == nil {
+		return nil, errors.New("handshake: no challenge outstanding")
 	}
-	var sol PoWSolution
+	var sol ChallengeResponse
 	if err := json.Unmarshal(data, &sol); err != nil {
-		return nil, fmt.Errorf("handshake: parse pow_solution: %w", err)
+		return nil, fmt.Errorf("handshake: parse challenge_response: %w", err)
 	}
-	if sol.Type != MessageType || sol.Step != StepPoWSolution {
-		return nil, errors.New("handshake: pow_solution type/step mismatch")
+	if sol.Type != MessageType || sol.Step != StepChallengeResponse {
+		return nil, errors.New("handshake: challenge_response type/step mismatch")
 	}
-	if sol.ChallengeID != s.pendingPoW.ChallengeID {
-		return nil, errors.New("handshake: pow_solution challenge_id mismatch")
+	if sol.ChallengeID != s.pendingChallenge.ChallengeID {
+		return nil, errors.New("handshake: challenge_response challenge_id mismatch")
 	}
-	prefix, err := base64.StdEncoding.DecodeString(s.pendingPoW.Prefix)
-	if err != nil {
-		return nil, fmt.Errorf("handshake: pow prefix base64: %w", err)
-	}
-	if err := VerifySolution(prefix, sol.ChallengeID, sol.Nonce, sol.Hash, s.pendingPoW.Difficulty); err != nil {
-		return nil, err
+	// Dispatch based on the pending challenge's type.
+	switch s.pendingChallenge.ChallengeType {
+	case ChallengeTypeProofOfWork:
+		var params PoWChallengeParams
+		if err := json.Unmarshal(s.pendingChallenge.Parameters, &params); err != nil {
+			return nil, fmt.Errorf("handshake: parse challenge parameters: %w", err)
+		}
+		var solData PoWSolutionData
+		if err := json.Unmarshal(sol.Solution, &solData); err != nil {
+			return nil, fmt.Errorf("handshake: parse challenge solution: %w", err)
+		}
+		prefix, err := base64.StdEncoding.DecodeString(params.Prefix)
+		if err != nil {
+			return nil, fmt.Errorf("handshake: challenge prefix base64: %w", err)
+		}
+		if err := VerifySolution(prefix, sol.ChallengeID, solData.Nonce, solData.Hash, params.Difficulty); err != nil {
+			return nil, err
+		}
+	default:
+		return nil, fmt.Errorf("handshake: unsupported challenge type %q", s.pendingChallenge.ChallengeType)
 	}
 	// Single-use: mark the challenge consumed.
-	s.pendingPoW = nil
+	s.pendingChallenge = nil
 	deferred := s.deferredInit
 	s.deferredInit = nil
 

@@ -23,7 +23,7 @@ import (
 //     server has no compression preferences, "none" is selected.
 //   - Features: the intersection of offered.Features and accepted.Features,
 //     in the order they appear in offered.
-//   - max_message_size / max_batch_size: the smaller of the two values when
+//   - max_envelope_size / max_batch_size: the smaller of the two values when
 //     both sides advertise one; the side that advertises it when only one
 //     does; zero (omitted) when neither does.
 //
@@ -45,9 +45,9 @@ func NegotiateCapabilities(offered, accepted Capabilities) (Negotiated, error) {
 	compression := negotiateCompression(offered.Compression, accepted.Compression)
 	features := intersectStrings(offered.Features, accepted.Features)
 
-	maxSize := offered.MaxMessageSize
-	if accepted.MaxMessageSize > 0 && (maxSize == 0 || accepted.MaxMessageSize < maxSize) {
-		maxSize = accepted.MaxMessageSize
+	maxSize := offered.MaxEnvelopeSize
+	if accepted.MaxEnvelopeSize > 0 && (maxSize == 0 || accepted.MaxEnvelopeSize < maxSize) {
+		maxSize = accepted.MaxEnvelopeSize
 	}
 	maxBatch := offered.MaxBatchSize
 	if accepted.MaxBatchSize > 0 && (maxBatch == 0 || accepted.MaxBatchSize < maxBatch) {
@@ -58,7 +58,7 @@ func NegotiateCapabilities(offered, accepted Capabilities) (Negotiated, error) {
 		EncryptionAlgorithm: string(chosen),
 		Compression:         compression,
 		Features:            features,
-		MaxMessageSize:      maxSize,
+		MaxEnvelopeSize:      maxSize,
 		MaxBatchSize:        maxBatch,
 	}, nil
 }

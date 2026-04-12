@@ -41,10 +41,10 @@ const Subprotocol = "semp.v1"
 // SEMP WebSocket sessions (TRANSPORT.md §4.1.3).
 const PingInterval = 30 // seconds
 
-// DefaultMaxMessageSize is the maximum SEMP message size in bytes accepted
+// DefaultMaxEnvelopeSize is the maximum SEMP message size in bytes accepted
 // by the binding by default. This matches the discovery default of 25 MiB
-// from DISCOVERY.md §3.1 (max_message_size).
-const DefaultMaxMessageSize = 25 * 1024 * 1024
+// from DISCOVERY.md §3.1 (max_envelope_size).
+const DefaultMaxEnvelopeSize = 25 * 1024 * 1024
 
 // Config controls the behavior of a Transport.
 type Config struct {
@@ -54,9 +54,9 @@ type Config struct {
 	// (the default), in which case Dial refuses ws:// URLs.
 	AllowInsecure bool
 
-	// MaxMessageSize is the maximum SEMP message size in bytes that the
-	// binding will accept on read. Zero means use DefaultMaxMessageSize.
-	MaxMessageSize int64
+	// MaxEnvelopeSize is the maximum SEMP message size in bytes that the
+	// binding will accept on read. Zero means use DefaultMaxEnvelopeSize.
+	MaxEnvelopeSize int64
 
 	// OriginPatterns is forwarded to websocket.AcceptOptions.OriginPatterns.
 	// Used by the listener to authorize cross-origin upgrade requests.
@@ -111,9 +111,9 @@ func (t *Transport) Dial(ctx context.Context, endpoint string) (transport.Conn, 
 		_ = wc.Close(websocket.StatusPolicyViolation, "subprotocol not confirmed")
 		return nil, fmt.Errorf("ws: server did not confirm %q subprotocol (got %q)", Subprotocol, wc.Subprotocol())
 	}
-	limit := t.cfg.MaxMessageSize
+	limit := t.cfg.MaxEnvelopeSize
 	if limit <= 0 {
-		limit = DefaultMaxMessageSize
+		limit = DefaultMaxEnvelopeSize
 	}
 	wc.SetReadLimit(limit)
 	return &Conn{ws: wc, peer: endpoint}, nil
@@ -151,9 +151,9 @@ func (t *Transport) Listen(ctx context.Context, addr string) (transport.Listener
 // This is the entry point operators use to mount SEMP on an existing
 // *http.Server or HTTP routing tree.
 func NewHandler(cfg Config, accept func(transport.Conn)) http.Handler {
-	limit := cfg.MaxMessageSize
+	limit := cfg.MaxEnvelopeSize
 	if limit <= 0 {
-		limit = DefaultMaxMessageSize
+		limit = DefaultMaxEnvelopeSize
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		wc, err := websocket.Accept(w, r, &websocket.AcceptOptions{

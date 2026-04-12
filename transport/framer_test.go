@@ -136,7 +136,7 @@ func TestLengthPrefixNilArgs(t *testing.T) {
 }
 
 // TestLengthPrefixWithLimitZeroFallsBack confirms that a zero or
-// negative limit falls back to MaxMessageSize.
+// negative limit falls back to MaxEnvelopeSize.
 func TestLengthPrefixWithLimitZeroFallsBack(t *testing.T) {
 	framer := transport.LengthPrefixWithLimit(0)
 	// Writing a reasonable-sized message should succeed, proving
