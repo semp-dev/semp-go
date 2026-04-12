@@ -6,12 +6,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/semp-dev/semp-go/crypto"
-	"github.com/semp-dev/semp-go/handshake"
-	"github.com/semp-dev/semp-go/keys"
-	"github.com/semp-dev/semp-go/session"
-	"github.com/semp-dev/semp-go/transport"
-	"github.com/semp-dev/semp-go/transport/h2"
+	"semp.dev/semp-go/crypto"
+	"semp.dev/semp-go/handshake"
+	"semp.dev/semp-go/keys"
+	"semp.dev/semp-go/session"
+	"semp.dev/semp-go/transport"
+	"semp.dev/semp-go/transport/h2"
 )
 
 // TestHandshakeOverH2 is the milestone-3ff acceptance test: it drives a

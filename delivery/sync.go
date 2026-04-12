@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/semp-dev/semp-go/crypto"
-	"github.com/semp-dev/semp-go/internal/canonical"
-	"github.com/semp-dev/semp-go/keys"
+	"semp.dev/semp-go/crypto"
+	"semp.dev/semp-go/internal/canonical"
+	"semp.dev/semp-go/keys"
 )
 
 // SyncMessageType is the wire-level type discriminator for block list sync

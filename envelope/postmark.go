@@ -3,7 +3,7 @@ package envelope
 import (
 	"time"
 
-	"github.com/semp-dev/semp-go/extensions"
+	"semp.dev/semp-go/extensions"
 )
 
 // Postmark is the outer public routing header of an envelope (ENVELOPE.md §3.1).

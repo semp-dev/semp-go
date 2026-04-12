@@ -5,9 +5,9 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/semp-dev/semp-go/crypto"
-	"github.com/semp-dev/semp-go/internal/canonical"
-	"github.com/semp-dev/semp-go/keys"
+	"semp.dev/semp-go/crypto"
+	"semp.dev/semp-go/internal/canonical"
+	"semp.dev/semp-go/keys"
 )
 
 // canonicalResponseBytes returns the canonical JSON form of resp with

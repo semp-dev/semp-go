@@ -6,8 +6,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/semp-dev/semp-go/handshake"
-	"github.com/semp-dev/semp-go/keys"
+	"semp.dev/semp-go/handshake"
+	"semp.dev/semp-go/keys"
 )
 
 // memStore is a minimal in-memory implementation of keys.PrivateStore for

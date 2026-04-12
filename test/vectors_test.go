@@ -4,7 +4,7 @@ import (
 	"encoding/hex"
 	"testing"
 
-	"github.com/semp-dev/semp-go/crypto"
+	"semp.dev/semp-go/crypto"
 )
 
 // HKDF-SHA-512 session key derivation vector from VECTORS.md §2.1.

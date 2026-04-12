@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/semp-dev/semp-go/crypto"
-	"github.com/semp-dev/semp-go/extensions"
-	"github.com/semp-dev/semp-go/reputation"
+	"semp.dev/semp-go/crypto"
+	"semp.dev/semp-go/extensions"
+	"semp.dev/semp-go/reputation"
 )
 
 // identityFromHeader is a tiny SessionIdentityFunc used by the handler

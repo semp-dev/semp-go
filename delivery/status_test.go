@@ -3,7 +3,7 @@ package delivery_test
 import (
 	"testing"
 
-	"github.com/semp-dev/semp-go/delivery"
+	"semp.dev/semp-go/delivery"
 )
 
 // TestMatchVisibilityNobody is the default-deny path: a nil Visibility

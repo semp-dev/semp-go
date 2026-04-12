@@ -30,13 +30,13 @@ import (
 	"strings"
 	"time"
 
-	semp "github.com/semp-dev/semp-go"
-	"github.com/semp-dev/semp-go/brief"
-	"github.com/semp-dev/semp-go/crypto"
-	"github.com/semp-dev/semp-go/delivery"
-	"github.com/semp-dev/semp-go/envelope"
-	"github.com/semp-dev/semp-go/keys"
-	"github.com/semp-dev/semp-go/session"
+	semp "semp.dev/semp-go"
+	"semp.dev/semp-go/brief"
+	"semp.dev/semp-go/crypto"
+	"semp.dev/semp-go/delivery"
+	"semp.dev/semp-go/envelope"
+	"semp.dev/semp-go/keys"
+	"semp.dev/semp-go/session"
 )
 
 var (

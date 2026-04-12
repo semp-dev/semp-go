@@ -3,8 +3,8 @@ package delivery
 import (
 	"time"
 
-	semp "github.com/semp-dev/semp-go"
-	"github.com/semp-dev/semp-go/envelope"
+	semp "semp.dev/semp-go"
+	"semp.dev/semp-go/envelope"
 )
 
 // InternalRouteType is the wire-level type discriminator for envelopes
