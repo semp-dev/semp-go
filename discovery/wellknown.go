@@ -24,6 +24,7 @@ const WellKnownMaxBytes int64 = 64 * 1024
 // Configuration is the parsed body of the well-known configuration URI
 // (DISCOVERY.md §3.1).
 type Configuration struct {
+	Type       string             `json:"type"`
 	Version    string             `json:"version"`
 	Domain     string             `json:"domain"`
 	Endpoints  ConfigEndpoints    `json:"endpoints"`
