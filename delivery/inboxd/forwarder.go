@@ -334,7 +334,12 @@ func (f *Forwarder) Forward(ctx context.Context, peerDomain string, env *envelop
 	}
 	peerCfg, ok := f.Peers.Lookup(peerDomain)
 	if !ok {
-		return nil, fmt.Errorf("inboxd: no peer config for %s", peerDomain)
+		// Unknown peer — auto-register with just the domain name.
+		// getSession will resolve the endpoint via DNS SRV / well-known
+		// discovery, and the domain signing key will be fetched lazily
+		// by the Store's LookupDomainKey implementation.
+		peerCfg = PeerConfig{Domain: peerDomain}
+		f.Peers.Put(peerCfg)
 	}
 
 	fs, err := f.getSession(ctx, peerCfg)
@@ -656,7 +661,8 @@ func (f *Forwarder) FetchKeys(ctx context.Context, peerDomain string, req *keys.
 	}
 	peerCfg, ok := f.Peers.Lookup(peerDomain)
 	if !ok {
-		return nil, fmt.Errorf("inboxd: no peer config for %s", peerDomain)
+		peerCfg = PeerConfig{Domain: peerDomain}
+		f.Peers.Put(peerCfg)
 	}
 	fs, err := f.getSession(ctx, peerCfg)
 	if err != nil {
