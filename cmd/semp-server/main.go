@@ -228,6 +228,7 @@ func main() {
 		w.Header().Set("Content-Type", "application/json")
 		host := r.Host
 		_ = json.NewEncoder(w).Encode(discovery.Configuration{
+			Type:    "SEMP_CONFIGURATION",
 			Version: semp.ProtocolVersion,
 			Domain:  *domain,
 			Endpoints: discovery.ConfigEndpoints{

@@ -272,6 +272,7 @@ func TestResolverWellKnownFallback(t *testing.T) {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(discovery.Configuration{
+			Type:   "SEMP_CONFIGURATION",
 			Version: "1.0.0",
 			Domain:  "example.com",
 			Endpoints: discovery.ConfigEndpoints{

@@ -87,6 +87,7 @@ func TestForwarderResolvesPeerViaDiscovery(t *testing.T) {
 	wkMux.HandleFunc(discovery.WellKnownPath, func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(discovery.Configuration{
+			Type:       "SEMP_CONFIGURATION",
 			Version: "1.0.0",
 			Domain:  domainB,
 			Endpoints: discovery.ConfigEndpoints{
@@ -231,6 +232,7 @@ func TestDefaultFederationEndpointFunc(t *testing.T) {
 		Address: "example.com",
 		Status:  semp.DiscoverySEMP,
 		Configuration: &discovery.Configuration{
+			Type:    "SEMP_CONFIGURATION",
 			Version: "1.0.0",
 			Domain:  "example.com",
 			Endpoints: discovery.ConfigEndpoints{
