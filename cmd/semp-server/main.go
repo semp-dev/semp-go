@@ -226,12 +226,19 @@ func main() {
 	// traffic (see the rewrite helper set on the Forwarder above).
 	mux.HandleFunc(discovery.WellKnownPath, func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
+		host := r.Host
 		_ = json.NewEncoder(w).Encode(discovery.Configuration{
 			Version: semp.ProtocolVersion,
-			Endpoints: map[string]string{
-				"ws": "ws://" + r.Host + "/v1/ws",
+			Domain:  *domain,
+			Endpoints: discovery.ConfigEndpoints{
+				Client:     map[string]string{"ws": "ws://" + host + "/v1/ws"},
+				Federation: map[string]string{"ws": "ws://" + host + "/v1/federate"},
+				Register:   "http://" + host + "/v1/register",
+				Keys:       "http://" + host + "/.well-known/semp/keys/",
+				DomainKeys: "http://" + host + "/.well-known/semp/domain-keys",
 			},
 			Suites: []string{"x25519-chacha20-poly1305"},
+			Limits: discovery.ConfigLimits{MaxEnvelopeSize: 25 * 1024 * 1024},
 		})
 	})
 	httpSrv := &http.Server{

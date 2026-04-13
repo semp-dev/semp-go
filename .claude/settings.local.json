@@ -25,7 +25,15 @@
       "Bash(grep -n \"DeriveRekey\\\\|DeriveSession\\\\|Rekey\" crypto/kdf.go session/*.go)",
       "Bash(grep -n \"EnvMAC:.*sess\\\\.EnvMAC\" test/*.go)",
       "Bash(gh pr create --base main --head claude --title 'session: in-session rekeying \\(SEMP_REKEY\\)' --body ':*)",
-      "Bash(gh pr:*)"
+      "Bash(gh pr:*)",
+      "Bash(curl -sI \"https://semp.dev/\")",
+      "Bash(curl -s \"https://semp.dev/\")",
+      "Bash(curl -sI \"https://semp.dev/semp-go?go-get=1\")",
+      "Bash(curl -sL \"https://semp.dev/semp-go?go-get=1\")",
+      "Bash(curl -sL \"https://semp.dev/semp-go/crypto?go-get=1\")",
+      "Bash(curl -sI \"https://semp.dev/semp-go/crypto?go-get=1\")",
+      "Read(//tmp/**)",
+      "Bash(GONOSUMCHECK=semp.dev/semp-go GOFLAGS=-insecure GOPROXY=direct go get semp.dev/semp-go@v0.1.0)"
     ]
   }
 }

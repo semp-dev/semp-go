@@ -214,21 +214,23 @@ func DefaultFederationEndpointFunc(result *discovery.Result) (string, error) {
 	if result == nil {
 		return "", errors.New("inboxd: nil discovery result")
 	}
-	// If the well-known configuration is available, use the standard
-	// fallback order: QUIC > WebSocket > HTTP/2.
+	// If the well-known configuration is available, use federation
+	// endpoints with the standard fallback order: QUIC > WebSocket > HTTP/2.
 	if result.Configuration != nil {
-		// Preferred order per TRANSPORT.md section 5.3.
-		for _, tid := range []string{"quic", "ws"} {
-			if ep, ok := result.Configuration.Endpoints[tid]; ok {
+		fed := result.Configuration.Endpoints.Federation
+		if fed != nil {
+			for _, tid := range []string{"quic", "ws"} {
+				if ep, ok := fed[tid]; ok {
+					return ep, nil
+				}
+			}
+			if ep, ok := fed["h2"]; ok {
 				return ep, nil
 			}
 		}
-		if ep, ok := result.Configuration.Endpoints["h2"]; ok {
-			return ep, nil
-		}
 	}
-	// No advertised transports. Fall back to HTTP/2 at the DNS SRV
-	// target. Every conformant SEMP server MUST accept HTTP/2
+	// No advertised federation endpoints. Fall back to HTTP/2 at the DNS
+	// SRV target. Every conformant SEMP server MUST accept HTTP/2
 	// connections per TRANSPORT.md section 4, so this is always valid
 	// even when no transport is explicitly advertised.
 	if result.Server != "" {

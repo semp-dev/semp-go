@@ -215,9 +215,10 @@ func (r *defaultResolver) tryWellKnown(ctx context.Context, address, domain stri
 	if err != nil {
 		return nil
 	}
-	transports := make([]string, 0, len(cfg.Endpoints))
+	// Extract transports and server from client endpoints.
+	transports := make([]string, 0, len(cfg.Endpoints.Client))
 	var server string
-	for id, ep := range cfg.Endpoints {
+	for id, ep := range cfg.Endpoints.Client {
 		transports = append(transports, id)
 		if server == "" {
 			server = hostOfURL(ep)
@@ -227,6 +228,7 @@ func (r *defaultResolver) tryWellKnown(ctx context.Context, address, domain stri
 		Address:       address,
 		Status:        semp.DiscoverySEMP,
 		Transports:    transports,
+		Suites:        cfg.Suites,
 		Server:        server,
 		TTL:           int(DefaultTTLSEMP.Seconds()),
 		Configuration: cfg,
