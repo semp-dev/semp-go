@@ -214,21 +214,26 @@ func DefaultFederationEndpointFunc(result *discovery.Result) (string, error) {
 	if result == nil {
 		return "", errors.New("inboxd: nil discovery result")
 	}
-	if result.Configuration == nil {
-		return "", fmt.Errorf("inboxd: discovery result for %s has no well-known configuration", result.Address)
-	}
-	for _, scheme := range []string{"wss", "ws"} {
-		for transport, url := range result.Configuration.Endpoints {
-			if transport == "ws" && hasScheme(url, scheme) {
-				return url, nil
+	// If the well-known configuration is available, use its endpoints.
+	if result.Configuration != nil {
+		for _, scheme := range []string{"wss", "ws"} {
+			for transport, url := range result.Configuration.Endpoints {
+				if transport == "ws" && hasScheme(url, scheme) {
+					return url, nil
+				}
 			}
 		}
+		if ep, ok := result.Configuration.Endpoints["ws"]; ok {
+			return ep, nil
+		}
 	}
-	// No ws-scheme match; return whatever is at the "ws" key.
-	if ep, ok := result.Configuration.Endpoints["ws"]; ok {
-		return ep, nil
+	// Fall back to constructing the endpoint from the DNS SRV target.
+	// The SRV record provides the server hostname; we assume the
+	// standard /v1/ws path and wss:// scheme.
+	if result.Server != "" {
+		return "wss://" + result.Server + "/v1/ws", nil
 	}
-	return "", fmt.Errorf("inboxd: discovery result for %s has no ws endpoint", result.Address)
+	return "", fmt.Errorf("inboxd: discovery result for %s has no endpoint", result.Address)
 }
 
 // hasScheme reports whether url starts with the given scheme
