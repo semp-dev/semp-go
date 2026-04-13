@@ -50,7 +50,7 @@ type Result struct {
 	Address    string               `json:"address"`
 	Status     semp.DiscoveryStatus `json:"status"`
 	Transports []string             `json:"transports,omitempty"`
-	Features   []string             `json:"features,omitempty"`
+	Suites     []string             `json:"suites,omitempty"`
 	Server     string               `json:"server,omitempty"`
 	TTL        int                  `json:"ttl"`
 
@@ -202,7 +202,7 @@ func (r *defaultResolver) tryDNS(ctx context.Context, address, domain string) *R
 	}
 	if cap != nil {
 		result.Transports = cap.Transports
-		result.Features = cap.Features
+		result.Suites = cap.Suites
 	}
 	return result
 }
@@ -227,7 +227,6 @@ func (r *defaultResolver) tryWellKnown(ctx context.Context, address, domain stri
 		Address:       address,
 		Status:        semp.DiscoverySEMP,
 		Transports:    transports,
-		Features:      cfg.Features,
 		Server:        server,
 		TTL:           int(DefaultTTLSEMP.Seconds()),
 		Configuration: cfg,

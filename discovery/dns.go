@@ -18,13 +18,11 @@ type SRVRecord struct {
 
 // TXTCapabilities is the parsed companion TXT record (DISCOVERY.md §2.2).
 //
-//	"v=semp1;pq=ready;c=ws,h2,quic;f=groups,threads,reactions"
+//	"v=semp1;s=pq-kyber768-x25519,x25519-chacha20-poly1305;c=ws,h2,quic;mes=26214400"
 type TXTCapabilities struct {
-	Version     string   // v=semp1
-	PostQuantum string   // pq=ready | hybrid | none
-	Transports  []string // c=ws,h2,quic
-	Features    []string // f=groups,...
-	AuthMethods []string // auth=...
+	Version    string   // v=semp1
+	Suites     []string // s=pq-kyber768-x25519,x25519-chacha20-poly1305
+	Transports []string // c=ws,h2,quic
 	// Unknown parameters MUST be ignored rather than treated as errors
 	// (DISCOVERY.md §2.2). They are preserved here for diagnostics.
 	Unknown map[string]string
@@ -156,14 +154,10 @@ func ParseTXTCapabilities(s string) (*TXTCapabilities, error) {
 		switch key {
 		case "v":
 			cap.Version = val
-		case "pq":
-			cap.PostQuantum = val
+		case "s":
+			cap.Suites = splitCSV(val)
 		case "c":
 			cap.Transports = splitCSV(val)
-		case "f":
-			cap.Features = splitCSV(val)
-		case "auth":
-			cap.AuthMethods = splitCSV(val)
 		default:
 			cap.Unknown[key] = val
 		}

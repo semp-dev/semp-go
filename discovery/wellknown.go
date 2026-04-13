@@ -24,14 +24,12 @@ const WellKnownMaxBytes int64 = 64 * 1024
 // Configuration is the parsed body of the well-known configuration URI
 // (DISCOVERY.md §3.1).
 type Configuration struct {
-	Version        string            `json:"version"`
-	Endpoints      map[string]string `json:"endpoints"`
-	Features       []string          `json:"features"`
-	PostQuantum    string            `json:"post_quantum"`
-	AuthMethods    []string          `json:"auth_methods,omitempty"`
+	Version         string            `json:"version"`
+	Endpoints       map[string]string `json:"endpoints"`
+	Suites          []string          `json:"suites"`
 	MaxEnvelopeSize int64             `json:"max_envelope_size,omitempty"`
-	MaxAttachments int               `json:"max_attachments,omitempty"`
-	Extensions     map[string]any    `json:"extensions,omitempty"`
+	MaxAttachments  int               `json:"max_attachments,omitempty"`
+	Extensions      map[string]any    `json:"extensions,omitempty"`
 }
 
 // FetchConfiguration GETs https://<domain>/.well-known/semp/configuration
