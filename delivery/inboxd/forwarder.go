@@ -214,24 +214,25 @@ func DefaultFederationEndpointFunc(result *discovery.Result) (string, error) {
 	if result == nil {
 		return "", errors.New("inboxd: nil discovery result")
 	}
-	// If the well-known configuration is available, use its endpoints.
+	// If the well-known configuration is available, use the standard
+	// fallback order: QUIC > WebSocket > HTTP/2.
 	if result.Configuration != nil {
-		for _, scheme := range []string{"wss", "ws"} {
-			for transport, url := range result.Configuration.Endpoints {
-				if transport == "ws" && hasScheme(url, scheme) {
-					return url, nil
-				}
+		// Preferred order per TRANSPORT.md section 5.3.
+		for _, tid := range []string{"quic", "ws"} {
+			if ep, ok := result.Configuration.Endpoints[tid]; ok {
+				return ep, nil
 			}
 		}
-		if ep, ok := result.Configuration.Endpoints["ws"]; ok {
+		if ep, ok := result.Configuration.Endpoints["h2"]; ok {
 			return ep, nil
 		}
 	}
-	// Fall back to constructing the endpoint from the DNS SRV target.
-	// The SRV record provides the server hostname; we assume the
-	// standard /v1/ws path and wss:// scheme.
+	// No advertised transports. Fall back to HTTP/2 at the DNS SRV
+	// target. Every conformant SEMP server MUST accept HTTP/2
+	// connections per TRANSPORT.md section 4, so this is always valid
+	// even when no transport is explicitly advertised.
 	if result.Server != "" {
-		return "wss://" + result.Server + "/v1/ws", nil
+		return "https://" + result.Server + "/v1/h2", nil
 	}
 	return "", fmt.Errorf("inboxd: discovery result for %s has no endpoint", result.Address)
 }
