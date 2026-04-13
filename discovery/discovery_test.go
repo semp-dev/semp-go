@@ -28,19 +28,16 @@ func TestParseTXTCapabilities(t *testing.T) {
 	}{
 		{
 			name:  "full capability record",
-			input: "v=semp1;pq=ready;c=ws,h2,quic;f=groups,threads,reactions",
+			input: "v=semp1;s=pq-kyber768-x25519,x25519-chacha20-poly1305;c=ws,h2,quic",
 			check: func(t *testing.T, c *discovery.TXTCapabilities) {
 				if c.Version != "semp1" {
 					t.Errorf("Version = %q, want semp1", c.Version)
 				}
-				if c.PostQuantum != "ready" {
-					t.Errorf("PostQuantum = %q, want ready", c.PostQuantum)
+				if got := strings.Join(c.Suites, ","); got != "pq-kyber768-x25519,x25519-chacha20-poly1305" {
+					t.Errorf("Suites = %q, want pq-kyber768-x25519,x25519-chacha20-poly1305", got)
 				}
 				if got := strings.Join(c.Transports, ","); got != "ws,h2,quic" {
 					t.Errorf("Transports = %q, want ws,h2,quic", got)
-				}
-				if got := strings.Join(c.Features, ","); got != "groups,threads,reactions" {
-					t.Errorf("Features = %q, want groups,threads,reactions", got)
 				}
 			},
 		},
@@ -69,11 +66,11 @@ func TestParseTXTCapabilities(t *testing.T) {
 			},
 		},
 		{
-			name:  "auth methods comma list",
-			input: "v=semp1;auth=identity_key,token,mfa",
+			name:  "suites only",
+			input: "v=semp1;s=x25519-chacha20-poly1305",
 			check: func(t *testing.T, c *discovery.TXTCapabilities) {
-				if len(c.AuthMethods) != 3 {
-					t.Errorf("AuthMethods count = %d, want 3", len(c.AuthMethods))
+				if len(c.Suites) != 1 || c.Suites[0] != "x25519-chacha20-poly1305" {
+					t.Errorf("Suites = %v, want [x25519-chacha20-poly1305]", c.Suites)
 				}
 			},
 		},
@@ -275,10 +272,9 @@ func TestResolverWellKnownFallback(t *testing.T) {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(discovery.Configuration{
-			Version:     "1.0.0",
-			Endpoints:   map[string]string{"ws": "wss://wk.example.com/v1/ws"},
-			Features:    []string{"groups"},
-			PostQuantum: "ready",
+			Version:   "1.0.0",
+			Endpoints: map[string]string{"ws": "wss://wk.example.com/v1/ws"},
+			Suites:    []string{"x25519-chacha20-poly1305"},
 		})
 	}))
 	defer ts.Close()

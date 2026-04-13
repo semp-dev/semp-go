@@ -231,8 +231,7 @@ func main() {
 			Endpoints: map[string]string{
 				"ws": "ws://" + r.Host + "/v1/ws",
 			},
-			Features:    []string{},
-			PostQuantum: "hybrid",
+			Suites: []string{"x25519-chacha20-poly1305"},
 		})
 	})
 	httpSrv := &http.Server{
