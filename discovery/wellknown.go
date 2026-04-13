@@ -24,12 +24,34 @@ const WellKnownMaxBytes int64 = 64 * 1024
 // Configuration is the parsed body of the well-known configuration URI
 // (DISCOVERY.md §3.1).
 type Configuration struct {
-	Version         string            `json:"version"`
-	Endpoints       map[string]string `json:"endpoints"`
-	Suites          []string          `json:"suites"`
-	MaxEnvelopeSize int64             `json:"max_envelope_size,omitempty"`
-	MaxAttachments  int               `json:"max_attachments,omitempty"`
-	Extensions      map[string]any    `json:"extensions,omitempty"`
+	Version    string             `json:"version"`
+	Domain     string             `json:"domain"`
+	Endpoints  ConfigEndpoints    `json:"endpoints"`
+	Suites     []string           `json:"suites"`
+	Limits     ConfigLimits       `json:"limits"`
+	Extensions []ConfigExtension  `json:"extensions,omitempty"`
+}
+
+// ConfigEndpoints groups all discoverable endpoints (DISCOVERY.md §3.1.1).
+type ConfigEndpoints struct {
+	Client         map[string]string `json:"client"`
+	Federation     map[string]string `json:"federation"`
+	Register       string            `json:"register"`
+	DeviceRegister string            `json:"device_register,omitempty"`
+	BlockList      string            `json:"blocklist,omitempty"`
+	Keys           string            `json:"keys"`
+	DomainKeys     string            `json:"domain_keys"`
+}
+
+// ConfigLimits declares operational constraints (DISCOVERY.md §3.1.3).
+type ConfigLimits struct {
+	MaxEnvelopeSize int64 `json:"max_envelope_size"`
+}
+
+// ConfigExtension declares a supported extension (DISCOVERY.md §3.1.4).
+type ConfigExtension struct {
+	ID       string `json:"id"`
+	Required bool   `json:"required"`
 }
 
 // FetchConfiguration GETs https://<domain>/.well-known/semp/configuration
@@ -91,7 +113,7 @@ func FetchConfigurationWith(ctx context.Context, client *http.Client, url string
 	if cfg.Version == "" {
 		return nil, errors.New("discovery: configuration missing version")
 	}
-	if len(cfg.Endpoints) == 0 {
+	if len(cfg.Endpoints.Client) == 0 && len(cfg.Endpoints.Federation) == 0 {
 		return nil, errors.New("discovery: configuration missing endpoints")
 	}
 	return &cfg, nil

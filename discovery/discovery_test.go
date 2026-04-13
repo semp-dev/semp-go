@@ -272,9 +272,17 @@ func TestResolverWellKnownFallback(t *testing.T) {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(discovery.Configuration{
-			Version:   "1.0.0",
-			Endpoints: map[string]string{"ws": "wss://wk.example.com/v1/ws"},
-			Suites:    []string{"x25519-chacha20-poly1305"},
+			Version: "1.0.0",
+			Domain:  "example.com",
+			Endpoints: discovery.ConfigEndpoints{
+				Client:     map[string]string{"ws": "wss://wk.example.com/v1/ws"},
+				Federation: map[string]string{"ws": "wss://wk.example.com/v1/federate"},
+				Register:   "https://wk.example.com/v1/register",
+				Keys:       "https://wk.example.com/.well-known/semp/keys/",
+				DomainKeys: "https://wk.example.com/.well-known/semp/domain-keys",
+			},
+			Suites: []string{"x25519-chacha20-poly1305"},
+			Limits: discovery.ConfigLimits{MaxEnvelopeSize: 26214400},
 		})
 	}))
 	defer ts.Close()

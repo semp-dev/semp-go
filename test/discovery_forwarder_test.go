@@ -88,14 +88,16 @@ func TestForwarderResolvesPeerViaDiscovery(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(discovery.Configuration{
 			Version: "1.0.0",
-			Endpoints: map[string]string{
-				// Use the federation URL directly. The
-				// FederationEndpointFunc below returns this
-				// verbatim.
-				"ws": srvB.federateURL,
+			Domain:  domainB,
+			Endpoints: discovery.ConfigEndpoints{
+				Client:     map[string]string{"ws": srvB.federateURL},
+				Federation: map[string]string{"ws": srvB.federateURL},
+				Register:   "http://localhost/v1/register",
+				Keys:       "http://localhost/.well-known/semp/keys/",
+				DomainKeys: "http://localhost/.well-known/semp/domain-keys",
 			},
-			Features:    []string{"groups", "threads"},
-			PostQuantum: "ready",
+			Suites: []string{"x25519-chacha20-poly1305"},
+			Limits: discovery.ConfigLimits{MaxEnvelopeSize: 26214400},
 		})
 	})
 	wkServer := httptest.NewServer(wkMux)
@@ -124,7 +126,13 @@ func TestForwarderResolvesPeerViaDiscovery(t *testing.T) {
 		if result == nil || result.Configuration == nil {
 			return "", nil
 		}
-		return result.Configuration.Endpoints["ws"], nil
+		if ep, ok := result.Configuration.Endpoints.Federation["ws"]; ok {
+				return ep, nil
+			}
+			if ep, ok := result.Configuration.Endpoints.Client["ws"]; ok {
+				return ep, nil
+			}
+			return "", nil
 	}
 
 	// Also publish bob's encryption key in A's store so alice's
@@ -218,43 +226,49 @@ func TestForwarderFailsWithoutResolverOrEndpoint(t *testing.T) {
 // picker. The discovery.Result must carry a Configuration with a
 // ws endpoint; otherwise the func returns an error.
 func TestDefaultFederationEndpointFunc(t *testing.T) {
-	// Happy path: ws endpoint present.
+	// Happy path: federation ws endpoint present.
 	result := &discovery.Result{
 		Address: "example.com",
 		Status:  semp.DiscoverySEMP,
 		Configuration: &discovery.Configuration{
-			Version:   "1.0.0",
-			Endpoints: map[string]string{"ws": "wss://semp.example.com/v1/ws"},
+			Version: "1.0.0",
+			Domain:  "example.com",
+			Endpoints: discovery.ConfigEndpoints{
+				Client:     map[string]string{"ws": "wss://semp.example.com/v1/ws"},
+				Federation: map[string]string{"ws": "wss://semp.example.com/v1/federate"},
+				Register:   "https://semp.example.com/v1/register",
+				Keys:       "https://semp.example.com/.well-known/semp/keys/",
+				DomainKeys: "https://semp.example.com/.well-known/semp/domain-keys",
+			},
+			Suites: []string{"x25519-chacha20-poly1305"},
+			Limits: discovery.ConfigLimits{MaxEnvelopeSize: 26214400},
 		},
 	}
 	ep, err := inboxd.DefaultFederationEndpointFunc(result)
 	if err != nil {
 		t.Fatalf("DefaultFederationEndpointFunc: %v", err)
 	}
-	if ep != "wss://semp.example.com/v1/ws" {
-		t.Errorf("endpoint = %q, want wss://semp.example.com/v1/ws", ep)
+	if ep != "wss://semp.example.com/v1/federate" {
+		t.Errorf("endpoint = %q, want wss://semp.example.com/v1/federate", ep)
 	}
 
-	// No Configuration → error.
-	bare := &discovery.Result{Address: "example.com", Status: semp.DiscoverySEMP}
-	if _, err := inboxd.DefaultFederationEndpointFunc(bare); err == nil {
-		t.Error("DefaultFederationEndpointFunc accepted a result with no Configuration")
+	// No Configuration, but Server set: should fall back to h2.
+	bare := &discovery.Result{Address: "example.com", Status: semp.DiscoverySEMP, Server: "semp.example.com"}
+	ep, err = inboxd.DefaultFederationEndpointFunc(bare)
+	if err != nil {
+		t.Fatalf("DefaultFederationEndpointFunc with Server: %v", err)
+	}
+	if ep != "https://semp.example.com/v1/h2" {
+		t.Errorf("endpoint = %q, want https://semp.example.com/v1/h2", ep)
 	}
 
-	// Configuration with no ws endpoint → error.
-	noWs := &discovery.Result{
-		Address: "example.com",
-		Status:  semp.DiscoverySEMP,
-		Configuration: &discovery.Configuration{
-			Version:   "1.0.0",
-			Endpoints: map[string]string{"h2": "https://semp.example.com/v1"},
-		},
-	}
-	if _, err := inboxd.DefaultFederationEndpointFunc(noWs); err == nil {
-		t.Error("DefaultFederationEndpointFunc accepted a result with no ws endpoint")
+	// No Configuration and no Server: should error.
+	empty := &discovery.Result{Address: "example.com", Status: semp.DiscoverySEMP}
+	if _, err := inboxd.DefaultFederationEndpointFunc(empty); err == nil {
+		t.Error("DefaultFederationEndpointFunc accepted a result with no endpoint")
 	}
 
-	// Nil input → error.
+	// Nil input: should error.
 	if _, err := inboxd.DefaultFederationEndpointFunc(nil); err == nil {
 		t.Error("DefaultFederationEndpointFunc accepted a nil result")
 	}
