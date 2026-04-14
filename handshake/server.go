@@ -574,11 +574,11 @@ func (s *Server) lookupClientIdentityKey(identity string, keyID keys.Fingerprint
 			continue
 		}
 		if rec.Revocation != nil {
-			return nil, errors.New("handshake: client identity key is revoked")
+			return nil, errors.New("handshake: identity verification failed")
 		}
 		return base64.StdEncoding.DecodeString(rec.PublicKey)
 	}
-	return nil, fmt.Errorf("handshake: client identity key %s not found for %s", keyID, identity)
+	return nil, errors.New("handshake: identity verification failed")
 }
 
 func bytesEqual(a, b []byte) bool {
