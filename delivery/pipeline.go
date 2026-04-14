@@ -274,8 +274,8 @@ func (p *Pipeline) verifySignature(ctx context.Context, env *envelope.Envelope) 
 	}
 	pub, err := p.DomainKeys.LookupDomainPublicKey(ctx, env.Postmark.FromDomain)
 	if err != nil {
-		return p.reject(env, semp.ReasonSealInvalid,
-			fmt.Sprintf("lookup domain key for %s: %v", env.Postmark.FromDomain, err))
+		p.logf("domain key lookup failed for %s: %v", env.Postmark.FromDomain, err)
+		return p.reject(env, semp.ReasonSealInvalid, "signature verification failed")
 	}
 	if len(pub) == 0 {
 		return p.reject(env, semp.ReasonSealInvalid,
@@ -392,8 +392,8 @@ func (p *Pipeline) openBrief(env *envelope.Envelope) (*brief.Brief, *envelope.Re
 	}
 	bf, err := envelope.OpenBrief(env, p.Suite, p.DomainEncFP, p.DomainEncPriv, p.DomainEncPub)
 	if err != nil {
-		return nil, p.reject(env, semp.ReasonSealInvalid,
-			fmt.Sprintf("server cannot unwrap brief: %v", err))
+		p.logf("brief unwrap failed for %s: %v", env.Postmark.ID, err)
+		return nil, p.reject(env, semp.ReasonSealInvalid, "brief decryption failed")
 	}
 	return bf, nil
 }

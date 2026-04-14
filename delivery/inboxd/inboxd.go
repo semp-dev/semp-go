@@ -470,7 +470,7 @@ func (s *Server) handleClientSubmission(ctx context.Context, stream MessageStrea
 				Recipient:  address,
 				Status:     semp.StatusRejected,
 				ReasonCode: semp.ReasonSealInvalid,
-				Reason:     fmt.Sprintf("clone envelope for forwarding: %v", err),
+				Reason:     "forwarding failed",
 			})
 			continue
 		}
@@ -479,7 +479,7 @@ func (s *Server) handleClientSubmission(ctx context.Context, stream MessageStrea
 			results = append(results, delivery.SubmissionResult{
 				Recipient: address,
 				Status:    semp.StatusRejected,
-				Reason:    fmt.Sprintf("forward to %s: %v", peerDomain, err),
+				Reason:    "forwarding to remote domain failed",
 			})
 			s.logf("[%s] forward %s → %s failed: %v", s.Identity, env.Postmark.ID, address, err)
 			continue

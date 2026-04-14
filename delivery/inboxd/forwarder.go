@@ -158,8 +158,9 @@ type Forwarder struct {
 	// session lifecycle without rekey interference.
 	disableAutoRekey bool
 
-	mu       sync.Mutex
-	sessions map[string]*forwarderSession // keyed by peer domain
+	mu         sync.Mutex
+	sessions   map[string]*forwarderSession // keyed by peer domain
+	connecting map[string]chan struct{}      // per-domain connection-in-progress guard
 }
 
 // SharedStore is the subset of keys.Store operations the Forwarder
@@ -271,6 +272,7 @@ func NewForwarder(cfg ForwarderConfig) *Forwarder {
 		rekeyThreshold:         threshold,
 		disableAutoRekey:       cfg.DisableAutoRekey,
 		sessions:               make(map[string]*forwarderSession),
+		connecting:              make(map[string]chan struct{}),
 	}
 }
 
@@ -417,19 +419,43 @@ func (f *Forwarder) forwardOnSession(ctx context.Context, fs *forwarderSession, 
 // The resolved endpoint is cached back into the registry via
 // Peers.Put so subsequent calls hit the static path.
 func (f *Forwarder) getSession(ctx context.Context, peerCfg PeerConfig) (*forwarderSession, error) {
-	f.mu.Lock()
-	fs, ok := f.sessions[peerCfg.Domain]
-	f.mu.Unlock()
-	if ok && f.sessionActive(fs) {
-		return fs, nil
+	domain := peerCfg.Domain
+
+	var connectCh chan struct{}
+	for {
+		f.mu.Lock()
+		// Check cached session.
+		if fs, ok := f.sessions[domain]; ok && f.sessionActive(fs) {
+			f.mu.Unlock()
+			return fs, nil
+		}
+		// Check if another goroutine is already connecting.
+		if ch, ok := f.connecting[domain]; ok {
+			f.mu.Unlock()
+			<-ch // wait for it to finish
+			continue // re-check cached session
+		}
+		// Mark that we are connecting.
+		connectCh = make(chan struct{})
+		f.connecting[domain] = connectCh
+		f.mu.Unlock()
+		break
 	}
-	// Open a fresh federation session.
+
+	// We are the sole goroutine opening a session for this domain.
+	// Signal waiters and clean up the guard when done.
+	defer func() {
+		f.mu.Lock()
+		delete(f.connecting, domain)
+		f.mu.Unlock()
+		close(connectCh)
+	}()
+
 	if f.Store == nil {
 		return nil, errors.New("inboxd: forwarder has no Store for peer key material")
 	}
 
-	// Resolve the federation endpoint if we don't have one cached
-	// on the PeerConfig.
+	// Resolve the federation endpoint if we don't have one cached.
 	if peerCfg.Endpoint == "" {
 		resolved, err := f.resolveFederationEndpoint(ctx, peerCfg.Domain)
 		if err != nil {
@@ -439,8 +465,7 @@ func (f *Forwarder) getSession(ctx context.Context, peerCfg PeerConfig) (*forwar
 		f.Peers.Put(peerCfg)
 	}
 
-	// Publish the peer's domain signing key so the Initiator can verify
-	// the peer's signatures during the handshake.
+	// Publish the peer's domain signing key.
 	f.Store.PutDomainKey(peerCfg.Domain, peerCfg.DomainSigningKey)
 
 	conn, err := f.Dial(ctx, peerCfg.Endpoint)
@@ -471,22 +496,11 @@ func (f *Forwarder) getSession(ctx context.Context, peerCfg PeerConfig) (*forwar
 		cancel: cancel,
 	}
 	f.mu.Lock()
-	// Check again in case another goroutine raced us; prefer the newer
-	// session and close any duplicate.
-	if existing, ok := f.sessions[peerCfg.Domain]; ok {
-		f.mu.Unlock()
-		if f.sessionActive(existing) {
-			cancel()
-			_ = conn.Close()
-			return existing, nil
-		}
-		f.mu.Lock()
-	}
-	f.sessions[peerCfg.Domain] = newFS
+	f.sessions[domain] = newFS
 	f.mu.Unlock()
 
 	if !f.disableAutoRekey {
-		go f.autoRekey(bgCtx, peerCfg.Domain, newFS)
+		go f.autoRekey(bgCtx, domain, newFS)
 	}
 	return newFS, nil
 }
