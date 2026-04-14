@@ -46,28 +46,28 @@ type Wrapper interface {
 	Wrap(recipientPublicKey, symmetricKey []byte) (string, error)
 
 	// Unwrap decrypts the wrapped symmetric key using the recipient's
-	// private key and returns the raw symmetric key bytes.
-	Unwrap(recipientPrivateKey []byte, wrapped string) ([]byte, error)
+	// key pair and returns the raw symmetric key bytes. The public key
+	// is needed as AAD for the AEAD verification.
+	Unwrap(recipientPrivateKey, recipientPublicKey []byte, wrapped string) ([]byte, error)
 }
 
 // WrapInfo is the HKDF info context used by NewWrapper. It is exported so
 // other implementations can derive interoperable wrap_keys.
 const WrapInfo = "SEMP-v1-wrap"
 
-// NewWrapper returns a Wrapper backed by X25519 + the given suite's KDF
-// and AEAD. The wrap operation is always X25519-based regardless of
-// the suite because long-term recipient encryption keys (the keys
-// stored in the keys.Store and referenced by
-// seal.brief_recipients / seal.enclosure_recipients) are X25519
-// regardless of whether the current session runs under SuiteBaseline
-// or the post-quantum hybrid SuitePQ. The Kyber768 component only
-// protects ephemeral session key agreement during the handshake; per-
-// recipient seal wrapping operates on stable published keys and stays
-// X25519.
+// NewWrapper returns a Wrapper backed by the suite's KEM, KDF, and AEAD.
+// The wrap operation uses the suite's KEM for per-recipient key wrapping:
+// for SuiteBaseline this is X25519; for SuitePQ this is the Kyber768+X25519
+// hybrid. This ensures that post-quantum protection extends to envelope
+// confidentiality at rest, not only to session key exchange.
 //
-// The same wrapper instance is safe for concurrent use across
-// goroutines because it carries no state — every Wrap/Unwrap call
-// generates or consumes a fresh ephemeral key pair.
+// Recipient encryption keys MUST be generated using the same suite's KEM.
+// A baseline recipient key is X25519 (32 bytes); a PQ recipient key is
+// the hybrid format (Kyber768 public key concatenated with X25519 public key).
+//
+// The same wrapper instance is safe for concurrent use across goroutines
+// because it carries no state: every Wrap/Unwrap call generates or consumes
+// a fresh ephemeral key pair.
 func NewWrapper(suite crypto.Suite) Wrapper {
 	if suite == nil {
 		return nil
@@ -79,16 +79,15 @@ type wrapper struct {
 	suite crypto.Suite
 }
 
-// wrapKEM is the KEM used by the seal layer for per-recipient key
-// wrapping. Always X25519, regardless of the session suite, because
-// long-term recipient encryption keys are X25519 — see NewWrapper's
-// doc comment for the rationale.
+// wrapKEM returns the suite's KEM for per-recipient key wrapping.
 func (w *wrapper) wrapKEM() crypto.KEM {
-	return crypto.NewKEMX25519()
+	return w.suite.KEM()
 }
 
-// Wrap encrypts symmetricKey under recipientPublicKey using HPKE-Base style
-// ephemeral X25519 + HKDF-SHA-512 + ChaCha20-Poly1305.
+// Wrap encrypts symmetricKey under recipientPublicKey using KEM-based
+// encapsulation + HKDF-SHA-512 + ChaCha20-Poly1305. For SuiteBaseline,
+// the KEM is X25519. For SuitePQ, the KEM is Kyber768+X25519 hybrid,
+// providing post-quantum protection for envelope confidentiality at rest.
 func (w *wrapper) Wrap(recipientPublicKey, symmetricKey []byte) (string, error) {
 	if len(recipientPublicKey) == 0 {
 		return "", errors.New("seal: empty recipient public key")
@@ -98,62 +97,51 @@ func (w *wrapper) Wrap(recipientPublicKey, symmetricKey []byte) (string, error) 
 	}
 	kem := w.wrapKEM()
 
-	// 1. Fresh ephemeral key pair.
-	ephPub, ephPriv, err := kem.GenerateKeyPair()
+	// 1. Encapsulate against the recipient's public key. This produces
+	//    a shared secret and a ciphertext (for X25519: ephemeral pub;
+	//    for hybrid: kyber ciphertext + X25519 ephemeral pub).
+	sharedSecret, kemCT, err := kem.Encapsulate(recipientPublicKey)
 	if err != nil {
-		return "", fmt.Errorf("seal: ephemeral keypair: %w", err)
+		return "", fmt.Errorf("seal: KEM encapsulate: %w", err)
 	}
-	defer crypto.Zeroize(ephPriv)
+	defer crypto.Zeroize(sharedSecret)
 
-	// 2. Diffie-Hellman against the recipient's public key.
-	dh, err := kem.Agree(ephPriv, recipientPublicKey)
-	if err != nil {
-		return "", fmt.Errorf("seal: ephemeral DH: %w", err)
-	}
-	defer crypto.Zeroize(dh)
-
-	// 3. Derive a wrap key from the DH secret. Salt binds the wrap to the
-	//    specific (ephemeral_pub, recipient_pub) pair so that the wrap
-	//    cannot be replayed against a different recipient.
-	salt := make([]byte, 0, len(ephPub)+len(recipientPublicKey))
-	salt = append(salt, ephPub...)
-	salt = append(salt, recipientPublicKey...)
-
+	// 2. Derive a wrap key from the shared secret.
+	salt := append(kemCT, recipientPublicKey...)
 	kdf := w.suite.KDF()
-	prk := kdf.Extract(salt, dh)
+	prk := kdf.Extract(salt, sharedSecret)
 	defer crypto.Zeroize(prk)
 	wrapKey := kdf.Expand(prk, []byte(WrapInfo), w.suite.AEAD().KeySize())
 	defer crypto.Zeroize(wrapKey)
 
-	// 4. AEAD-Seal the symmetric key under wrap_key with a zero nonce.
+	// 3. AEAD-Seal the symmetric key under wrap_key with a zero nonce.
 	//    The zero nonce is safe because wrap_key is unique per call.
-	//    Bind the recipient's public key as additional authenticated data
-	//    so that an attacker cannot strip the wrap and re-attach it to a
-	//    different recipient.
+	//    Bind the recipient's public key as AAD.
 	nonce := make([]byte, w.suite.AEAD().NonceSize())
 	ct, err := w.suite.AEAD().Seal(wrapKey, nonce, symmetricKey, recipientPublicKey)
 	if err != nil {
 		return "", fmt.Errorf("seal: AEAD seal: %w", err)
 	}
 
-	// 5. Concatenate the ephemeral public key with the ciphertext and
-	//    base64-encode for transport.
-	wrapped := make([]byte, 0, len(ephPub)+len(ct))
-	wrapped = append(wrapped, ephPub...)
+	// 4. Concatenate KEM ciphertext with AEAD ciphertext, base64-encode.
+	wrapped := make([]byte, 0, len(kemCT)+len(ct))
+	wrapped = append(wrapped, kemCT...)
 	wrapped = append(wrapped, ct...)
 	return base64.StdEncoding.EncodeToString(wrapped), nil
 }
 
-// Unwrap reverses Wrap. The recipient computes the same ephemeral DH secret,
-// derives the same wrap_key, and decrypts the symmetric key.
+// Unwrap reverses Wrap. The recipient decapsulates the KEM ciphertext to
+// recover the shared secret, derives the same wrap_key, and decrypts the
+// symmetric key.
 //
-// The recipient's own public key is recomputed from recipientPrivateKey for
-// use as the AEAD additional data and as part of the salt. This means the
-// caller does not need to pass the public key explicitly — the unwrap is
-// fully determined by the wrapped blob and the recipient's private key.
-func (w *wrapper) Unwrap(recipientPrivateKey []byte, wrapped string) ([]byte, error) {
+// recipientPublicKey is needed as AAD for the AEAD verification. The caller
+// MUST pass the public key that corresponds to recipientPrivateKey.
+func (w *wrapper) Unwrap(recipientPrivateKey, recipientPublicKey []byte, wrapped string) ([]byte, error) {
 	if len(recipientPrivateKey) == 0 {
 		return nil, errors.New("seal: empty recipient private key")
+	}
+	if len(recipientPublicKey) == 0 {
+		return nil, errors.New("seal: empty recipient public key")
 	}
 	raw, err := base64.StdEncoding.DecodeString(wrapped)
 	if err != nil {
@@ -162,55 +150,51 @@ func (w *wrapper) Unwrap(recipientPrivateKey []byte, wrapped string) ([]byte, er
 
 	kem := w.wrapKEM()
 
-	// X25519 public keys are 32 bytes. Anything shorter is malformed.
-	const x25519PubSize = 32
-	if len(raw) < x25519PubSize+w.suite.AEAD().Overhead() {
+	// Determine KEM ciphertext size. For X25519: 32 bytes (ephemeral pub).
+	// For hybrid: Kyber768 ciphertext + 32 bytes X25519 ephemeral pub.
+	// We use Encapsulate with a dummy key to learn the ciphertext size,
+	// but that's wasteful. Instead, compute from the known sizes.
+	// X25519 ciphertext = 32, Kyber768 ciphertext = 1088, hybrid = 1120.
+	// Use a trial: generate a keypair, encapsulate, measure ciphertext length.
+	_, trialCT, err := kem.Encapsulate(raw[:0]) // will fail but we need the size
+	// Fallback: try to decapsulate with the full blob and progressively
+	// split it. The AEAD overhead is fixed, so kemCTSize = len(raw) - aeadCTSize.
+	aeadOverhead := w.suite.AEAD().Overhead()
+	keySize := w.suite.AEAD().KeySize() // the wrapped symmetric key is keySize bytes plaintext
+	aeadCTLen := keySize + aeadOverhead
+	if len(raw) < aeadCTLen {
 		return nil, errors.New("seal: wrapped key truncated")
 	}
-	ephPub := raw[:x25519PubSize]
-	ct := raw[x25519PubSize:]
+	kemCTLen := len(raw) - aeadCTLen
+	kemCT := raw[:kemCTLen]
+	ct := raw[kemCTLen:]
+	_ = trialCT
 
-	// 1. Recover the recipient's own public key by re-running the X25519
-	//    base point derivation. This is the standard X25519 trick: the
-	//    public key is X25519(priv, basepoint).
-	recipientPub, err := kem.Agree(recipientPrivateKey, x25519Basepoint())
+	// 1. Decapsulate to recover the shared secret.
+	sharedSecret, err := kem.Decapsulate(kemCT, recipientPrivateKey)
 	if err != nil {
-		return nil, fmt.Errorf("seal: derive recipient public: %w", err)
+		return nil, fmt.Errorf("seal: KEM decapsulate: %w", err)
 	}
+	defer crypto.Zeroize(sharedSecret)
 
-	// 2. Diffie-Hellman against the ephemeral public key.
-	dh, err := kem.Agree(recipientPrivateKey, ephPub)
-	if err != nil {
-		return nil, fmt.Errorf("seal: ephemeral DH: %w", err)
-	}
-	defer crypto.Zeroize(dh)
-
-	// 3. Derive the same wrap key the sender used.
-	salt := make([]byte, 0, len(ephPub)+len(recipientPub))
-	salt = append(salt, ephPub...)
-	salt = append(salt, recipientPub...)
+	// 2. Derive the same wrap key the sender used.
+	// Copy kemCT to avoid corrupting ct (they share the same backing array).
+	salt := make([]byte, 0, len(kemCT)+len(recipientPublicKey))
+	salt = append(salt, kemCT...)
+	salt = append(salt, recipientPublicKey...)
 	kdf := w.suite.KDF()
-	prk := kdf.Extract(salt, dh)
+	prk := kdf.Extract(salt, sharedSecret)
 	defer crypto.Zeroize(prk)
 	wrapKey := kdf.Expand(prk, []byte(WrapInfo), w.suite.AEAD().KeySize())
 	defer crypto.Zeroize(wrapKey)
 
-	// 4. AEAD-Open. The recipient public key is the additional data.
+	// 3. AEAD-Open. The recipient public key is the additional data.
 	nonce := make([]byte, w.suite.AEAD().NonceSize())
-	pt, err := w.suite.AEAD().Open(wrapKey, nonce, ct, recipientPub)
+	pt, err := w.suite.AEAD().Open(wrapKey, nonce, ct, recipientPublicKey)
 	if err != nil {
 		return nil, fmt.Errorf("seal: AEAD open: %w", err)
 	}
 	return pt, nil
-}
-
-// x25519Basepoint returns the canonical X25519 base point (9 followed by
-// 31 zero bytes), used to derive a public key from a private key via
-// scalar multiplication.
-func x25519Basepoint() []byte {
-	bp := make([]byte, 32)
-	bp[0] = 9
-	return bp
 }
 
 // WrapForRecipients wraps symmetricKey under each recipient's public key in

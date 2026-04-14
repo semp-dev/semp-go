@@ -54,7 +54,8 @@ func SignServerMessage(suite crypto.Suite, domainPrivateKey []byte, msg any) (st
 	if err != nil {
 		return "", fmt.Errorf("handshake: canonical bytes: %w", err)
 	}
-	sig, err := suite.Signer().Sign(domainPrivateKey, canonicalBytes)
+	prefixed := crypto.PrefixedMessage(crypto.SigCtxHandshake, canonicalBytes)
+	sig, err := suite.Signer().Sign(domainPrivateKey, prefixed)
 	if err != nil {
 		return "", fmt.Errorf("handshake: sign: %w", err)
 	}
@@ -83,7 +84,8 @@ func VerifyServerMessage(suite crypto.Suite, domainPublicKey []byte, msg any, si
 	if err != nil {
 		return fmt.Errorf("handshake: canonical bytes: %w", err)
 	}
-	if err := suite.Signer().Verify(domainPublicKey, canonicalBytes, sig); err != nil {
+	prefixed := crypto.PrefixedMessage(crypto.SigCtxHandshake, canonicalBytes)
+	if err := suite.Signer().Verify(domainPublicKey, prefixed, sig); err != nil {
 		return fmt.Errorf("handshake: server signature verify: %w", err)
 	}
 	return nil

@@ -132,11 +132,12 @@ type Server struct {
 	DomainSignFP   keys.Fingerprint
 	DomainSignPriv []byte
 
-	// DomainEncFP and DomainEncPriv are the server's domain encryption
-	// keypair, used to unwrap K_brief from inbound envelopes so the
-	// server can read brief.to and brief.from.
+	// DomainEncFP, DomainEncPriv, and DomainEncPub are the server's
+	// domain encryption keypair, used to unwrap K_brief from inbound
+	// envelopes so the server can read brief.to and brief.from.
 	DomainEncFP   keys.Fingerprint
 	DomainEncPriv []byte
+	DomainEncPub  []byte
 
 	// Identity is the authenticated peer identity established by the
 	// preceding handshake. In ModeClient this is the client's user
@@ -201,6 +202,7 @@ func (s *Server) pipelineFor(mode Mode) *delivery.Pipeline {
 		Sessions:      s.SessionExpiry,
 		DomainEncFP:   s.DomainEncFP,
 		DomainEncPriv: s.DomainEncPriv,
+		DomainEncPub:  s.DomainEncPub,
 		DomainPolicy:  s.DomainPolicy,
 		BlockList:     s.BlockList,
 		IsLocal:       s.isLocal,
@@ -354,7 +356,7 @@ func (s *Server) handleClientSubmission(ctx context.Context, stream MessageStrea
 	// price of running the scope check (a sender-side concern) at
 	// submission time before the envelope reaches the receiver
 	// pipeline (a receiver-side concern).
-	bf, err := envelope.OpenBrief(env, s.Suite, s.DomainEncFP, s.DomainEncPriv)
+	bf, err := envelope.OpenBrief(env, s.Suite, s.DomainEncFP, s.DomainEncPriv, s.DomainEncPub)
 	if err != nil {
 		resp := delivery.NewSubmissionResponse(env.Postmark.ID, []delivery.SubmissionResult{{
 			Recipient:  s.Identity,

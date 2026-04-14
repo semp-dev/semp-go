@@ -366,10 +366,11 @@ func (i *Initiator) Init() ([]byte, error) {
 	i.ephemeralPub = ephPub
 	i.ephemeralPriv = ephPriv
 
-	// Inner identity proof: signature over eph_pub || nonce.
-	innerMsg := make([]byte, 0, len(ephPub)+len(i.nonce))
-	innerMsg = append(innerMsg, ephPub...)
-	innerMsg = append(innerMsg, i.nonce...)
+	// Inner identity proof: signature over eph_pub || nonce with domain separation.
+	rawInner := make([]byte, 0, len(ephPub)+len(i.nonce))
+	rawInner = append(rawInner, ephPub...)
+	rawInner = append(rawInner, i.nonce...)
+	innerMsg := crypto.PrefixedMessage(crypto.SigCtxIdentity, rawInner)
 	innerSig, err := i.suite.Signer().Sign(i.localDomainPriv, innerMsg)
 	if err != nil {
 		return nil, fmt.Errorf("handshake: inner identity sign: %w", err)
@@ -458,15 +459,16 @@ func (i *Initiator) OnResponse(data []byte) ([]byte, *session.Session, error) {
 	if err != nil {
 		return nil, nil, fmt.Errorf("handshake: server nonce base64: %w", err)
 	}
-	innerMsg := make([]byte, 0, len(serverEphPub)+len(serverNonce)+len(i.nonce))
-	innerMsg = append(innerMsg, serverEphPub...)
-	innerMsg = append(innerMsg, serverNonce...)
-	innerMsg = append(innerMsg, i.nonce...)
+	rawInnerV := make([]byte, 0, len(serverEphPub)+len(serverNonce)+len(i.nonce))
+	rawInnerV = append(rawInnerV, serverEphPub...)
+	rawInnerV = append(rawInnerV, serverNonce...)
+	rawInnerV = append(rawInnerV, i.nonce...)
+	innerMsgV := crypto.PrefixedMessage(crypto.SigCtxIdentity, rawInnerV)
 	innerSig, err := base64.StdEncoding.DecodeString(resp.ServerIdentityProof.Signature)
 	if err != nil {
 		return nil, nil, fmt.Errorf("handshake: inner identity_proof base64: %w", err)
 	}
-	if err := i.suite.Signer().Verify(peerDomainPub, innerMsg, innerSig); err != nil {
+	if err := i.suite.Signer().Verify(peerDomainPub, innerMsgV, innerSig); err != nil {
 		return nil, nil, fmt.Errorf("handshake: peer inner identity_signature verify: %w", err)
 	}
 
@@ -789,14 +791,15 @@ func (r *Responder) OnInit(data []byte) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("handshake: peer nonce base64: %w", err)
 	}
-	innerMsg := make([]byte, 0, len(clientEphPub)+len(clientNonce))
-	innerMsg = append(innerMsg, clientEphPub...)
-	innerMsg = append(innerMsg, clientNonce...)
+	rawInnerR := make([]byte, 0, len(clientEphPub)+len(clientNonce))
+	rawInnerR = append(rawInnerR, clientEphPub...)
+	rawInnerR = append(rawInnerR, clientNonce...)
+	innerMsgR := crypto.PrefixedMessage(crypto.SigCtxIdentity, rawInnerR)
 	innerSig, err := base64.StdEncoding.DecodeString(init.ServerIdentityProof.Signature)
 	if err != nil {
 		return nil, fmt.Errorf("handshake: inner identity_proof base64: %w", err)
 	}
-	if err := r.suite.Signer().Verify(peerDomainPub, innerMsg, innerSig); err != nil {
+	if err := r.suite.Signer().Verify(peerDomainPub, innerMsgR, innerSig); err != nil {
 		return nil, fmt.Errorf("handshake: peer inner identity_signature verify: %w", err)
 	}
 
@@ -866,10 +869,11 @@ func (r *Responder) OnInit(data []byte) ([]byte, error) {
 	}
 
 	// Inner identity proof: sig over eph_pub || server_nonce || client_nonce.
-	innerProofMsg := make([]byte, 0, len(ephPub)+len(serverNonce)+len(clientNonce))
-	innerProofMsg = append(innerProofMsg, ephPub...)
-	innerProofMsg = append(innerProofMsg, serverNonce...)
-	innerProofMsg = append(innerProofMsg, clientNonce...)
+	rawProof := make([]byte, 0, len(ephPub)+len(serverNonce)+len(clientNonce))
+	rawProof = append(rawProof, ephPub...)
+	rawProof = append(rawProof, serverNonce...)
+	rawProof = append(rawProof, clientNonce...)
+	innerProofMsg := crypto.PrefixedMessage(crypto.SigCtxIdentity, rawProof)
 	innerProofSig, err := r.suite.Signer().Sign(r.localDomainPriv, innerProofMsg)
 	if err != nil {
 		sessionKeys.Erase()

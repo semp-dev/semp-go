@@ -269,6 +269,7 @@ func bringUpServer(t *testing.T, seed, domain string, users []string) *testServe
 				DomainSignPriv: domainSignPriv,
 				DomainEncFP:    domainEncFP,
 				DomainEncPriv:  domainEncPriv,
+				DomainEncPub:   domainEncPub,
 				Identity:       srv.ClientIdentity(),
 				DeviceKeyID:    srv.ClientDeviceKeyID(),
 				Session:        sess,
@@ -317,6 +318,7 @@ func bringUpServer(t *testing.T, seed, domain string, users []string) *testServe
 				DomainSignPriv: domainSignPriv,
 				DomainEncFP:    domainEncFP,
 				DomainEncPriv:  domainEncPriv,
+				DomainEncPub:   domainEncPub,
 				Identity:       resp.PeerDomain(),
 				Session:        sess,
 				Logger:         silent,
@@ -515,11 +517,11 @@ func fetchInboxCrossDomain(t *testing.T, suite crypto.Suite, srvB *testServer, s
 		if err != nil {
 			t.Fatalf("envelope %d decode: %v", i, err)
 		}
-		bf, err := envelope.OpenBrief(env, suite, myEncFP, myEncPriv)
+		bf, err := envelope.OpenBrief(env, suite, myEncFP, myEncPriv, myEncPub)
 		if err != nil {
 			t.Fatalf("envelope %d OpenBrief: %v", i, err)
 		}
-		enc, err := envelope.OpenEnclosure(env, suite, myEncFP, myEncPriv)
+		enc, err := envelope.OpenEnclosure(env, suite, myEncFP, myEncPriv, myEncPub)
 		if err != nil {
 			t.Fatalf("envelope %d OpenEnclosure: %v", i, err)
 		}

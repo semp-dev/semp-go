@@ -168,6 +168,7 @@ func TestDeviceCertificateScopeEnforcement(t *testing.T) {
 					DomainSignPriv: domainSignPriv,
 					DomainEncFP:    domainEncFP,
 					DomainEncPriv:  domainEncPriv,
+					DomainEncPub:   domainEncPub,
 					Identity:       srv.ClientIdentity(),
 					DeviceKeyID:    srv.ClientDeviceKeyID(),
 					Session:        sess,

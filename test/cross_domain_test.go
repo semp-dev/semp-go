@@ -185,7 +185,7 @@ func TestCrossDomainEnvelopeFlow(t *testing.T) {
 	}
 
 	// --- Server B unwraps the brief.
-	briefForServer, err := envelope.OpenBrief(got, suite, encFPB, encPrivB)
+	briefForServer, err := envelope.OpenBrief(got, suite, encFPB, encPrivB, encPubB)
 	if err != nil {
 		t.Fatalf("server OpenBrief: %v", err)
 	}
@@ -197,14 +197,14 @@ func TestCrossDomainEnvelopeFlow(t *testing.T) {
 	}
 
 	// --- Bob's client unwraps both layers.
-	briefForClient, err := envelope.OpenBrief(got, suite, clientFPB, clientPrivB)
+	briefForClient, err := envelope.OpenBrief(got, suite, clientFPB, clientPrivB, clientPubB)
 	if err != nil {
 		t.Fatalf("client OpenBrief: %v", err)
 	}
 	if briefForClient.MessageID != bf.MessageID {
 		t.Errorf("client brief MessageID mismatch")
 	}
-	encForClient, err := envelope.OpenEnclosure(got, suite, clientFPB, clientPrivB)
+	encForClient, err := envelope.OpenEnclosure(got, suite, clientFPB, clientPrivB, clientPubB)
 	if err != nil {
 		t.Fatalf("client OpenEnclosure: %v", err)
 	}
@@ -216,7 +216,7 @@ func TestCrossDomainEnvelopeFlow(t *testing.T) {
 	}
 
 	// --- The recipient server MUST NOT be able to decrypt the enclosure.
-	if _, err := envelope.OpenEnclosure(got, suite, encFPB, encPrivB); err == nil {
+	if _, err := envelope.OpenEnclosure(got, suite, encFPB, encPrivB, encPubB); err == nil {
 		t.Error("recipient server was able to decrypt the enclosure — privacy boundary broken")
 	}
 

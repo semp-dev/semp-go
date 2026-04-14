@@ -121,11 +121,12 @@ type Pipeline struct {
 	// SkipExpiryCheck.
 	SkipSessionIDCheck bool
 
-	// DomainEncFP and DomainEncPriv are the home server's domain
-	// encryption keypair, used to unwrap K_brief in step 6/7. Both
-	// MUST be populated.
+	// DomainEncFP, DomainEncPriv, and DomainEncPub are the home server's
+	// domain encryption keypair, used to unwrap K_brief in step 6/7.
+	// All three MUST be populated.
 	DomainEncFP   keys.Fingerprint
 	DomainEncPriv []byte
+	DomainEncPub  []byte
 
 	// DomainPolicy is the optional step-5 hook. Nil disables the step
 	// (every envelope passes by default).
@@ -389,7 +390,7 @@ func (p *Pipeline) openBrief(env *envelope.Envelope) (*brief.Brief, *envelope.Re
 		return nil, p.reject(env, semp.ReasonSealInvalid,
 			"pipeline missing domain encryption key; cannot unwrap brief")
 	}
-	bf, err := envelope.OpenBrief(env, p.Suite, p.DomainEncFP, p.DomainEncPriv)
+	bf, err := envelope.OpenBrief(env, p.Suite, p.DomainEncFP, p.DomainEncPriv, p.DomainEncPub)
 	if err != nil {
 		return nil, p.reject(env, semp.ReasonSealInvalid,
 			fmt.Sprintf("server cannot unwrap brief: %v", err))

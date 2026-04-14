@@ -23,10 +23,15 @@ const (
 	InfoSessionEnvMAC = "SEMP-v1-session-env-mac"
 )
 
-// InfoRekey is the HKDF info context used when deriving keys for an
-// in-session rekey exchange (SESSION.md §3.3). Distinct from the initial
-// session info to prevent cross-context key confusion.
-const InfoRekey = "SEMP-v1-rekey"
+// Rekey HKDF info labels. Distinct from the initial session labels to
+// prevent cross-context key confusion per SESSION.md §3.3.
+const (
+	InfoRekeyEncC2S = "SEMP-v1-rekey-enc-c2s"
+	InfoRekeyEncS2C = "SEMP-v1-rekey-enc-s2c"
+	InfoRekeyMACC2S = "SEMP-v1-rekey-mac-c2s"
+	InfoRekeyMACS2C = "SEMP-v1-rekey-mac-s2c"
+	InfoRekeyEnvMAC = "SEMP-v1-rekey-env-mac"
+)
 
 // SessionContext is the constant info string used by callers that want a
 // generic session-context expansion. The five per-key labels above are the
@@ -141,18 +146,32 @@ func DeriveSessionKeys(kdf KDF, sharedSecret, clientNonce, serverNonce []byte) (
 }
 
 // DeriveRekeyKeys derives a fresh SessionKeys for a rekey exchange. It
-// differs from DeriveSessionKeys only in the salt construction (rekey_nonce
-// || responder_nonce) and the per-key info contexts; the per-key labels are
-// the same five SEMP-v1-session-* labels — the rekey context is implied by
-// the use of fresh shared secret material derived from a fresh ephemeral
-// agreement, not by a different label namespace. See SESSION.md §3.3 for
-// the full procedure.
+// uses distinct info labels (SEMP-v1-rekey-*) from the initial session
+// derivation (SEMP-v1-session-*) to prevent cross-context key confusion.
+// The salt is rekey_nonce || responder_nonce.
 //
 // Reference: SESSION.md §3.3.
 func DeriveRekeyKeys(kdf KDF, sharedSecret, rekeyNonce, responderNonce []byte) (*SessionKeys, error) {
-	// Per SESSION.md §3.3 the only differences from the initial derivation
-	// are the salt and the (notional) info context. We model the context
-	// switch by routing through DeriveSessionKeys with the new salt; the
-	// per-key labels remain the same five constants.
-	return DeriveSessionKeys(kdf, sharedSecret, rekeyNonce, responderNonce)
+	if len(sharedSecret) == 0 {
+		return nil, errors.New("crypto: empty shared secret")
+	}
+	if len(rekeyNonce) == 0 || len(responderNonce) == 0 {
+		return nil, errors.New("crypto: empty nonce")
+	}
+	if kdf == nil {
+		kdf = NewKDFHKDFSHA512()
+	}
+	salt := make([]byte, 0, len(rekeyNonce)+len(responderNonce))
+	salt = append(salt, rekeyNonce...)
+	salt = append(salt, responderNonce...)
+	prk := kdf.Extract(salt, sharedSecret)
+	defer Zeroize(prk)
+
+	return &SessionKeys{
+		EncC2S: kdf.Expand(prk, []byte(InfoRekeyEncC2S), sessionKeyLength),
+		EncS2C: kdf.Expand(prk, []byte(InfoRekeyEncS2C), sessionKeyLength),
+		MACC2S: kdf.Expand(prk, []byte(InfoRekeyMACC2S), sessionKeyLength),
+		MACS2C: kdf.Expand(prk, []byte(InfoRekeyMACS2C), sessionKeyLength),
+		EnvMAC: kdf.Expand(prk, []byte(InfoRekeyEnvMAC), sessionKeyLength),
+	}, nil
 }

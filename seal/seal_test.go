@@ -36,7 +36,7 @@ func TestWrapUnwrapRoundTrip(t *testing.T) {
 		t.Fatal("Wrap returned empty string")
 	}
 
-	out, err := wrapper.Unwrap(recipientPriv, wrapped)
+	out, err := wrapper.Unwrap(recipientPriv, recipientPub, wrapped)
 	if err != nil {
 		t.Fatalf("Unwrap: %v", err)
 	}
@@ -59,7 +59,7 @@ func TestWrapUnwrapWrongRecipientFails(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Wrap: %v", err)
 	}
-	if _, err := wrapper.Unwrap(mallorPriv, wrapped); err == nil {
+	if _, err := wrapper.Unwrap(mallorPriv, nil, wrapped); err == nil {
 		t.Error("Unwrap accepted a key from the wrong recipient")
 	}
 }
@@ -80,7 +80,7 @@ func TestWrapTamperedFails(t *testing.T) {
 	raw, _ := base64.StdEncoding.DecodeString(wrapped)
 	raw[len(raw)-1] ^= 0x01
 	tampered := base64.StdEncoding.EncodeToString(raw)
-	if _, err := wrapper.Unwrap(priv, tampered); err == nil {
+	if _, err := wrapper.Unwrap(priv, pub, tampered); err == nil {
 		t.Error("Unwrap accepted a tampered wrap")
 	}
 }
@@ -119,7 +119,7 @@ func TestWrapForRecipientsMultiple(t *testing.T) {
 			t.Errorf("missing entry for %s", p.fp)
 			continue
 		}
-		out, err := wrapper.Unwrap(p.priv, wrapped)
+		out, err := wrapper.Unwrap(p.priv, p.pub, wrapped)
 		if err != nil {
 			t.Errorf("Unwrap for %s: %v", p.fp, err)
 			continue

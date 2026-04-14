@@ -113,6 +113,7 @@ func TestInboxRouting(t *testing.T) {
 				DomainSignPriv: domainSignPriv,
 				DomainEncFP:    domainEncFP,
 				DomainEncPriv:  domainEncPriv,
+				DomainEncPub:   domainEncPub,
 				Identity:       srv.ClientIdentity(),
 				DeviceKeyID:    srv.ClientDeviceKeyID(),
 				Session:        sess,
@@ -177,12 +178,12 @@ func TestInboxRouting(t *testing.T) {
 	if err != nil {
 		t.Fatalf("decode stored envelope for privacy check: %v", err)
 	}
-	if _, err := envelope.OpenEnclosure(storedEnv, suite, domainEncFP, domainEncPriv); err == nil {
+	if _, err := envelope.OpenEnclosure(storedEnv, suite, domainEncFP, domainEncPriv, domainEncPub); err == nil {
 		t.Error("server's domain encryption key was able to decrypt the enclosure — privacy boundary broken")
 	}
 	// Sanity: the same key SHOULD be able to unwrap the brief, since
 	// that's exactly what inboxd uses it for during routing.
-	if _, err := envelope.OpenBrief(storedEnv, suite, domainEncFP, domainEncPriv); err != nil {
+	if _, err := envelope.OpenBrief(storedEnv, suite, domainEncFP, domainEncPriv, domainEncPub); err != nil {
 		t.Errorf("server's domain encryption key cannot unwrap K_brief: %v", err)
 	}
 
@@ -369,11 +370,11 @@ func fetchInbox(t *testing.T, suite crypto.Suite, wsURL, seed, domain, identity 
 		if err != nil {
 			t.Fatalf("envelope %d decode: %v", i, err)
 		}
-		bf, err := envelope.OpenBrief(env, suite, myEncFP, myEncPriv)
+		bf, err := envelope.OpenBrief(env, suite, myEncFP, myEncPriv, myEncPub)
 		if err != nil {
 			t.Fatalf("envelope %d OpenBrief: %v", i, err)
 		}
-		enc, err := envelope.OpenEnclosure(env, suite, myEncFP, myEncPriv)
+		enc, err := envelope.OpenEnclosure(env, suite, myEncFP, myEncPriv, myEncPub)
 		if err != nil {
 			t.Fatalf("envelope %d OpenEnclosure: %v", i, err)
 		}

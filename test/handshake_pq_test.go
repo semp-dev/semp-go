@@ -246,11 +246,10 @@ func TestEnvelopeSealUnderSuitePQ(t *testing.T) {
 	}
 
 	// Now compose and seal an envelope using the real hybrid-derived
-	// K_env_mac from the client session. The recipient's long-term
-	// encryption key is X25519 regardless of the session suite —
-	// seal.Wrap operates on published recipient keys, not ephemeral
-	// handshake keys.
-	recipEncPub, _, err := crypto.NewKEMX25519().GenerateKeyPair()
+	// K_env_mac from the client session. When the session suite is PQ,
+	// seal.Wrap uses the hybrid KEM, so recipient encryption keys must
+	// be generated via the suite's KEM (Kyber768+X25519).
+	recipEncPub, _, err := suite.KEM().GenerateKeyPair()
 	if err != nil {
 		t.Fatalf("recipient pre-key: %v", err)
 	}

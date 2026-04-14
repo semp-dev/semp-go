@@ -97,7 +97,8 @@ func Compose(in *ComposeInput) (*Envelope, error) {
 	if err != nil {
 		return nil, fmt.Errorf("envelope: brief nonce: %w", err)
 	}
-	briefCT, err := aead.Seal(kBrief, briefNonce, briefBytes, nil)
+	envelopeAAD := []byte(in.Postmark.ID)
+	briefCT, err := aead.Seal(kBrief, briefNonce, briefBytes, envelopeAAD)
 	if err != nil {
 		return nil, fmt.Errorf("envelope: encrypt brief: %w", err)
 	}
@@ -112,7 +113,7 @@ func Compose(in *ComposeInput) (*Envelope, error) {
 	if err != nil {
 		return nil, fmt.Errorf("envelope: enclosure nonce: %w", err)
 	}
-	enclCT, err := aead.Seal(kEnclosure, enclNonce, enclBytes, nil)
+	enclCT, err := aead.Seal(kEnclosure, enclNonce, enclBytes, envelopeAAD)
 	if err != nil {
 		return nil, fmt.Errorf("envelope: encrypt enclosure: %w", err)
 	}

@@ -64,6 +64,11 @@ type Session struct {
 	// ever returning them to the caller — this prevents accidental
 	// serialization or logging of secret material.
 	keys *crypto.SessionKeys
+
+	// previousEnvMAC retains the old K_env_mac during the transition
+	// window after a rekey, so in-flight envelopes referencing the old
+	// session ID can still be verified.
+	previousEnvMAC []byte
 }
 
 // New constructs a Session with State StateInitial. Other fields are filled
@@ -192,13 +197,33 @@ func (s *Session) ApplyRekey(newID string, newKeys *crypto.SessionKeys, now time
 	s.PreviousID = s.ID
 	s.PreviousIDExpiresAt = now.Add(TransitionWindow)
 	s.ID = newID
+	// Retain old K_env_mac for the transition window so in-flight
+	// envelopes referencing the old session ID can still be verified.
+	crypto.Zeroize(s.previousEnvMAC)
 	if s.keys != nil {
+		s.previousEnvMAC = make([]byte, len(s.keys.EnvMAC))
+		copy(s.previousEnvMAC, s.keys.EnvMAC)
 		s.keys.Erase()
 	}
 	s.keys = newKeys
 	s.ExpiresAt = now.Add(s.TTL)
 	s.RekeyCount++
 	s.LastRekeyAt = now
+}
+
+// PreviousEnvMAC returns the retained K_env_mac from before the most
+// recent rekey. Valid only during the transition window. Returns nil
+// outside the window or before any rekey.
+func (s *Session) PreviousEnvMAC(now time.Time) []byte {
+	if s == nil || s.PreviousID == "" {
+		return nil
+	}
+	if now.After(s.PreviousIDExpiresAt) {
+		crypto.Zeroize(s.previousEnvMAC)
+		s.previousEnvMAC = nil
+		return nil
+	}
+	return s.previousEnvMAC
 }
 
 // AcceptsID reports whether sessionID matches the session's current or
