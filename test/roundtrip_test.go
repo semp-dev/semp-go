@@ -134,7 +134,7 @@ func TestEnvelopeRoundTrip(t *testing.T) {
 	}
 
 	// --- 6. Receiving server unwraps and reads the brief.
-	briefForServer, err := envelope.OpenBrief(got, suite, receiverServerKeyID, receiverServerEncPriv)
+	briefForServer, err := envelope.OpenBrief(got, suite, receiverServerKeyID, receiverServerEncPriv, receiverServerEncPub)
 	if err != nil {
 		t.Fatalf("server OpenBrief: %v", err)
 	}
@@ -146,7 +146,7 @@ func TestEnvelopeRoundTrip(t *testing.T) {
 	}
 
 	// --- 7. Receiving client unwraps and reads the brief.
-	briefForClient, err := envelope.OpenBrief(got, suite, receiverClientKeyID, receiverClientEncPriv)
+	briefForClient, err := envelope.OpenBrief(got, suite, receiverClientKeyID, receiverClientEncPriv, receiverClientEncPub)
 	if err != nil {
 		t.Fatalf("client OpenBrief: %v", err)
 	}
@@ -155,7 +155,7 @@ func TestEnvelopeRoundTrip(t *testing.T) {
 	}
 
 	// --- 8. Receiving client unwraps and reads the enclosure.
-	encForClient, err := envelope.OpenEnclosure(got, suite, receiverClientKeyID, receiverClientEncPriv)
+	encForClient, err := envelope.OpenEnclosure(got, suite, receiverClientKeyID, receiverClientEncPriv, receiverClientEncPub)
 	if err != nil {
 		t.Fatalf("client OpenEnclosure: %v", err)
 	}
@@ -167,7 +167,7 @@ func TestEnvelopeRoundTrip(t *testing.T) {
 	}
 
 	// --- 9. Receiving server CANNOT decrypt the enclosure (no wrap).
-	if _, err := envelope.OpenEnclosure(got, suite, receiverServerKeyID, receiverServerEncPriv); err == nil {
+	if _, err := envelope.OpenEnclosure(got, suite, receiverServerKeyID, receiverServerEncPriv, receiverServerEncPub); err == nil {
 		t.Error("server was able to decrypt the enclosure — this MUST NOT happen")
 	}
 

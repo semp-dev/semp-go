@@ -93,9 +93,9 @@ func composeMultiDevice(t *testing.T) (env *envelope.Envelope, entryA, entryB, e
 		t.Fatalf("Sign: %v", err)
 	}
 	return envOut,
-		envelope.RecipientPrivateKey{Fingerprint: devAFP, PrivateKey: devAEncPriv},
-		envelope.RecipientPrivateKey{Fingerprint: devBFP, PrivateKey: devBEncPriv},
-		envelope.RecipientPrivateKey{Fingerprint: srvEncFP, PrivateKey: srvEncPriv}
+		envelope.RecipientPrivateKey{Fingerprint: devAFP, PrivateKey: devAEncPriv, PublicKey: devAEncPub},
+		envelope.RecipientPrivateKey{Fingerprint: devBFP, PrivateKey: devBEncPriv, PublicKey: devBEncPub},
+		envelope.RecipientPrivateKey{Fingerprint: srvEncFP, PrivateKey: srvEncPriv, PublicKey: srvEncPub}
 }
 
 // TestOpenBriefAnyHappyPath opens a multi-device envelope with a
@@ -142,10 +142,11 @@ func TestOpenBriefAnyIgnoresUnrelatedCandidates(t *testing.T) {
 
 	// Make a junk candidate with a fingerprint that's definitely
 	// not on the envelope.
-	_, junkPriv, _ := suite.KEM().GenerateKeyPair()
+	junkPub, junkPriv, _ := suite.KEM().GenerateKeyPair()
 	junk := envelope.RecipientPrivateKey{
 		Fingerprint: "junk-fingerprint-000000000000",
 		PrivateKey:  junkPriv,
+		PublicKey:   junkPub,
 	}
 	candidates := []envelope.RecipientPrivateKey{junk, devA}
 	if _, err := envelope.OpenBriefAny(env, suite, candidates); err != nil {
@@ -160,10 +161,10 @@ func TestOpenBriefAnyNoMatchingCandidate(t *testing.T) {
 	suite := crypto.SuiteBaseline
 	env, _, _, _ := composeMultiDevice(t)
 
-	_, junkPriv, _ := suite.KEM().GenerateKeyPair()
+	junkPub2, junkPriv2, _ := suite.KEM().GenerateKeyPair()
 	candidates := []envelope.RecipientPrivateKey{
-		{Fingerprint: "junk-1", PrivateKey: junkPriv},
-		{Fingerprint: "junk-2", PrivateKey: junkPriv},
+		{Fingerprint: "junk-1", PrivateKey: junkPriv2, PublicKey: junkPub2},
+		{Fingerprint: "junk-2", PrivateKey: junkPriv2, PublicKey: junkPub2},
 	}
 	_, err := envelope.OpenBriefAny(env, suite, candidates)
 	if err == nil {
@@ -184,10 +185,11 @@ func TestOpenBriefAnyMatchingFingerprintWrongPrivateKey(t *testing.T) {
 
 	// Swap in wrong private key bytes but keep the fingerprint
 	// that's actually on the envelope.
-	_, wrongPriv, _ := suite.KEM().GenerateKeyPair()
+	wrongPub, wrongPriv, _ := suite.KEM().GenerateKeyPair()
 	bad := envelope.RecipientPrivateKey{
 		Fingerprint: devA.Fingerprint,
 		PrivateKey:  wrongPriv,
+		PublicKey:   wrongPub,
 	}
 	_, err := envelope.OpenBriefAny(env, suite, []envelope.RecipientPrivateKey{bad})
 	if err == nil {

@@ -90,6 +90,7 @@ func newInboxdHarness(t *testing.T) *inboxdHarness {
 		DomainSignPriv: signPriv,
 		DomainEncFP:    h.domainEncFP,
 		DomainEncPriv:  encPriv,
+		DomainEncPub:   encPub,
 		Identity:       "carol@example.com",
 		EnvMAC:         envMAC,
 	}

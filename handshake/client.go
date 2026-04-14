@@ -318,7 +318,7 @@ func (c *Client) OnResponse(data []byte) (confirm []byte, sess *session.Session,
 		return nil, nil, fmt.Errorf("handshake: load identity private key: %w", err)
 	}
 	defer crypto.Zeroize(identityPriv)
-	signed := append([]byte(resp.SessionID), confirmHash...)
+	signed := crypto.PrefixedMessage(crypto.SigCtxIdentity, append([]byte(resp.SessionID), confirmHash...))
 	identitySig, err := c.suite.Signer().Sign(identityPriv, signed)
 	if err != nil {
 		sessionKeys.Erase()

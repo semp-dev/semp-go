@@ -170,7 +170,7 @@ func TestMultiDeviceSEMPKeysReturnsAllDevices(t *testing.T) {
 
 	// Device 1 opens with its own key only.
 	dev1Candidates := []envelope.RecipientPrivateKey{
-		{Fingerprint: bob1FP, PrivateKey: bob1Priv},
+		{Fingerprint: bob1FP, PrivateKey: bob1Priv, PublicKey: bob1Pub},
 	}
 	bf1, err := envelope.OpenBriefAny(env, suite, dev1Candidates)
 	if err != nil {
@@ -189,7 +189,7 @@ func TestMultiDeviceSEMPKeysReturnsAllDevices(t *testing.T) {
 
 	// Device 2 opens with its own key only.
 	dev2Candidates := []envelope.RecipientPrivateKey{
-		{Fingerprint: bob2FP, PrivateKey: bob2Priv},
+		{Fingerprint: bob2FP, PrivateKey: bob2Priv, PublicKey: bob2Pub},
 	}
 	bf2, err := envelope.OpenBriefAny(env, suite, dev2Candidates)
 	if err != nil {

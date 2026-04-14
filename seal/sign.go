@@ -65,7 +65,8 @@ func (s *Signer) Sign(seal *Seal, canonicalBytes []byte) error {
 	if len(s.DomainPrivateKey) == 0 {
 		return errors.New("seal: missing domain private key")
 	}
-	sig, err := s.Suite.Signer().Sign(s.DomainPrivateKey, canonicalBytes)
+	prefixed := crypto.PrefixedMessage(crypto.SigCtxEnvelope, canonicalBytes)
+	sig, err := s.Suite.Signer().Sign(s.DomainPrivateKey, prefixed)
 	if err != nil {
 		return fmt.Errorf("seal: domain key sign: %w", err)
 	}
@@ -110,7 +111,8 @@ func (v *Verifier) VerifySignature(seal *Seal, canonicalBytes, domainPublicKey [
 	if err != nil {
 		return fmt.Errorf("seal: signature base64: %w", err)
 	}
-	if err := v.Suite.Signer().Verify(domainPublicKey, canonicalBytes, sig); err != nil {
+	prefixed := crypto.PrefixedMessage(crypto.SigCtxEnvelope, canonicalBytes)
+	if err := v.Suite.Signer().Verify(domainPublicKey, prefixed, sig); err != nil {
 		return fmt.Errorf("seal: domain key verify: %w", err)
 	}
 	return nil

@@ -157,6 +157,7 @@ func TestPipelineHappyPathFederation(t *testing.T) {
 		DomainKeys:    &staticDomainKeys{domain: "send.example", pub: f.senderDomainPub},
 		DomainEncFP:   f.serverEncFP,
 		DomainEncPriv: f.serverEncPriv,
+		DomainEncPub:  f.serverEncPub,
 		IsLocal:       localTo("bob@recv.example"),
 		Inbox:         inbox,
 	}
@@ -198,6 +199,7 @@ func TestPipelineExpiredEnvelope(t *testing.T) {
 		DomainKeys:    &staticDomainKeys{domain: "send.example", pub: f.senderDomainPub},
 		DomainEncFP:   f.serverEncFP,
 		DomainEncPriv: f.serverEncPriv,
+		DomainEncPub:  f.serverEncPub,
 		IsLocal:       localTo("bob@recv.example"),
 		Inbox:         delivery.NewInbox(),
 	}
@@ -229,6 +231,7 @@ func TestPipelineMissingSessionID(t *testing.T) {
 		DomainKeys:    &staticDomainKeys{domain: "send.example", pub: f.senderDomainPub},
 		DomainEncFP:   f.serverEncFP,
 		DomainEncPriv: f.serverEncPriv,
+		DomainEncPub:  f.serverEncPub,
 		IsLocal:       localTo("bob@recv.example"),
 		Inbox:         delivery.NewInbox(),
 	}
@@ -254,6 +257,7 @@ func TestPipelineRetiredSession(t *testing.T) {
 		DomainKeys:    &staticDomainKeys{domain: "send.example", pub: f.senderDomainPub},
 		DomainEncFP:   f.serverEncFP,
 		DomainEncPriv: f.serverEncPriv,
+		DomainEncPub:  f.serverEncPub,
 		IsLocal:       localTo("bob@recv.example"),
 		Inbox:         delivery.NewInbox(),
 	}
@@ -278,6 +282,7 @@ func TestPipelineBadSessionMAC(t *testing.T) {
 		DomainKeys:    &staticDomainKeys{domain: "send.example", pub: f.senderDomainPub},
 		DomainEncFP:   f.serverEncFP,
 		DomainEncPriv: f.serverEncPriv,
+		DomainEncPub:  f.serverEncPub,
 		IsLocal:       localTo("bob@recv.example"),
 		Inbox:         delivery.NewInbox(),
 	}
@@ -305,6 +310,7 @@ func TestPipelineBadSignature(t *testing.T) {
 		DomainKeys:    &staticDomainKeys{domain: "send.example", pub: otherPub},
 		DomainEncFP:   f.serverEncFP,
 		DomainEncPriv: f.serverEncPriv,
+		DomainEncPub:  f.serverEncPub,
 		IsLocal:       localTo("bob@recv.example"),
 		Inbox:         delivery.NewInbox(),
 	}
@@ -329,6 +335,7 @@ func TestPipelineDomainPolicyRejects(t *testing.T) {
 		DomainKeys:    &staticDomainKeys{domain: "send.example", pub: f.senderDomainPub},
 		DomainEncFP:   f.serverEncFP,
 		DomainEncPriv: f.serverEncPriv,
+		DomainEncPub:  f.serverEncPub,
 		DomainPolicy: func(_ context.Context, fromDomain, _ string) (semp.Acknowledgment, semp.ReasonCode, string) {
 			if fromDomain == "send.example" {
 				return semp.AckRejected, semp.ReasonRateLimited, "domain over quota"
@@ -366,6 +373,7 @@ func TestPipelineUserBlockListRejects(t *testing.T) {
 		DomainKeys:    &staticDomainKeys{domain: "send.example", pub: f.senderDomainPub},
 		DomainEncFP:   f.serverEncFP,
 		DomainEncPriv: f.serverEncPriv,
+		DomainEncPub:  f.serverEncPub,
 		BlockList: &delivery.StaticBlockListLookup{Lists: map[string]*delivery.BlockList{
 			"bob@recv.example": bobList,
 		}},
@@ -411,6 +419,7 @@ func TestPipelineUserBlockSilent(t *testing.T) {
 		DomainKeys:    &staticDomainKeys{domain: "send.example", pub: f.senderDomainPub},
 		DomainEncFP:   f.serverEncFP,
 		DomainEncPriv: f.serverEncPriv,
+		DomainEncPub:  f.serverEncPub,
 		BlockList: &delivery.StaticBlockListLookup{Lists: map[string]*delivery.BlockList{
 			"bob@recv.example": {Entries: []delivery.BlockEntry{userEntry("alice@send.example", semp.AckSilent)}},
 		}},
@@ -442,6 +451,7 @@ func TestPipelineNonLocalRecipient(t *testing.T) {
 		DomainKeys:    &staticDomainKeys{domain: "send.example", pub: f.senderDomainPub},
 		DomainEncFP:   f.serverEncFP,
 		DomainEncPriv: f.serverEncPriv,
+		DomainEncPub:  f.serverEncPub,
 		IsLocal:       localTo("bob@recv.example"),
 		Inbox:         inbox,
 	}
@@ -471,6 +481,7 @@ func TestPipelineSkipsSignatureForClientMode(t *testing.T) {
 		SkipSessionMACCheck: true,
 		DomainEncFP:         f.serverEncFP,
 		DomainEncPriv:       f.serverEncPriv,
+		DomainEncPub:        f.serverEncPub,
 		IsLocal:             localTo("bob@recv.example"),
 		Inbox:               delivery.NewInbox(),
 	}
@@ -498,6 +509,7 @@ func TestPipelineMissingDomainKeysFailsClosed(t *testing.T) {
 		EnvMAC:        func() []byte { return f.envMAC },
 		DomainEncFP:   f.serverEncFP,
 		DomainEncPriv: f.serverEncPriv,
+		DomainEncPub:  f.serverEncPub,
 		IsLocal:       localTo("bob@recv.example"),
 		Inbox:         delivery.NewInbox(),
 	}
@@ -522,6 +534,7 @@ func TestPipelineBlockListLookupErrorPropagates(t *testing.T) {
 		DomainKeys:    &staticDomainKeys{domain: "send.example", pub: f.senderDomainPub},
 		DomainEncFP:   f.serverEncFP,
 		DomainEncPriv: f.serverEncPriv,
+		DomainEncPub:  f.serverEncPub,
 		BlockList:     &errorBlockList{err: errors.New("lookup boom")},
 		IsLocal:       localTo("bob@recv.example"),
 		Inbox:         delivery.NewInbox(),

@@ -3,6 +3,7 @@ package handshake
 import (
 	"context"
 	"crypto/rand"
+	"crypto/subtle"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -302,10 +303,11 @@ func (s *Server) processInit(init *ClientInit) ([]byte, error) {
 	// will feed into Decapsulate, so signing those exact bytes gives
 	// the client a binding between the server's identity and the
 	// shared-secret-deriving blob it will process.
-	innerProofMessage := make([]byte, 0, len(ephPub)+len(serverNonce)+len(clientNonce))
-	innerProofMessage = append(innerProofMessage, ephPub...)
-	innerProofMessage = append(innerProofMessage, serverNonce...)
-	innerProofMessage = append(innerProofMessage, clientNonce...)
+	rawProofMsg := make([]byte, 0, len(ephPub)+len(serverNonce)+len(clientNonce))
+	rawProofMsg = append(rawProofMsg, ephPub...)
+	rawProofMsg = append(rawProofMsg, serverNonce...)
+	rawProofMsg = append(rawProofMsg, clientNonce...)
+	innerProofMessage := crypto.PrefixedMessage(crypto.SigCtxIdentity, rawProofMsg)
 	innerSig, err := s.suite.Signer().Sign(s.domainPrivateKey, innerProofMessage)
 	if err != nil {
 		sessionKeys.Erase()
@@ -426,7 +428,7 @@ func (s *Server) OnConfirm(data []byte) (acceptedBytes []byte, sess *session.Ses
 	if err != nil {
 		return nil, nil, fmt.Errorf("handshake: identity_signature base64: %w", err)
 	}
-	signedPreimage := append([]byte(conf.SessionID), expectedHash...)
+	signedPreimage := crypto.PrefixedMessage(crypto.SigCtxIdentity, append([]byte(conf.SessionID), expectedHash...))
 	if err := s.suite.Signer().Verify(clientPub, signedPreimage, identitySig); err != nil {
 		return nil, nil, fmt.Errorf("handshake: identity signature verify: %w", err)
 	}
@@ -580,13 +582,5 @@ func (s *Server) lookupClientIdentityKey(identity string, keyID keys.Fingerprint
 }
 
 func bytesEqual(a, b []byte) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
+	return subtle.ConstantTimeCompare(a, b) == 1
 }

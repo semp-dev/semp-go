@@ -48,7 +48,7 @@ func VerifySessionMAC(env *Envelope, suite crypto.Suite, envMAC []byte) error {
 // recipientFingerprint. Used by both the receiving server (with its domain
 // encryption private key) and the receiving client (with its client
 // encryption private key) per ENVELOPE.md §7.2 steps 5–6 and step 8–9.
-func OpenBrief(env *Envelope, suite crypto.Suite, recipientFingerprint keys.Fingerprint, recipientPrivateKey []byte) (*brief.Brief, error) {
+func OpenBrief(env *Envelope, suite crypto.Suite, recipientFingerprint keys.Fingerprint, recipientPrivateKey, recipientPublicKey []byte) (*brief.Brief, error) {
 	if env == nil {
 		return nil, errors.New("envelope: nil envelope")
 	}
@@ -61,13 +61,13 @@ func OpenBrief(env *Envelope, suite crypto.Suite, recipientFingerprint keys.Fing
 	if wrapper == nil {
 		return nil, errors.New("envelope: nil wrapper for suite")
 	}
-	kBrief, err := wrapper.Unwrap(recipientPrivateKey, wrapped)
+	kBrief, err := wrapper.Unwrap(recipientPrivateKey, recipientPublicKey, wrapped)
 	if err != nil {
 		return nil, fmt.Errorf("envelope: unwrap K_brief: %w", err)
 	}
 	defer crypto.Zeroize(kBrief)
 
-	plain, err := decryptBlob(suite, kBrief, env.Brief)
+	plain, err := decryptBlob(suite, kBrief, env.Brief, []byte(env.Postmark.ID))
 	if err != nil {
 		return nil, fmt.Errorf("envelope: decrypt brief: %w", err)
 	}
@@ -103,10 +103,12 @@ type RecipientPrivateKey struct {
 	// helper will skip this entry and move on.
 	Fingerprint keys.Fingerprint
 
-	// PrivateKey is the raw X25519 private key bytes. Kept as []byte
-	// rather than a typed struct so callers can zeroize the slice
-	// on release.
+	// PrivateKey is the raw private key bytes.
 	PrivateKey []byte
+
+	// PublicKey is the raw public key bytes. Required for AEAD AAD
+	// verification during unwrapping.
+	PublicKey []byte
 }
 
 // OpenBriefAny iterates candidates in order and returns the first
@@ -138,7 +140,7 @@ func OpenBriefAny(env *Envelope, suite crypto.Suite, candidates []RecipientPriva
 			continue
 		}
 		matched = true
-		b, err := OpenBrief(env, suite, cand.Fingerprint, cand.PrivateKey)
+		b, err := OpenBrief(env, suite, cand.Fingerprint, cand.PrivateKey, cand.PublicKey)
 		if err == nil {
 			return b, nil
 		}
@@ -168,7 +170,7 @@ func OpenEnclosureAny(env *Envelope, suite crypto.Suite, candidates []RecipientP
 			continue
 		}
 		matched = true
-		e, err := OpenEnclosure(env, suite, cand.Fingerprint, cand.PrivateKey)
+		e, err := OpenEnclosure(env, suite, cand.Fingerprint, cand.PrivateKey, cand.PublicKey)
 		if err == nil {
 			return e, nil
 		}
@@ -184,7 +186,7 @@ func OpenEnclosureAny(env *Envelope, suite crypto.Suite, candidates []RecipientP
 // recipient client's private key. The recipient server CANNOT call this:
 // the enclosure is wrapped only for client encryption keys, never for
 // domain keys (ENVELOPE.md §7.1 step 8).
-func OpenEnclosure(env *Envelope, suite crypto.Suite, clientFingerprint keys.Fingerprint, clientPrivateKey []byte) (*enclosure.Enclosure, error) {
+func OpenEnclosure(env *Envelope, suite crypto.Suite, clientFingerprint keys.Fingerprint, clientPrivateKey, clientPublicKey []byte) (*enclosure.Enclosure, error) {
 	if env == nil {
 		return nil, errors.New("envelope: nil envelope")
 	}
@@ -197,13 +199,13 @@ func OpenEnclosure(env *Envelope, suite crypto.Suite, clientFingerprint keys.Fin
 	if wrapper == nil {
 		return nil, errors.New("envelope: nil wrapper for suite")
 	}
-	kEnclosure, err := wrapper.Unwrap(clientPrivateKey, wrapped)
+	kEnclosure, err := wrapper.Unwrap(clientPrivateKey, clientPublicKey, wrapped)
 	if err != nil {
 		return nil, fmt.Errorf("envelope: unwrap K_enclosure: %w", err)
 	}
 	defer crypto.Zeroize(kEnclosure)
 
-	plain, err := decryptBlob(suite, kEnclosure, env.Enclosure)
+	plain, err := decryptBlob(suite, kEnclosure, env.Enclosure, []byte(env.Postmark.ID))
 	if err != nil {
 		return nil, fmt.Errorf("envelope: decrypt enclosure: %w", err)
 	}
@@ -216,16 +218,17 @@ func OpenEnclosure(env *Envelope, suite crypto.Suite, clientFingerprint keys.Fin
 
 // decryptBlob is the inverse of the encrypt-then-base64 step in Compose.
 // The blob layout is: nonce || ciphertext-with-poly1305-tag, base64-encoded.
-func decryptBlob(suite crypto.Suite, key []byte, blob string) ([]byte, error) {
+// The aad parameter binds the ciphertext to its envelope (postmark.id).
+func decryptBlob(suite crypto.Suite, key []byte, blob string, aad []byte) ([]byte, error) {
 	raw, err := base64.StdEncoding.DecodeString(blob)
 	if err != nil {
 		return nil, fmt.Errorf("base64: %w", err)
 	}
-	aead := suite.AEAD()
-	if len(raw) < aead.NonceSize()+aead.Overhead() {
+	aeadPrim := suite.AEAD()
+	if len(raw) < aeadPrim.NonceSize()+aeadPrim.Overhead() {
 		return nil, errors.New("blob truncated")
 	}
-	nonce := raw[:aead.NonceSize()]
-	ct := raw[aead.NonceSize():]
-	return aead.Open(key, nonce, ct, nil)
+	nonce := raw[:aeadPrim.NonceSize()]
+	ct := raw[aeadPrim.NonceSize():]
+	return aeadPrim.Open(key, nonce, ct, aad)
 }
