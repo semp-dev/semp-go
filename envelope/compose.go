@@ -145,6 +145,15 @@ func Compose(in *ComposeInput) (*Envelope, error) {
 	env.Brief = briefBlob
 	env.Enclosure = enclBlob
 
+	// Recipient-count obfuscation (ENVELOPE.md section 4.4.1). Pad
+	// enclosure_recipients to the next power-of-two entry count with
+	// dummy entries indistinguishable from real wrapped keys. Brief
+	// padding is deferred pending a RecipientKey API refinement that
+	// tags user-client vs server-domain entries.
+	if err := PadEnclosureRecipients(&env.Seal); err != nil {
+		return nil, fmt.Errorf("envelope: pad enclosure recipients: %w", err)
+	}
+
 	return env, nil
 }
 

@@ -9,7 +9,8 @@ import (
 // ENVELOPE.md §2.2, the value is always "SEMP_ENVELOPE".
 const MessageType = "SEMP_ENVELOPE"
 
-// Envelope is the top-level wire format of a SEMP envelope (ENVELOPE.md §2.1).
+// Envelope is the top-level wire format of a SEMP envelope (ENVELOPE.md
+// section 2.1).
 //
 // The Brief and Enclosure fields are opaque base64-encoded encrypted blobs
 // at the transport layer. Their internal structure is meaningful only after
@@ -33,6 +34,15 @@ type Envelope struct {
 
 	// Enclosure is the base64-encoded encrypted enclosure payload.
 	Enclosure string `json:"enclosure"`
+
+	// Padding carries opaque bytes that bring the envelope's wire size
+	// onto a power-of-two bucket per ENVELOPE.md section 2.4. The field
+	// is excluded from canonical bytes (see CanonicalBytes) so neither
+	// seal.signature nor seal.session_mac depends on padding content.
+	// Routing and recipient servers MUST count these bytes toward
+	// max_envelope_size enforcement and MUST NOT strip or rewrite them
+	// in transit.
+	Padding string `json:"padding"`
 }
 
 // New constructs an empty Envelope with Type and Version set to their
@@ -46,14 +56,15 @@ func New() *Envelope {
 
 // CanonicalBytes returns the canonical JSON serialization of the envelope
 // with Seal.Signature and Seal.SessionMAC set to the empty string and
-// Postmark.HopCount omitted, ready for signature or MAC computation.
+// Postmark.HopCount and Padding omitted, ready for signature or MAC
+// computation.
 //
 // This is the byte sequence over which both seal.signature (Ed25519) and
 // seal.session_mac (HMAC-SHA-256) are computed. The two proofs are
-// independent — neither covers the other — so the elision applies to both
+// independent (neither covers the other), so the elision applies to both
 // the input to signing and the input to MAC computation.
 //
-// Reference: ENVELOPE.md §4.3.
+// Reference: ENVELOPE.md section 4.3.
 func (e *Envelope) CanonicalBytes() ([]byte, error) {
 	return canonical.MarshalWithElision(e, canonical.EnvelopeElider())
 }

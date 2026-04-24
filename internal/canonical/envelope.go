@@ -2,14 +2,16 @@ package canonical
 
 // EnvelopeElider returns an Elider preconfigured for SEMP envelope
 // canonicalization: it sets `seal.signature` and `seal.session_mac` to the
-// empty string and deletes `postmark.hop_count` if present.
+// empty string and deletes `postmark.hop_count` and top-level `padding`
+// if present.
 //
 // This is the form fed into both seal signature computation and seal session
-// MAC computation per ENVELOPE.md §4.3:
+// MAC computation per ENVELOPE.md section 4.3:
 //
 //   - seal.signature   set to ""        (so neither proof depends on the other)
 //   - seal.session_mac set to ""
 //   - postmark.hop_count omitted        (mutable in transit)
+//   - padding omitted                   (size-obfuscation only; not signed)
 //
 // The returned Elider is safe to reuse across goroutines because it carries
 // no state.
@@ -26,6 +28,7 @@ func EnvelopeElider() Elider {
 		if postmark, ok := root["postmark"].(map[string]any); ok {
 			delete(postmark, "hop_count")
 		}
+		delete(root, "padding")
 		return nil
 	}
 }
