@@ -47,6 +47,23 @@ type ComposeInput struct {
 	// encryption key. Per ENVELOPE.md §7.1 step 8. The recipient server
 	// MUST NOT appear in this list.
 	EnclosureRecipients []seal.RecipientKey
+
+	// SkipPadding, when true, disables the automatic FillPadding call at
+	// the end of Compose. Default (false) pads every composed envelope
+	// to a bucket per ENVELOPE.md section 2.4.1. Callers that intend to
+	// mutate the envelope before signing (for example, tests that build
+	// deterministic vectors) may set this to true and invoke FillPadding
+	// themselves.
+	SkipPadding bool
+
+	// MaxEnvelopeSize is the session-negotiated ceiling passed through
+	// to FillPadding. Zero selects DefaultMaxEnvelopeSize.
+	MaxEnvelopeSize int64
+
+	// BucketSequence, if non-empty, overrides the default power-of-two
+	// bucket curve and is passed through to FillPadding. See
+	// envelope.PadConfig.
+	BucketSequence []int64
 }
 
 // Compose performs steps 1–9 of the encryption flow in ENVELOPE.md §7.1:
@@ -152,6 +169,20 @@ func Compose(in *ComposeInput) (*Envelope, error) {
 	// tags user-client vs server-domain entries.
 	if err := PadEnclosureRecipients(&env.Seal); err != nil {
 		return nil, fmt.Errorf("envelope: pad enclosure recipients: %w", err)
+	}
+
+	// Size-bucket obfuscation (ENVELOPE.md section 2.4.1). FillPadding
+	// runs with placeholder signature and MAC when the envelope is
+	// unsigned so the bucket calculation matches the final on-wire size
+	// after Sign.
+	if !in.SkipPadding {
+		cfg := PadConfig{
+			MaxEnvelopeSize: in.MaxEnvelopeSize,
+			BucketSequence:  in.BucketSequence,
+		}
+		if err := FillPadding(env, cfg); err != nil {
+			return nil, fmt.Errorf("envelope: fill padding: %w", err)
+		}
 	}
 
 	return env, nil
