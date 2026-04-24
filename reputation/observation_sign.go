@@ -89,10 +89,16 @@ func SignObservation(signer crypto.Signer, privKey []byte, observerKeyID keys.Fi
 	if obs.Extensions == nil {
 		// Canonicalization emits an explicit `{}` for an empty map
 		// but we prefer to allocate rather than rely on serializer
-		// behavior — this guarantees the struct is valid even when
+		// behavior. This guarantees the struct is valid even when
 		// the caller constructed it without an extensions block.
 		obs.Extensions = extensions.Map{}
 	}
+	// Bucketize count metrics in place so the values frozen into the
+	// signed canonical bytes are buckets, not raw counts
+	// (REPUTATION.md section 4.5.1). The caller's local store keeps
+	// raw counters separately; bucketing happens at the publication
+	// commit point.
+	applyBucketing(&obs.Metrics)
 	obs.Signature.Algorithm = keys.SignatureAlgorithmEd25519
 	obs.Signature.KeyID = observerKeyID
 	msg, err := canonicalObservationBytes(obs)

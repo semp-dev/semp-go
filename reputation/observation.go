@@ -96,7 +96,13 @@ type Window struct {
 }
 
 // Metrics is the quantitative payload of an Observation per
-// REPUTATION.md §4.5.
+// REPUTATION.md section 4.5.
+//
+// Counts published on the wire MUST be bucketed to powers of two per
+// REPUTATION.md section 4.5.1 (spec commit 2427adb). The store holds
+// raw counters internally; SignObservation applies Bucketize before
+// the values enter the signed canonical bytes. Consumers of a
+// received observation therefore see only bucketed values.
 type Metrics struct {
 	EnvelopesReceived     int64           `json:"envelopes_received"`
 	EnvelopesRejected     int64           `json:"envelopes_rejected"`
@@ -105,6 +111,49 @@ type Metrics struct {
 	UniqueSendersObserved int64           `json:"unique_senders_observed,omitempty"`
 	HandshakesCompleted   int64           `json:"handshakes_completed,omitempty"`
 	HandshakesRejected    int64           `json:"handshakes_rejected,omitempty"`
+}
+
+// MaxMetricBucket is the ceiling applied by Bucketize. Counts at or
+// above this value publish as MaxMetricBucket. Matches REPUTATION.md
+// section 4.5.1.
+const MaxMetricBucket = int64(1 << 20) // 1048576
+
+// Bucketize rounds n up to the nearest power-of-two bucket in the
+// sequence 0, 1, 2, 4, 8, ..., 1048576 per REPUTATION.md section 4.5.1.
+// Values above MaxMetricBucket clamp to MaxMetricBucket so observation
+// records do not leak counts above the cap.
+//
+// Bucketing reduces the resolution of published metrics. Third parties
+// observing multiple observation records cannot intersect them to
+// reconstruct the correspondent graph at a resolution finer than the
+// bucket width.
+func Bucketize(n int64) int64 {
+	if n <= 0 {
+		return 0
+	}
+	if n >= MaxMetricBucket {
+		return MaxMetricBucket
+	}
+	b := int64(1)
+	for b < n {
+		b <<= 1
+	}
+	return b
+}
+
+// applyBucketing rewrites the count fields of m in place, replacing
+// each raw count with Bucketize(count). Applied by SignObservation
+// before canonicalization so the signed bytes contain bucketed values.
+func applyBucketing(m *Metrics) {
+	if m == nil {
+		return
+	}
+	m.EnvelopesReceived = Bucketize(m.EnvelopesReceived)
+	m.EnvelopesRejected = Bucketize(m.EnvelopesRejected)
+	m.AbuseReports = Bucketize(m.AbuseReports)
+	m.UniqueSendersObserved = Bucketize(m.UniqueSendersObserved)
+	m.HandshakesCompleted = Bucketize(m.HandshakesCompleted)
+	m.HandshakesRejected = Bucketize(m.HandshakesRejected)
 }
 
 // Assessment is the qualitative summary attached to an Observation
