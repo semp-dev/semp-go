@@ -19,8 +19,8 @@ import (
 //   - Encryption algorithm: walk crypto.Negotiate's preference order (PQ
 //     hybrid first, then baseline). The strongest mutually supported and
 //     implemented suite wins.
-//   - Features: the intersection of offered.Features and accepted.Features,
-//     in the order they appear in offered.
+//   - Extensions: the intersection of offered.Extensions and
+//     accepted.Extensions, in the order they appear in offered.
 //   - max_envelope_size / max_batch_size: the smaller of the two values when
 //     both sides advertise one; the side that advertises it when only one
 //     does; zero (omitted) when neither does.
@@ -44,7 +44,7 @@ func NegotiateCapabilities(offered, accepted Capabilities) (Negotiated, error) {
 		return Negotiated{}, err
 	}
 
-	features := intersectStrings(offered.Features, accepted.Features)
+	negotiatedExtensions := intersectStrings(offered.Extensions, accepted.Extensions)
 
 	maxSize := offered.MaxEnvelopeSize
 	if accepted.MaxEnvelopeSize > 0 && (maxSize == 0 || accepted.MaxEnvelopeSize < maxSize) {
@@ -57,7 +57,7 @@ func NegotiateCapabilities(offered, accepted Capabilities) (Negotiated, error) {
 
 	return Negotiated{
 		EncryptionAlgorithm: string(chosen),
-		Features:            features,
+		Extensions:          negotiatedExtensions,
 		MaxEnvelopeSize:     maxSize,
 		MaxBatchSize:        maxBatch,
 	}, nil
@@ -90,7 +90,7 @@ func DefaultClientCapabilities() Capabilities {
 			string(crypto.SuiteIDPQKyber768X25519),
 			string(crypto.SuiteIDX25519ChaCha20Poly1305),
 		},
-		Features: []string{},
+		Extensions: []string{},
 	}
 }
 
@@ -103,7 +103,7 @@ func DefaultServerCapabilities() Capabilities {
 			string(crypto.SuiteIDPQKyber768X25519),
 			string(crypto.SuiteIDX25519ChaCha20Poly1305),
 		},
-		Features: []string{},
+		Extensions: []string{},
 	}
 }
 

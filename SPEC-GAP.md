@@ -91,6 +91,10 @@ Brand-new surface in the envelope's plaintext layer. `[commit dd798c2]`
 
 The spec dropped compression from handshake capabilities. `[commit 87e1576]` Check that the library does not advertise or negotiate compression.
 
+### 1.10 Features field migration to extensions ([handshake/message.go], [handshake/capabilities.go])
+
+The library's `Capabilities.Features` and `Negotiated.Features` slices predate the spec's standard capabilities shape. The spec uses `extensions` (an array of extension identifiers) at the capabilities and negotiated layers, distinct from the message-level `extensions` object. Rename the Go fields from `Features` to `Extensions` with JSON tag `extensions`. Intersection logic in `NegotiateCapabilities` preserved; only the field name changes. Update the default capability builders, server and federation-responder construction sites, and tests accordingly.
+
 ---
 
 ## 2. Signature domain-separation prefixes ([crypto/domainsep.go])
