@@ -708,7 +708,7 @@ func NewResponder(cfg ResponderConfig) *Responder {
 		}
 		caps = Capabilities{
 			EncryptionAlgorithms: []string{suiteID},
-			Features:             []string{},
+			Extensions:           []string{},
 		}
 	}
 	verifier := cfg.Verifier

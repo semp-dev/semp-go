@@ -113,17 +113,19 @@ func TestVectorPoWLeadingZeroBits(t *testing.T) {
 // raw byte strings. We feed them directly into ConfirmationHash and check
 // the result against the published SHA-256 digest.
 func TestVectorConfirmationHash(t *testing.T) {
-	// Canonical form of message 1 (init/client) per the vector. Note the
-	// extension field is present as `extensions:{}`.
-	m1 := []byte(`{"capabilities":{"compression":["zstd","none"],"encryption_algorithms":["pq-kyber768-x25519","x25519-chacha20-poly1305"],"features":["groups","threads"]},"client_ephemeral_key":{"algorithm":"pq-kyber768-x25519","key":"Y2xpZW50LWVwaGVtZXJhbC1rZXk=","key_id":"client-eph-fp"},"extensions":{},"nonce":"qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqs=","party":"client","step":"init","transport":"websocket","type":"SEMP_HANDSHAKE","version":"1.0.0"}`)
+	// Canonical form of message 1 (init/client) per VECTORS.md section
+	// 5.1. The extension field is present at message level as
+	// `extensions:{}`; capability-level extensions are the array
+	// `capabilities.extensions`.
+	m1 := []byte(`{"capabilities":{"encryption_algorithms":["pq-kyber768-x25519","x25519-chacha20-poly1305"],"extensions":["semp.dev/device-sync","semp.dev/large-attachment"]},"client_ephemeral_key":{"algorithm":"pq-kyber768-x25519","key":"Y2xpZW50LWVwaGVtZXJhbC1rZXk=","key_id":"client-eph-fp"},"extensions":{},"nonce":"qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqs=","party":"client","step":"init","transport":"ws","type":"SEMP_HANDSHAKE","version":"1.0.0"}`)
 
 	// Canonical form of message 2 (response/server). The signed
 	// `server_signature` is present in this canonical form (the spec
 	// computes the confirmation hash over the message AS RECEIVED on the
 	// wire, including the populated signature).
-	m2 := []byte(`{"client_nonce":"qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqs=","extensions":{},"negotiated":{"compression":"zstd","encryption_algorithm":"pq-kyber768-x25519","features":["groups","threads"]},"party":"server","server_ephemeral_key":{"algorithm":"pq-kyber768-x25519","key":"c2VydmVyLWVwaGVtZXJhbC1rZXk=","key_id":"server-eph-fp"},"server_identity_proof":{"domain":"example.com","key_id":"server-lt-fp","signature":"c2VydmVyLXNpZw=="},"server_nonce":"u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7s=","server_signature":"c2VydmVyLXNpZ25hdHVyZQ==","session_id":"01JTEST33333333333333333333","step":"response","type":"SEMP_HANDSHAKE","version":"1.0.0"}`)
+	m2 := []byte(`{"client_nonce":"qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqs=","extensions":{},"negotiated":{"encryption_algorithm":"pq-kyber768-x25519","extensions":["semp.dev/device-sync","semp.dev/large-attachment"]},"party":"server","server_ephemeral_key":{"algorithm":"pq-kyber768-x25519","key":"c2VydmVyLWVwaGVtZXJhbC1rZXk=","key_id":"server-eph-fp"},"server_identity_proof":{"domain":"example.com","key_id":"server-lt-fp","signature":"c2VydmVyLXNpZw=="},"server_nonce":"u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7s=","server_signature":"c2VydmVyLXNpZ25hdHVyZQ==","session_id":"01JTEST33333333333333333333","step":"response","type":"SEMP_HANDSHAKE","version":"1.0.0"}`)
 
-	want := mustHex("81208e0db84224eef8a6bde1510f119e34e4b910d63bcbb01e1e40504e851ab1")
+	want := mustHex("1c23b09f9c0e93dbc1dc31a9d9dc4c68006191b5c12d3dffa0a153f5e972cc3d")
 	got, err := handshake.ConfirmationHash(m1, m2)
 	if err != nil {
 		t.Fatalf("ConfirmationHash: %v", err)

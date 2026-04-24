@@ -140,7 +140,7 @@ func TestClientHandshakeNegotiatesPQWhenBothOffer(t *testing.T) {
 			string(crypto.SuiteIDPQKyber768X25519),
 			string(crypto.SuiteIDX25519ChaCha20Poly1305),
 		},
-		Features: []string{},
+		Extensions: []string{},
 	}
 	client := handshake.NewClient(handshake.ClientConfig{
 		Suite:         suite,

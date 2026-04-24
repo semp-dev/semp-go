@@ -127,7 +127,7 @@ func NewServer(cfg ServerConfig) *Server {
 		}
 		caps = Capabilities{
 			EncryptionAlgorithms: []string{suiteID},
-			Features:             []string{},
+			Extensions:           []string{},
 		}
 	}
 	return &Server{

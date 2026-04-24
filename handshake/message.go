@@ -55,16 +55,16 @@ type EphemeralKey struct {
 	KeyID     string `json:"key_id"`
 }
 
-// Capabilities is the algorithm and feature set offered or accepted by a
-// handshake participant (HANDSHAKE.md section 5.2).
+// Capabilities is the algorithm and extension set offered or accepted
+// by a handshake participant (HANDSHAKE.md section 5.2).
 //
-// Compression was removed from the spec in commit 87e1576 and is no longer
-// a wire field. The `Features` field remains pending migration to the
-// spec's `extensions` form; it is retained here until Cluster 4 of the
-// catch-up plan touches it.
+// Compression was removed from the spec in commit 87e1576. The
+// `features` field was renamed to `extensions` to align with the spec
+// (capabilities-level extension identifiers, distinct from the
+// message-level extensions object).
 type Capabilities struct {
 	EncryptionAlgorithms []string `json:"encryption_algorithms"`
-	Features             []string `json:"features"`
+	Extensions           []string `json:"extensions"`
 	MaxEnvelopeSize      int64    `json:"max_envelope_size,omitempty"`
 	MaxBatchSize         int      `json:"max_batch_size,omitempty"`
 }
@@ -73,7 +73,7 @@ type Capabilities struct {
 // the response message.
 type Negotiated struct {
 	EncryptionAlgorithm string   `json:"encryption_algorithm"`
-	Features            []string `json:"features"`
+	Extensions          []string `json:"extensions"`
 	MaxEnvelopeSize     int64    `json:"max_envelope_size,omitempty"`
 	MaxBatchSize        int      `json:"max_batch_size,omitempty"`
 }
