@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 
+	semp "semp.dev/semp-go"
 	"semp.dev/semp-go/session"
 )
 
@@ -138,7 +139,7 @@ func RunServer(ctx context.Context, stream MessageStream, s *Server) (*session.S
 	// 2. Process init. May return Challenge bytes.
 	out, err := s.OnInit(initBytes)
 	if err != nil {
-		_ = sendRejection(ctx, stream, s, "policy_forbidden", err.Error())
+		_ = sendRejection(ctx, stream, s, string(semp.ReasonPolicyForbidden), err.Error())
 		return nil, fmt.Errorf("handshake: server OnInit: %w", err)
 	}
 	if err := stream.Send(ctx, out); err != nil {
@@ -158,7 +159,7 @@ func RunServer(ctx context.Context, stream MessageStream, s *Server) (*session.S
 		}
 		respBytes, err := s.OnChallengeResponse(solution)
 		if err != nil {
-			_ = sendRejection(ctx, stream, s, "challenge_failed", err.Error())
+			_ = sendRejection(ctx, stream, s, string(semp.ReasonChallengeFailed), err.Error())
 			return nil, fmt.Errorf("handshake: server OnChallengeResponse: %w", err)
 		}
 		if err := stream.Send(ctx, respBytes); err != nil {
@@ -175,7 +176,7 @@ func RunServer(ctx context.Context, stream MessageStream, s *Server) (*session.S
 	// 4. Process confirm and send accepted.
 	acceptedBytes, sess, err := s.OnConfirm(confirmBytes)
 	if err != nil {
-		_ = sendRejection(ctx, stream, s, "auth_failed", err.Error())
+		_ = sendRejection(ctx, stream, s, string(semp.ReasonAuthFailed), err.Error())
 		return nil, fmt.Errorf("handshake: server OnConfirm: %w", err)
 	}
 	if err := stream.Send(ctx, acceptedBytes); err != nil {
@@ -261,7 +262,7 @@ func RunResponder(ctx context.Context, stream MessageStream, r *Responder) (*ses
 	}
 	respBytes, err := r.OnInit(initBytes)
 	if err != nil {
-		_ = sendFederationRejection(ctx, stream, r, "policy_forbidden", err.Error())
+		_ = sendFederationRejection(ctx, stream, r, string(semp.ReasonPolicyForbidden), err.Error())
 		return nil, fmt.Errorf("handshake: responder OnInit: %w", err)
 	}
 	if err := stream.Send(ctx, respBytes); err != nil {
@@ -273,7 +274,7 @@ func RunResponder(ctx context.Context, stream MessageStream, r *Responder) (*ses
 	}
 	acceptedBytes, sess, err := r.OnConfirm(confirmBytes)
 	if err != nil {
-		_ = sendFederationRejection(ctx, stream, r, "auth_failed", err.Error())
+		_ = sendFederationRejection(ctx, stream, r, string(semp.ReasonAuthFailed), err.Error())
 		return nil, fmt.Errorf("handshake: responder OnConfirm: %w", err)
 	}
 	if err := stream.Send(ctx, acceptedBytes); err != nil {
