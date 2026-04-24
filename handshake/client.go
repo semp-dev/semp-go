@@ -198,14 +198,16 @@ func (c *Client) OnChallenge(data []byte) ([]byte, error) {
 	// challenge_invalid gate (HANDSHAKE.md section 2.2a.2). A conformant
 	// initiator MUST abort with reason_code "challenge_invalid" when the
 	// difficulty exceeds the protocol cap or when the expiry window is
-	// shorter than the floor for the chosen difficulty.
+	// shorter than the floor for the chosen difficulty. Returning a
+	// ChallengeInvalidError signals the driver to send an abort message
+	// (HANDSHAKE.md section 2.2a.6) before closing the transport.
 	if params.Difficulty > MaxPoWDifficulty {
-		return nil, fmt.Errorf("handshake: challenge_invalid: difficulty %d exceeds protocol cap %d",
-			params.Difficulty, MaxPoWDifficulty)
+		return nil, &ChallengeInvalidError{Reason: fmt.Sprintf(
+			"difficulty %d exceeds protocol cap %d", params.Difficulty, MaxPoWDifficulty)}
 	}
 	if floor := MinExpiryForDifficulty(params.Difficulty); !req.Expires.IsZero() && time.Until(req.Expires) < floor {
-		return nil, fmt.Errorf("handshake: challenge_invalid: expires window shorter than %s floor for difficulty %d",
-			floor, params.Difficulty)
+		return nil, &ChallengeInvalidError{Reason: fmt.Sprintf(
+			"expires window shorter than %s floor for difficulty %d", floor, params.Difficulty)}
 	}
 	prefix, err := base64.StdEncoding.DecodeString(params.Prefix)
 	if err != nil {
