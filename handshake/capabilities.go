@@ -28,7 +28,7 @@ import (
 //     does; zero (omitted) when neither does.
 //
 // A negotiation failure (no mutually supported encryption suite) returns an
-// error so the caller can respond with a `policy_violation` rejection.
+// error so the caller can respond with a `policy_forbidden` rejection.
 func NegotiateCapabilities(offered, accepted Capabilities) (Negotiated, error) {
 	suiteIDs := func(s []string) []crypto.SuiteID {
 		out := make([]crypto.SuiteID, 0, len(s))
