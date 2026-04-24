@@ -5,15 +5,23 @@ import (
 	"fmt"
 	"strings"
 	"unicode/utf8"
+
+	"golang.org/x/net/idna"
+	"golang.org/x/text/unicode/norm"
 )
 
-// Address is a SEMP user address. The wire format is `user@domain`,
-// matching SMTP-style addressing. SEMP is UTF-8 native (FAQ §1.11), so
-// the local part and domain may contain any valid UTF-8.
+// Address is a SEMP user address in canonical wire form: `local-part@domain`.
+// The local-part is Normalization Form C (NFC) Unicode, case-sensitive on
+// the wire. The domain is the A-label form per IDNA2008 (Punycode), ASCII
+// only, case-insensitive (lower-case on the wire).
 //
-// The Address type is a string alias rather than a struct so that it
-// marshals trivially to JSON without any custom MarshalJSON shim.
-// Parsing helpers are provided as standalone functions.
+// ENVELOPE.md section 2.3 defines the canonicalization rules. Validate
+// enforces them at ingress; Canonicalize converts possibly-denormalized
+// input (for example, a U-label domain) to the canonical wire form.
+//
+// The Address type is a string alias so it marshals trivially to JSON
+// without a custom MarshalJSON shim. Parsing and validation helpers are
+// provided as methods.
 type Address string
 
 // String satisfies fmt.Stringer.
@@ -22,7 +30,7 @@ func (a Address) String() string { return string(a) }
 // Local returns the local part of the address (everything before the
 // final '@'). Returns the entire string if no '@' is present.
 //
-// Local operates on the raw bytes without validation — callers that
+// Local operates on the raw bytes without validation. Callers that
 // need to reject malformed addresses should pair Local with Validate.
 func (a Address) Local() string {
 	s := string(a)
@@ -46,47 +54,46 @@ func (a Address) Domain() string {
 	return ""
 }
 
-// Address length bounds. These are deliberately permissive to
-// accommodate internationalized addresses (FAQ §1.11) while still
-// capping the worst case so an attacker cannot submit megabyte-long
-// strings through an address field.
+// Address length bounds per ENVELOPE.md section 2.3.
 const (
-	// MaxAddressLength is the maximum total length of an address in
-	// bytes, matching the RFC 3696 §3 recommendation plus headroom
-	// for UTF-8 encoded internationalized names.
-	MaxAddressLength = 320
+	// MaxAddressLength caps the composed address `local-part@domain`
+	// in UTF-8 octets. Matches RFC 5321 section 4.5.3.1.3 and
+	// ENVELOPE.md section 2.3.3.
+	MaxAddressLength = 254
 
-	// MaxLocalPartLength caps the local part. RFC 3696 recommends
-	// 64 bytes for ASCII; we permit UTF-8 expansion up to 128 bytes
-	// so a 32-character internationalized local part (up to 4 bytes
-	// per codepoint) fits comfortably.
-	MaxLocalPartLength = 128
+	// MaxLocalPartLength caps the local-part in UTF-8 octets.
+	// Matches the RFC 5321 section 4.5.3.1.1 limit.
+	MaxLocalPartLength = 64
 
-	// MaxDomainLength is the classic DNS total-length ceiling.
+	// MaxDomainLength is the DNS total-length ceiling (RFC 1035).
 	MaxDomainLength = 253
 
-	// MaxDomainLabelLength is the classic DNS per-label ceiling.
+	// MaxDomainLabelLength is the DNS per-label ceiling (RFC 1035).
 	MaxDomainLabelLength = 63
 )
 
-// Validate reports an error if the address is not syntactically valid
-// per the SEMP conformance rules in ENVELOPE.md §5 + FAQ §1.11:
+// idnaProfile is the IDNA2008 lookup profile used for domain validation
+// and A-label conversion. StrictDomainName rejects domain names that
+// contain underscore or other characters not permitted by RFC 5891.
+var idnaProfile = idna.New(
+	idna.MapForLookup(),
+	idna.Transitional(false),
+	idna.StrictDomainName(true),
+)
+
+// Validate reports an error if the address is not in canonical wire
+// form per ENVELOPE.md section 2.3:
 //
-//   - MUST be non-empty and valid UTF-8.
-//   - MUST NOT exceed MaxAddressLength bytes.
-//   - MUST NOT contain control characters (U+0000 – U+001F or U+007F),
-//     which rules out NUL / CR / LF / TAB injection.
-//   - MUST contain exactly one unquoted `@` separator. SEMP does not
-//     inherit RFC 5321 quoted-local-part edge cases (FAQ §1.14).
-//   - Local part MUST be non-empty and MUST NOT exceed
-//     MaxLocalPartLength bytes.
-//   - Domain part MUST be a well-formed DNS name: non-empty, at
-//     most MaxDomainLength bytes, composed of dot-separated labels
-//     each of which is non-empty, ≤ MaxDomainLabelLength bytes, and
-//     neither starts nor ends with a hyphen.
+//   - Non-empty, valid UTF-8, no control characters.
+//   - Composed length ≤ MaxAddressLength.
+//   - Exactly one '@' separator.
+//   - Local-part non-empty, ≤ MaxLocalPartLength octets, already in NFC.
+//   - Domain non-empty, ≤ MaxDomainLength octets, pure ASCII (A-label
+//     form), lowercase, well-formed per DNS label rules.
 //
-// Validation is intentionally structural — it does not perform DNS
-// resolution or any semantic check.
+// Callers that receive possibly-denormalized input (mixed-case domain,
+// U-label domain, non-NFC local-part) should call Canonicalize before
+// Validate.
 func (a Address) Validate() error {
 	s := string(a)
 	if s == "" {
@@ -102,8 +109,6 @@ func (a Address) Validate() error {
 		return err
 	}
 
-	// Exactly one '@'. SplitN with N=3 lets us detect both missing
-	// and excess separators in a single pass.
 	parts := strings.SplitN(s, "@", 3)
 	if len(parts) == 1 {
 		return errors.New("brief: address missing '@' separator")
@@ -119,13 +124,65 @@ func (a Address) Validate() error {
 	if len(local) > MaxLocalPartLength {
 		return fmt.Errorf("brief: local part exceeds %d bytes", MaxLocalPartLength)
 	}
+	if !norm.NFC.IsNormalString(local) {
+		return errors.New("brief: local part is not in Unicode Normalization Form C")
+	}
 	return validateDomain(domain)
 }
 
-// rejectControlChars returns an error if s contains any ASCII
-// control character (U+0000 – U+001F or U+007F). Such characters
-// open injection attack surfaces in downstream consumers that
-// embed addresses in log lines, header fields, or SQL.
+// Canonicalize returns the address in canonical wire form:
+//
+//   - Local-part normalized to Unicode NFC.
+//   - Domain converted to A-label (Punycode) per IDNA2008, folded to
+//     lower case.
+//
+// Canonicalize does not validate the result against length or character
+// limits; pair it with Validate on the returned value when ingesting
+// untrusted input.
+func (a Address) Canonicalize() (Address, error) {
+	s := string(a)
+	if s == "" {
+		return "", errors.New("brief: empty address")
+	}
+	parts := strings.SplitN(s, "@", 3)
+	if len(parts) == 1 {
+		return "", errors.New("brief: address missing '@' separator")
+	}
+	if len(parts) == 3 {
+		return "", errors.New("brief: address contains multiple '@' separators")
+	}
+	local, domain := parts[0], parts[1]
+
+	local = norm.NFC.String(local)
+	aLabel, err := idnaProfile.ToASCII(domain)
+	if err != nil {
+		return "", fmt.Errorf("brief: domain to A-label: %w", err)
+	}
+	return Address(local + "@" + strings.ToLower(aLabel)), nil
+}
+
+// Equal reports whether a and b denote the same address after
+// canonicalization. Returns false if either side fails canonicalization.
+//
+// Equal does NOT collapse visually-similar (confusable) characters.
+// Two addresses differing only in Cyrillic vs Latin 'a' are distinct.
+// Confusables defense is a UI-layer concern per Unicode Technical
+// Standard #39.
+func (a Address) Equal(b Address) bool {
+	aa, err := a.Canonicalize()
+	if err != nil {
+		return false
+	}
+	bb, err := b.Canonicalize()
+	if err != nil {
+		return false
+	}
+	return aa == bb
+}
+
+// rejectControlChars returns an error if s contains any ASCII control
+// character (U+0000 through U+001F, or U+007F). Such characters open
+// injection attack surfaces in downstream consumers.
 func rejectControlChars(s, field string) error {
 	for i, r := range s {
 		if r < 0x20 || r == 0x7F {
@@ -135,15 +192,24 @@ func rejectControlChars(s, field string) error {
 	return nil
 }
 
-// validateDomain applies the DNS structural rules from RFC 1035
-// adapted for UTF-8 (internationalized labels are accepted as raw
-// UTF-8 sequences per FAQ §1.11 — no punycode round-trip required).
+// validateDomain enforces ENVELOPE.md section 2.3.2: the domain on
+// the wire is ASCII-only A-label form, lowercase, well-formed DNS
+// labels, non-empty.
 func validateDomain(domain string) error {
 	if domain == "" {
 		return errors.New("brief: address has empty domain")
 	}
 	if len(domain) > MaxDomainLength {
 		return fmt.Errorf("brief: domain exceeds %d bytes", MaxDomainLength)
+	}
+	for i := 0; i < len(domain); i++ {
+		c := domain[i]
+		if c > 0x7F {
+			return errors.New("brief: domain contains non-ASCII octet (A-label required on the wire)")
+		}
+		if c >= 'A' && c <= 'Z' {
+			return errors.New("brief: domain contains uppercase letters (must be lowercase on the wire)")
+		}
 	}
 	if strings.HasPrefix(domain, ".") || strings.HasSuffix(domain, ".") {
 		return errors.New("brief: domain has leading or trailing dot")
@@ -153,8 +219,6 @@ func validateDomain(domain string) error {
 	}
 	for _, label := range strings.Split(domain, ".") {
 		if label == "" {
-			// Defensive — covered by the checks above, but the
-			// explicit guard protects against future refactors.
 			return errors.New("brief: domain has empty label")
 		}
 		if len(label) > MaxDomainLabelLength {
