@@ -19,7 +19,7 @@ Key properties:
 
 ## Status
 
-**Spec-complete reference implementation.** Every protocol area in the SEMP specification has a working, tested Go implementation. Zero stubs remain. The library is suitable for building production clients and servers when paired with a persistent key store and message storage backend.
+**Catch-up in progress.** The library tracks SEMP spec 0.2.0-draft as the target. A spec catch-up against commit 3208899 (the last baseline before the library diverged from the spec) is landing cluster by cluster per [SPEC-GAP.md](SPEC-GAP.md). Reason codes, domain-separation prefixes, handshake tightening, envelope padding, recipient-count obfuscation, address canonicalization, first-contact PoW scaffolding, enclosure sender signature, reputation bucketing, clock-skew tolerance, and send-time obfuscation have landed. Larger areas (session resumption, multi-device registration and directory, new optional modules for recovery/migration/closure/transparency, Tor-isolated discovery) remain queued. The library is suitable for non-production experimentation; production deployments SHOULD wait until the catch-up is complete.
 
 | Metric | Value |
 |---|---|

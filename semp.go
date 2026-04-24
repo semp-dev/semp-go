@@ -4,7 +4,10 @@ package semp
 // It MUST appear verbatim in the `version` field of every wire message that
 // carries one (handshake, envelope, discovery, key request, etc.).
 //
-// Reference: every spec document declares "Version: 0.1.0" in its header.
+// Reference: every spec document declares "Version: 0.2.0-draft" in its
+// header as of the current catch-up baseline. The wire ProtocolVersion
+// tracks the semver on handshake and envelope messages and is distinct
+// from the spec document revision.
 const ProtocolVersion = "1.0.0"
 
 // SubprotocolWebSocket is the WebSocket subprotocol identifier sent in the
