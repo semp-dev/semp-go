@@ -145,6 +145,30 @@ func (r *defaultResolver) Resolve(ctx context.Context, address string) (*Result,
 		return nil, fmt.Errorf("discovery: address %q has no domain", address)
 	}
 
+	// Onion destinations skip DNS and MX entirely (DISCOVERY.md
+	// section 2.5.2). The well-known fetch is expected to travel over
+	// a Tor circuit; operators wire Tor into the HTTP client's
+	// transport. Clearnet fallback is prohibited for .onion
+	// recipients. If the Tor fetch fails, the result is not_found
+	// (surfacing as server_unavailable to the caller) rather than
+	// falling through to DNS or MX.
+	if IsOnionDomain(domain) {
+		if err := ValidateOnionDomain(domain); err != nil {
+			return nil, fmt.Errorf("discovery: %w", err)
+		}
+		if result := r.tryWellKnown(ctx, address, domain); result != nil {
+			r.cacheResult(ctx, address, result)
+			return result, nil
+		}
+		result := &Result{
+			Address: address,
+			Status:  semp.DiscoveryNotFound,
+			TTL:     int(DefaultTTLNotFound.Seconds()),
+		}
+		r.cacheResult(ctx, address, result)
+		return result, nil
+	}
+
 	// Step 1: DNS SRV + TXT.
 	if result := r.tryDNS(ctx, address, domain); result != nil {
 		r.cacheResult(ctx, address, result)
