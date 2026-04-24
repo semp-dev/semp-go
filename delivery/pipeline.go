@@ -9,6 +9,7 @@ import (
 
 	semp "semp.dev/semp-go"
 	"semp.dev/semp-go/brief"
+	"semp.dev/semp-go/clockskew"
 	"semp.dev/semp-go/crypto"
 	"semp.dev/semp-go/envelope"
 	"semp.dev/semp-go/keys"
@@ -287,18 +288,24 @@ func (p *Pipeline) verifySignature(ctx context.Context, env *envelope.Envelope) 
 	return nil
 }
 
-// checkExpiry implements DELIVERY.md §2 step 2.
+// checkExpiry implements DELIVERY.md section 2 step 2, applying the
+// tiered clock-skew tolerance from CONFORMANCE.md section 9.3 via
+// clockskew.CheckExpiry. With the default tolerance a postmark.expires
+// up to 15 minutes in the past is still accepted (the spec's MUST
+// ceiling); senders MUST NOT rely on this grace window.
 func (p *Pipeline) checkExpiry(env *envelope.Envelope) *envelope.Rejection {
 	if env.Postmark.Expires.IsZero() {
-		// A missing expiry is structurally invalid — ENVELOPE.md §3.1
-		// makes the field required — but the schema validators in
+		// A missing expiry is structurally invalid (ENVELOPE.md section
+		// 3.1 makes the field required), but the schema validators in
 		// envelope.Decode already enforce shape. Treat a zero value
 		// here as "no expiry" for forward compatibility.
 		return nil
 	}
-	if !p.now().Before(env.Postmark.Expires) {
+	if err := clockskew.CheckExpiry(env.Postmark.Expires, p.now(), clockskew.Strict()); err != nil {
 		return p.reject(env, semp.ReasonEnvelopeExpired,
-			fmt.Sprintf("postmark.expires %s is not in the future", env.Postmark.Expires.UTC().Format(time.RFC3339)))
+			fmt.Sprintf("postmark.expires %s is outside the clock-skew tolerance of %s",
+				env.Postmark.Expires.UTC().Format(time.RFC3339),
+				p.now().UTC().Format(time.RFC3339)))
 	}
 	return nil
 }
