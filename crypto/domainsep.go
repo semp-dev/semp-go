@@ -77,6 +77,15 @@ const (
 	// SigCtxDeviceDirectory prefixes the identity-key signature on a
 	// SEMP_DEVICE_DIRECTORY record (KEY.md section 10.6).
 	SigCtxDeviceDirectory = "SEMP-DEVICE-DIRECTORY:"
+
+	// SigCtxEnclosureSender prefixes the sender identity-key signature
+	// over the canonical enclosure bytes (ENVELOPE.md section 6.5).
+	SigCtxEnclosureSender = "SEMP-ENCLOSURE-SENDER:"
+
+	// SigCtxForwarderAttestation prefixes the forwarder identity-key
+	// attestation over the canonical forwarded_from block
+	// (ENVELOPE.md section 6.6.3).
+	SigCtxForwarderAttestation = "SEMP-FORWARDER-ATTESTATION:"
 )
 
 // PrefixedMessage prepends a domain-separation context prefix to a message.

@@ -47,16 +47,7 @@ func SignEnclosure(enc *Enclosure, suite crypto.Suite, identityPrivateKey []byte
 	if err != nil {
 		return fmt.Errorf("enclosure: canonical bytes: %w", err)
 	}
-	prefixed := crypto.PrefixedMessage(crypto.SigCtxEnvelope, canonicalBytes)
-	// sender_signature reuses the envelope domain-separation context.
-	// A future revision may split it into its own SEMP-ENVELOPE-SENDER:
-	// prefix; for now we keep the convention used elsewhere in this
-	// package.
-	//
-	// TODO(spec): confirm which domain-separation prefix applies to
-	// enclosure.sender_signature. The ENVELOPE.md section 4.3 table
-	// lists only outer-envelope contexts. Track with a spec
-	// clarification.
+	prefixed := crypto.PrefixedMessage(crypto.SigCtxEnclosureSender, canonicalBytes)
 	sig, err := suite.Signer().Sign(identityPrivateKey, prefixed)
 	if err != nil {
 		return fmt.Errorf("enclosure: sign: %w", err)
@@ -95,7 +86,7 @@ func VerifyEnclosureSignature(enc *Enclosure, suite crypto.Suite, identityPublic
 	if err != nil {
 		return fmt.Errorf("enclosure: canonical bytes: %w", err)
 	}
-	prefixed := crypto.PrefixedMessage(crypto.SigCtxEnvelope, canonicalBytes)
+	prefixed := crypto.PrefixedMessage(crypto.SigCtxEnclosureSender, canonicalBytes)
 	if err := suite.Signer().Verify(identityPublicKey, prefixed, claimedSig); err != nil {
 		return fmt.Errorf("enclosure: sender_signature verify: %w", err)
 	}
@@ -131,7 +122,7 @@ func SignForwarderAttestation(ff *ForwardedFrom, suite crypto.Suite, forwarderPr
 	if err != nil {
 		return fmt.Errorf("enclosure: canonical forwarded_from bytes: %w", err)
 	}
-	prefixed := crypto.PrefixedMessage(crypto.SigCtxEnvelope, canonicalBytes)
+	prefixed := crypto.PrefixedMessage(crypto.SigCtxForwarderAttestation, canonicalBytes)
 	sig, err := suite.Signer().Sign(forwarderPrivateKey, prefixed)
 	if err != nil {
 		return fmt.Errorf("enclosure: forwarder attestation sign: %w", err)
@@ -166,7 +157,7 @@ func VerifyForwarderAttestation(ff *ForwardedFrom, suite crypto.Suite, forwarder
 	if err != nil {
 		return fmt.Errorf("enclosure: canonical forwarded_from bytes: %w", err)
 	}
-	prefixed := crypto.PrefixedMessage(crypto.SigCtxEnvelope, canonicalBytes)
+	prefixed := crypto.PrefixedMessage(crypto.SigCtxForwarderAttestation, canonicalBytes)
 	if err := suite.Signer().Verify(forwarderPublicKey, prefixed, claimedSig); err != nil {
 		return fmt.Errorf("enclosure: forwarder_attestation verify: %w", err)
 	}
