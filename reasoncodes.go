@@ -11,28 +11,35 @@ type ReasonCode string
 
 // Handshake reason codes (HANDSHAKE.md §4.1, ERRORS.md §2).
 const (
-	ReasonBlocked          ReasonCode = "blocked"
-	ReasonAuthFailed       ReasonCode = "auth_failed"
-	ReasonPolicyViolation  ReasonCode = "policy_violation"
-	ReasonHandshakeExpired ReasonCode = "handshake_expired"
-	ReasonHandshakeInvalid ReasonCode = "handshake_invalid"
-	ReasonNoSession        ReasonCode = "no_session"
-	ReasonRateLimited        ReasonCode = "rate_limited"
-	ReasonChallengeRequired  ReasonCode = "challenge_required"
-	ReasonChallengeFailed    ReasonCode = "challenge_failed"
-	ReasonServerAtCapacity   ReasonCode = "server_at_capacity"
+	ReasonBlocked           ReasonCode = "blocked"
+	ReasonAuthFailed        ReasonCode = "auth_failed"
+	ReasonPolicyForbidden   ReasonCode = "policy_forbidden"
+	ReasonHandshakeExpired  ReasonCode = "handshake_expired"
+	ReasonHandshakeInvalid  ReasonCode = "handshake_invalid"
+	ReasonNoSession         ReasonCode = "no_session"
+	ReasonRateLimited       ReasonCode = "rate_limited"
+	ReasonChallenge         ReasonCode = "challenge"
+	ReasonChallengeFailed   ReasonCode = "challenge_failed"
+	ReasonChallengeInvalid  ReasonCode = "challenge_invalid"
+	ReasonServerAtCapacity  ReasonCode = "server_at_capacity"
+	ReasonResumptionFailed  ReasonCode = "resumption_failed"
+	ReasonVersionUnsupported ReasonCode = "version_unsupported"
 )
 
 // Envelope reason codes (ENVELOPE.md §9.3, ERRORS.md §3). Several handshake
-// codes also appear at the envelope layer with the same meaning; only the
-// envelope-specific additions are declared here.
+// codes also appear at the envelope layer with the same meaning (see
+// ERRORS.md §14 on code reuse across layers); only the envelope-specific
+// additions are declared here.
 const (
 	ReasonSealInvalid           ReasonCode = "seal_invalid"
 	ReasonSessionMACInvalid     ReasonCode = "session_mac_invalid"
 	ReasonEnvelopeExpired       ReasonCode = "envelope_expired"
+	ReasonEnvelopeSizeExceeded  ReasonCode = "envelope_size_exceeded"
 	ReasonExtensionUnsupported  ReasonCode = "extension_unsupported"
 	ReasonExtensionSizeExceeded ReasonCode = "extension_size_exceeded"
 	ReasonScopeExceeded         ReasonCode = "scope_exceeded"
+	ReasonScopeInvalid          ReasonCode = "scope_invalid"
+	ReasonCertificateExpired    ReasonCode = "certificate_expired"
 )
 
 // Rekey reason codes (SESSION.md §3.2, ERRORS.md §4).
@@ -53,14 +60,17 @@ func (c ReasonCode) Recoverable() bool {
 		ReasonHandshakeInvalid,
 		ReasonNoSession,
 		ReasonRateLimited,
-		ReasonChallengeRequired,
+		ReasonChallenge,
 		ReasonChallengeFailed,
 		ReasonServerAtCapacity:
 		return true
 	default:
 		// Includes ReasonSessionExpired and ReasonRekeyUnsupported, which
 		// require a fresh handshake rather than an automated retry on the
-		// rekey path.
+		// rekey path. Also includes ReasonChallengeInvalid,
+		// ReasonVersionUnsupported, ReasonResumptionFailed,
+		// ReasonEnvelopeSizeExceeded, ReasonScopeInvalid, and
+		// ReasonCertificateExpired, all non-recoverable per ERRORS.md.
 		return false
 	}
 }

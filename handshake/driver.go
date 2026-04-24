@@ -138,7 +138,7 @@ func RunServer(ctx context.Context, stream MessageStream, s *Server) (*session.S
 	// 2. Process init. May return Challenge bytes.
 	out, err := s.OnInit(initBytes)
 	if err != nil {
-		_ = sendRejection(ctx, stream, s, "policy_violation", err.Error())
+		_ = sendRejection(ctx, stream, s, "policy_forbidden", err.Error())
 		return nil, fmt.Errorf("handshake: server OnInit: %w", err)
 	}
 	if err := stream.Send(ctx, out); err != nil {
@@ -261,7 +261,7 @@ func RunResponder(ctx context.Context, stream MessageStream, r *Responder) (*ses
 	}
 	respBytes, err := r.OnInit(initBytes)
 	if err != nil {
-		_ = sendFederationRejection(ctx, stream, r, "policy_violation", err.Error())
+		_ = sendFederationRejection(ctx, stream, r, "policy_forbidden", err.Error())
 		return nil, fmt.Errorf("handshake: responder OnInit: %w", err)
 	}
 	if err := stream.Send(ctx, respBytes); err != nil {

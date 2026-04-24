@@ -382,7 +382,7 @@ func (s *Server) handleClientSubmission(ctx context.Context, stream MessageStrea
 		resp := delivery.NewSubmissionResponse(env.Postmark.ID, []delivery.SubmissionResult{{
 			Recipient:  s.Identity,
 			Status:     semp.StatusRejected,
-			ReasonCode: semp.ReasonPolicyViolation,
+			ReasonCode: semp.ReasonPolicyForbidden,
 			Reason:     err.Error(),
 		}})
 		_ = sendJSON(ctx, stream, resp)

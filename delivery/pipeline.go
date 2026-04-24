@@ -358,7 +358,7 @@ func (p *Pipeline) checkDomainPolicy(ctx context.Context, env *envelope.Envelope
 		return nil
 	case semp.AckRejected:
 		if code == "" {
-			code = semp.ReasonPolicyViolation
+			code = semp.ReasonPolicyForbidden
 		}
 		if reason == "" {
 			reason = "domain policy rejected envelope"
@@ -368,12 +368,12 @@ func (p *Pipeline) checkDomainPolicy(ctx context.Context, env *envelope.Envelope
 		// Silent mode at the domain level: surface as a rejection
 		// internally but with the silent acknowledgment so the caller
 		// can suppress the response. We use a sentinel reason code
-		// (policy_violation) and the reason text "silent" so callers
+		// (policy_forbidden) and the reason text "silent" so callers
 		// matching on Result.Rejection can branch on the
 		// acknowledgment via the reason text. Future work: add a
 		// dedicated AckSilent envelope-level signal.
 		if code == "" {
-			code = semp.ReasonPolicyViolation
+			code = semp.ReasonPolicyForbidden
 		}
 		if reason == "" {
 			reason = "domain policy: silent"
