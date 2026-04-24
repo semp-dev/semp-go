@@ -67,6 +67,18 @@ func RunClient(ctx context.Context, stream MessageStream, c *Client) (*session.S
 		case StepChallenge:
 			solution, err := c.OnChallenge(incoming)
 			if err != nil {
+				// On a challenge_invalid violation (HANDSHAKE.md section
+				// 2.2a.2), send the wire-level initiator abort defined in
+				// section 2.2a.6 before returning. The abort is unsigned
+				// and party=client; best-effort send, any transport
+				// failure is swallowed because we are already in an
+				// error path.
+				if IsChallengeInvalid(err) {
+					if rej, buildErr := NewClientRejection(
+						string(semp.ReasonChallengeInvalid), err.Error()); buildErr == nil {
+						_ = stream.Send(ctx, rej)
+					}
+				}
 				return nil, fmt.Errorf("handshake: solve challenge: %w", err)
 			}
 			if err := stream.Send(ctx, solution); err != nil {

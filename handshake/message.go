@@ -221,7 +221,16 @@ type Accepted struct {
 	Extensions      extensions.Map `json:"extensions"`
 }
 
-// Rejected is the failure outcome message 4 (HANDSHAKE.md §2.7).
+// Rejected is the failure-outcome handshake message. It is emitted by
+// the server as the message-4 failure variant (HANDSHAKE.md section
+// 2.7) and by the initiator as the abort variant after receiving a
+// non-conformant challenge (HANDSHAKE.md section 2.2a.6).
+//
+// The ServerSignature field is present for server-emitted rejections
+// and for federation-initiator aborts (both are party=server and
+// signed with a domain key). It is absent for client-initiator aborts
+// (party=client, unsigned) so the client does not leak an identity
+// key_id during an anonymous-init abort.
 type Rejected struct {
 	Type            string         `json:"type"`
 	Step            Step           `json:"step"` // StepRejected
@@ -230,6 +239,6 @@ type Rejected struct {
 	SessionID       string         `json:"session_id,omitempty"`
 	ReasonCode      string         `json:"reason_code"`
 	Reason          string         `json:"reason"`
-	ServerSignature string         `json:"server_signature"`
+	ServerSignature string         `json:"server_signature,omitempty"`
 	Extensions      extensions.Map `json:"extensions"`
 }
