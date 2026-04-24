@@ -9,7 +9,7 @@ import (
 // NegotiateCapabilities returns the agreed session parameters from the
 // client's offered capabilities and the server's accepted set, preferring
 // the post-quantum hybrid suite when both peers support it (HANDSHAKE.md
-// §6.4, SESSION.md §4.3).
+// section 6.4, SESSION.md section 4.3).
 //
 // The returned Negotiated MUST be honored verbatim by both parties for the
 // duration of the session.
@@ -19,13 +19,15 @@ import (
 //   - Encryption algorithm: walk crypto.Negotiate's preference order (PQ
 //     hybrid first, then baseline). The strongest mutually supported and
 //     implemented suite wins.
-//   - Compression: walk a fixed preference order (zstd, gzip, none). If the
-//     server has no compression preferences, "none" is selected.
 //   - Features: the intersection of offered.Features and accepted.Features,
 //     in the order they appear in offered.
 //   - max_envelope_size / max_batch_size: the smaller of the two values when
 //     both sides advertise one; the side that advertises it when only one
 //     does; zero (omitted) when neither does.
+//
+// Compression was removed from the spec in commit 87e1576. The handshake
+// no longer negotiates a compression algorithm; compression, if any, is a
+// transport concern below SEMP.
 //
 // A negotiation failure (no mutually supported encryption suite) returns an
 // error so the caller can respond with a `policy_forbidden` rejection.
@@ -42,7 +44,6 @@ func NegotiateCapabilities(offered, accepted Capabilities) (Negotiated, error) {
 		return Negotiated{}, err
 	}
 
-	compression := negotiateCompression(offered.Compression, accepted.Compression)
 	features := intersectStrings(offered.Features, accepted.Features)
 
 	maxSize := offered.MaxEnvelopeSize
@@ -56,33 +57,10 @@ func NegotiateCapabilities(offered, accepted Capabilities) (Negotiated, error) {
 
 	return Negotiated{
 		EncryptionAlgorithm: string(chosen),
-		Compression:         compression,
 		Features:            features,
-		MaxEnvelopeSize:      maxSize,
+		MaxEnvelopeSize:     maxSize,
 		MaxBatchSize:        maxBatch,
 	}, nil
-}
-
-// negotiateCompression picks the strongest mutually supported compression
-// algorithm. Preference order: zstd > gzip > none. "none" is the universal
-// fallback that every implementation MUST support; if the offered or accepted
-// list does not include any algorithm at all we still return "none".
-func negotiateCompression(offered, accepted []string) string {
-	preference := []string{"zstd", "gzip", "none"}
-	want := make(map[string]bool, len(accepted))
-	for _, c := range accepted {
-		want[c] = true
-	}
-	have := make(map[string]bool, len(offered))
-	for _, c := range offered {
-		have[c] = true
-	}
-	for _, p := range preference {
-		if want[p] && have[p] {
-			return p
-		}
-	}
-	return "none"
 }
 
 // intersectStrings returns the elements of a that also appear in b, in the
@@ -105,15 +83,14 @@ func intersectStrings(a, b []string) []string {
 }
 
 // DefaultClientCapabilities returns a Capabilities value that advertises
-// the algorithms a baseline conformant client supports (ENVELOPE.md §7.3.2).
+// the algorithms a baseline conformant client supports (ENVELOPE.md section 7.3.2).
 func DefaultClientCapabilities() Capabilities {
 	return Capabilities{
 		EncryptionAlgorithms: []string{
 			string(crypto.SuiteIDPQKyber768X25519),
 			string(crypto.SuiteIDX25519ChaCha20Poly1305),
 		},
-		Compression: []string{"none"},
-		Features:    []string{},
+		Features: []string{},
 	}
 }
 
@@ -126,8 +103,7 @@ func DefaultServerCapabilities() Capabilities {
 			string(crypto.SuiteIDPQKyber768X25519),
 			string(crypto.SuiteIDX25519ChaCha20Poly1305),
 		},
-		Compression: []string{"none"},
-		Features:    []string{},
+		Features: []string{},
 	}
 }
 

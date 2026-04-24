@@ -195,6 +195,18 @@ func (c *Client) OnChallenge(data []byte) ([]byte, error) {
 	if params.Algorithm != PoWAlgorithm {
 		return nil, fmt.Errorf("handshake: unsupported PoW algorithm %q", params.Algorithm)
 	}
+	// challenge_invalid gate (HANDSHAKE.md section 2.2a.2). A conformant
+	// initiator MUST abort with reason_code "challenge_invalid" when the
+	// difficulty exceeds the protocol cap or when the expiry window is
+	// shorter than the floor for the chosen difficulty.
+	if params.Difficulty > MaxPoWDifficulty {
+		return nil, fmt.Errorf("handshake: challenge_invalid: difficulty %d exceeds protocol cap %d",
+			params.Difficulty, MaxPoWDifficulty)
+	}
+	if floor := MinExpiryForDifficulty(params.Difficulty); !req.Expires.IsZero() && time.Until(req.Expires) < floor {
+		return nil, fmt.Errorf("handshake: challenge_invalid: expires window shorter than %s floor for difficulty %d",
+			floor, params.Difficulty)
+	}
 	prefix, err := base64.StdEncoding.DecodeString(params.Prefix)
 	if err != nil {
 		return nil, fmt.Errorf("handshake: challenge prefix base64: %w", err)

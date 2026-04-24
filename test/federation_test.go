@@ -46,7 +46,6 @@ func TestFederationHandshakeRoundTrip(t *testing.T) {
 		LocalDomainKeyID:      fpA,
 		LocalDomainPrivateKey: domainPrivA,
 		PeerDomain:            "b.example",
-		FederationType:        handshake.FederationFull,
 		DomainProof: handshake.DomainProof{
 			Method: handshake.DomainVerifyTestTrust,
 			Data:   "trust-me-im-a.example",
