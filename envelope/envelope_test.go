@@ -80,7 +80,7 @@ func TestDecodeRejectsEmpty(t *testing.T) {
 
 // TestCanonicalBytesElidesSealAndHopCount confirms that CanonicalBytes
 // returns the form fed into seal signing: signature/session_mac empty,
-// hop_count omitted.
+// hop_count omitted, top-level padding omitted.
 func TestCanonicalBytesElidesSealAndHopCount(t *testing.T) {
 	hop := 7
 	e := New()
@@ -102,6 +102,7 @@ func TestCanonicalBytesElidesSealAndHopCount(t *testing.T) {
 	}
 	e.Brief = "Yg=="
 	e.Enclosure = "ZQ=="
+	e.Padding = "PADDING-MUST-BE-ELIDED"
 
 	out, err := e.CanonicalBytes()
 	if err != nil {
@@ -119,5 +120,11 @@ func TestCanonicalBytesElidesSealAndHopCount(t *testing.T) {
 	}
 	if strings.Contains(s, `"hop_count"`) {
 		t.Errorf("canonical bytes still contain hop_count: %s", s)
+	}
+	if strings.Contains(s, "PADDING-MUST-BE-ELIDED") {
+		t.Errorf("canonical bytes still contain padding: %s", s)
+	}
+	if strings.Contains(s, `"padding"`) {
+		t.Errorf("canonical bytes still contain padding key: %s", s)
 	}
 }
