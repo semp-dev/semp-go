@@ -1,6 +1,7 @@
 package test
 
 import (
+	"bytes"
 	"testing"
 	"time"
 
@@ -221,13 +222,32 @@ func TestCrossDomainEnvelopeFlow(t *testing.T) {
 	}
 
 	// --- Tamper detection still works on cross-domain envelopes.
+	// Flip a byte inside the signed area rather than at the middle of
+	// the wire, because the middle of a size-padded envelope now lands
+	// inside the `padding` field (which is intentionally excluded from
+	// the signature scope per ENVELOPE.md §4.3).
 	tampered := append([]byte{}, wire...)
-	tampered[len(tampered)/2] ^= 0x01
+	tamperIdx := indexOfSignedRegion(t, tampered)
+	tampered[tamperIdx] ^= 0x01
 	if tEnv, terr := envelope.Decode(tampered); terr == nil {
 		if err := envelope.VerifySignature(tEnv, suite, sigPubA); err == nil {
 			t.Error("VerifySignature accepted a tampered cross-domain envelope")
 		}
 	}
+}
+
+// indexOfSignedRegion returns a byte offset in wire that sits inside a
+// field covered by seal.signature. Padding occupies most of the wire
+// for size-padded envelopes, so we target the `postmark` object near
+// the start of the JSON instead.
+func indexOfSignedRegion(t *testing.T, wire []byte) int {
+	t.Helper()
+	marker := []byte(`"postmark":{`)
+	idx := bytes.Index(wire, marker)
+	if idx < 0 {
+		t.Fatalf("could not locate postmark in wire")
+	}
+	return idx + len(marker) + 2
 }
 
 // TestCrossDomainSessionMACMismatch confirms that an envelope produced under
