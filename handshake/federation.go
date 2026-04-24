@@ -16,24 +16,17 @@ import (
 	"semp.dev/semp-go/session"
 )
 
-// FederationType identifies the federation mode requested by the initiator
-// (HANDSHAKE.md §5.2.1).
-type FederationType string
-
-// FederationType values.
-const (
-	FederationFull    FederationType = "full"
-	FederationRelay   FederationType = "relay"
-	FederationLimited FederationType = "limited"
-)
-
 // ServerInit is the message 1 sent by an initiating server in a federation
-// handshake (HANDSHAKE.md §5.2). Unlike the client init, the server init
-// includes the originating server's domain identity in plaintext.
+// handshake (HANDSHAKE.md section 5.2). Unlike the client init, the server
+// init includes the originating server's domain identity in plaintext.
 //
 // The Extensions field is intentionally NOT marked omitempty: the canonical
 // form of an init message MUST always include `"extensions":{}` so that the
 // confirmation hash computed by the responder reproduces byte for byte.
+//
+// SEMP defines a single federation mode (HANDSHAKE.md section 5.2.2). The
+// wire no longer carries a `federation_type` field; per-peer restrictions
+// are local operator policy rather than a negotiated protocol mode.
 type ServerInit struct {
 	Type                string          `json:"type"`  // SEMP_HANDSHAKE
 	Step                Step            `json:"step"`  // StepInit
@@ -42,7 +35,6 @@ type ServerInit struct {
 	Nonce               string          `json:"nonce"`
 	ServerID            string          `json:"server_id"`
 	ServerDomain        string          `json:"server_domain"`
-	FederationType      FederationType  `json:"federation_type"`
 	ServerEphemeralKey  EphemeralKey    `json:"server_ephemeral_key"`
 	ServerIdentityProof FederationProof `json:"server_identity_proof"`
 	DomainProof         DomainProof     `json:"domain_proof"`
@@ -239,7 +231,6 @@ type Initiator struct {
 	localServerID    string
 	localDomainKey   keys.Fingerprint
 	localDomainPriv  []byte
-	federationType   FederationType
 	domainProof      DomainProof
 	policyAcceptance PolicyAcceptor
 	capabilities     Capabilities
@@ -295,10 +286,6 @@ type InitiatorConfig struct {
 	// responder's published domain public key in Store.
 	PeerDomain string
 
-	// FederationType is the federation mode requested by the initiator.
-	// Defaults to FederationFull when empty.
-	FederationType FederationType
-
 	// DomainProof is the verification payload the initiator presents to
 	// the responder. The format is determined by DomainProof.Method.
 	DomainProof DomainProof
@@ -317,10 +304,6 @@ func NewInitiator(cfg InitiatorConfig) *Initiator {
 	if len(caps.EncryptionAlgorithms) == 0 {
 		caps = DefaultClientCapabilities()
 	}
-	fed := cfg.FederationType
-	if fed == "" {
-		fed = FederationFull
-	}
 	pa := cfg.PolicyAcceptor
 	if pa == nil {
 		pa = AcceptAllPolicies
@@ -332,7 +315,6 @@ func NewInitiator(cfg InitiatorConfig) *Initiator {
 		localServerID:    cfg.LocalServerID,
 		localDomainKey:   cfg.LocalDomainKeyID,
 		localDomainPriv:  cfg.LocalDomainPrivateKey,
-		federationType:   fed,
 		domainProof:      cfg.DomainProof,
 		policyAcceptance: pa,
 		capabilities:     caps,
@@ -377,14 +359,13 @@ func (i *Initiator) Init() ([]byte, error) {
 	}
 
 	msg := ServerInit{
-		Type:           MessageType,
-		Step:           StepInit,
-		Party:          PartyServer,
-		Version:        "1.0.0",
-		Nonce:          base64.StdEncoding.EncodeToString(i.nonce),
-		ServerID:       i.localServerID,
-		ServerDomain:   i.localDomain,
-		FederationType: i.federationType,
+		Type:         MessageType,
+		Step:         StepInit,
+		Party:        PartyServer,
+		Version:      "1.0.0",
+		Nonce:        base64.StdEncoding.EncodeToString(i.nonce),
+		ServerID:     i.localServerID,
+		ServerDomain: i.localDomain,
 		ServerEphemeralKey: EphemeralKey{
 			Algorithm: string(i.suite.ID()),
 			Key:       base64.StdEncoding.EncodeToString(ephPub),
@@ -727,7 +708,6 @@ func NewResponder(cfg ResponderConfig) *Responder {
 		}
 		caps = Capabilities{
 			EncryptionAlgorithms: []string{suiteID},
-			Compression:          []string{"none"},
 			Features:             []string{},
 		}
 	}

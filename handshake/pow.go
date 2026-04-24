@@ -11,12 +11,39 @@ import (
 )
 
 // PoWAlgorithm is the only PoW hash algorithm supported by SEMP
-// (HANDSHAKE.md §2.2a).
+// (HANDSHAKE.md section 2.2a).
 const PoWAlgorithm = "sha256"
 
 // MinPoWPrefixBytes is the minimum entropy required in the PoW challenge
-// prefix (HANDSHAKE.md §2.2a).
+// prefix (HANDSHAKE.md section 2.2a).
 const MinPoWPrefixBytes = 16
+
+// MaxPoWDifficulty is the maximum difficulty a conformant server MAY
+// issue on a proof-of-work challenge (HANDSHAKE.md section 2.2a.2,
+// added in spec commit 58b8f9a). An initiator that receives a challenge
+// with a higher difficulty MUST abort the handshake with
+// `reason_code: "challenge_invalid"` and MUST NOT attempt to solve it.
+const MaxPoWDifficulty = 28
+
+// MinExpiryForDifficulty returns the minimum duration a conformant
+// server MUST allow between challenge issuance and `expires` for the
+// given difficulty. Initiators reject challenges whose `expires` is
+// closer than this floor.
+//
+// Floor tiers per HANDSHAKE.md section 2.2a.2:
+//   - difficulty 0 through 20: 30 seconds
+//   - difficulty 21 through 24: 60 seconds
+//   - difficulty 25 through 28: 120 seconds
+func MinExpiryForDifficulty(difficulty int) time.Duration {
+	switch {
+	case difficulty <= 20:
+		return 30 * time.Second
+	case difficulty <= 24:
+		return 60 * time.Second
+	default:
+		return 120 * time.Second
+	}
+}
 
 // powPreimage constructs the byte sequence that the PoW hash is computed over
 // (VECTORS.md §4.3):
@@ -55,16 +82,20 @@ func SolveChallenge(prefix []byte, challengeID string, difficulty int, deadline 
 	if difficulty < 0 {
 		return "", "", errors.New("handshake: negative PoW difficulty")
 	}
-	if difficulty > 256 {
-		return "", "", errors.New("handshake: PoW difficulty exceeds SHA-256 output size")
+	if difficulty > MaxPoWDifficulty {
+		// Spec commit 58b8f9a caps PoW difficulty at 28. A conformant
+		// initiator MUST NOT attempt to solve a higher challenge even
+		// if the hash function supports it.
+		return "", "", errors.New("handshake: PoW difficulty exceeds protocol cap (28)")
 	}
 	if challengeID == "" {
 		return "", "", errors.New("handshake: empty PoW challenge_id")
 	}
 	if len(prefix) < MinPoWPrefixBytes {
 		// The spec REQUIRES at least 16 bytes of entropy in the prefix
-		// (HANDSHAKE.md §2.2a). Solving against a shorter prefix would
-		// produce a solution the spec-conformant verifier would reject.
+		// (HANDSHAKE.md section 2.2a). Solving against a shorter prefix
+		// would produce a solution the spec-conformant verifier would
+		// reject.
 		return "", "", errors.New("handshake: PoW prefix below minimum entropy")
 	}
 	var counterBuf [8]byte
@@ -101,6 +132,12 @@ func SolveChallenge(prefix []byte, challengeID string, difficulty int, deadline 
 func VerifySolution(prefix []byte, challengeID, nonceB64, claimedHashHex string, difficulty int) error {
 	if difficulty < 0 {
 		return errors.New("handshake: negative PoW difficulty")
+	}
+	if difficulty > MaxPoWDifficulty {
+		// A verifier that accepts a difficulty above the protocol cap
+		// would silently validate a non-conformant challenge. Reject
+		// rather than verify.
+		return errors.New("handshake: PoW difficulty exceeds protocol cap (28)")
 	}
 	if challengeID == "" {
 		return errors.New("handshake: empty PoW challenge_id")

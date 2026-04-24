@@ -127,7 +127,6 @@ func NewServer(cfg ServerConfig) *Server {
 		}
 		caps = Capabilities{
 			EncryptionAlgorithms: []string{suiteID},
-			Compression:          []string{"none"},
 			Features:             []string{},
 		}
 	}
