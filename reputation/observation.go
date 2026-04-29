@@ -99,10 +99,12 @@ type Window struct {
 // REPUTATION.md section 4.5.
 //
 // Counts published on the wire MUST be bucketed to powers of two per
-// REPUTATION.md section 4.5.1 (spec commit 2427adb). The store holds
-// raw counters internally; SignObservation applies Bucketize before
-// the values enter the signed canonical bytes. Consumers of a
-// received observation therefore see only bucketed values.
+// REPUTATION.md section 4.5.1; AbuseCategories MUST be a
+// deduplicated set per section 4.5.2. The store holds raw counters
+// and unaggregated category lists internally; SignObservation applies
+// Bucketize and dedupeAbuseCategories before the values enter the
+// signed canonical bytes. Consumers of a received observation
+// therefore see bucketed counts and a deduplicated category set.
 type Metrics struct {
 	EnvelopesReceived     int64           `json:"envelopes_received"`
 	EnvelopesRejected     int64           `json:"envelopes_rejected"`
@@ -142,8 +144,15 @@ func Bucketize(n int64) int64 {
 }
 
 // applyBucketing rewrites the count fields of m in place, replacing
-// each raw count with Bucketize(count). Applied by SignObservation
-// before canonicalization so the signed bytes contain bucketed values.
+// each raw count with Bucketize(count). It also deduplicates
+// AbuseCategories per REPUTATION.md section 4.5.2: the published
+// array is the set of categories observed at least once during the
+// window. Without deduplication, a receiver could read the array's
+// length and recover the raw abuse_reports count, defeating the
+// section 4.5.1 bucketing.
+//
+// Applied by SignObservation before canonicalization so the signed
+// bytes contain bucketed counts and a deduplicated category set.
 func applyBucketing(m *Metrics) {
 	if m == nil {
 		return
@@ -154,6 +163,33 @@ func applyBucketing(m *Metrics) {
 	m.UniqueSendersObserved = Bucketize(m.UniqueSendersObserved)
 	m.HandshakesCompleted = Bucketize(m.HandshakesCompleted)
 	m.HandshakesRejected = Bucketize(m.HandshakesRejected)
+	m.AbuseCategories = dedupeAbuseCategories(m.AbuseCategories)
+}
+
+// dedupeAbuseCategories returns a new slice containing each distinct
+// non-empty category from cats in first-occurrence order. Returns nil
+// when the input is empty so the JSON omits the field entirely (it
+// has the omitempty tag in Metrics).
+func dedupeAbuseCategories(cats []AbuseCategory) []AbuseCategory {
+	if len(cats) == 0 {
+		return nil
+	}
+	seen := make(map[AbuseCategory]struct{}, len(cats))
+	out := make([]AbuseCategory, 0, len(cats))
+	for _, c := range cats {
+		if c == "" {
+			continue
+		}
+		if _, ok := seen[c]; ok {
+			continue
+		}
+		seen[c] = struct{}{}
+		out = append(out, c)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 // Assessment is the qualitative summary attached to an Observation
