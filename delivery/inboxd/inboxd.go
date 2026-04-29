@@ -477,11 +477,12 @@ func (s *Server) handleClientSubmission(ctx context.Context, stream MessageStrea
 		peerResp, err := s.Forwarder.Forward(ctx, peerDomain, forwardEnv)
 		if err != nil {
 			results = append(results, delivery.SubmissionResult{
-				Recipient: address,
-				Status:    semp.StatusRejected,
-				Reason:    "forwarding to remote domain failed: " + err.Error(),
+				Recipient:  address,
+				Status:     semp.StatusRejected,
+				ReasonCode: semp.ReasonServerUnavailable,
+				Reason:     "forwarding to remote domain failed: " + err.Error(),
 			})
-			s.logf("[%s] forward %s -> %s failed: %v", s.Identity, env.Postmark.ID, address, err)
+			s.logf("[%s] forward %s → %s failed: %v", s.Identity, env.Postmark.ID, address, err)
 			continue
 		}
 		// The peer's response carries per-recipient results of its
