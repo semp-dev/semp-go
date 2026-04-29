@@ -221,8 +221,32 @@ func WrapForRecipients(w Wrapper, symmetricKey []byte, recipients []RecipientKey
 }
 
 // RecipientKey identifies a recipient public key by fingerprint and provides
-// the raw key bytes needed for wrapping.
+// the raw key bytes needed for wrapping. Kind tags whether the key
+// represents a recipient client (a user's encryption key) or a recipient
+// server (a published domain key); the distinction matters for the
+// recipient-count obfuscation rules in ENVELOPE.md section 4.4.1, which
+// pad user-client and server-domain entries to separate power-of-two
+// buckets.
 type RecipientKey struct {
 	Fingerprint keys.Fingerprint
 	PublicKey   []byte
+	Kind        RecipientKind
 }
+
+// RecipientKind enumerates the two kinds of public keys that may appear
+// in a seal recipient map.
+type RecipientKind string
+
+const (
+	// KindUserClient marks a recipient client's encryption key
+	// (per-user, per-device). User-client entries appear in both
+	// brief_recipients and enclosure_recipients.
+	KindUserClient RecipientKind = "user_client"
+
+	// KindServerDomain marks a recipient server's published domain key
+	// (per-domain). Server-domain entries appear ONLY in
+	// brief_recipients; the enclosure layer is end-to-end encrypted to
+	// user clients and the recipient server has no decryption role
+	// there.
+	KindServerDomain RecipientKind = "server_domain"
+)

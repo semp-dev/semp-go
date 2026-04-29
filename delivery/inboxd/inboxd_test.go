@@ -128,11 +128,11 @@ func (h *inboxdHarness) composeUnsigned(t *testing.T, postmarkID, from string, t
 		},
 		SenderDomainKeyID: h.domainSignFP,
 		BriefRecipients: []seal.RecipientKey{
-			{Fingerprint: h.domainEncFP, PublicKey: h.domainEncPub},
-			{Fingerprint: h.clientEncFP, PublicKey: h.clientEncPub},
+			{Fingerprint: h.domainEncFP, PublicKey: h.domainEncPub, Kind: seal.KindServerDomain},
+			{Fingerprint: h.clientEncFP, PublicKey: h.clientEncPub, Kind: seal.KindUserClient},
 		},
 		EnclosureRecipients: []seal.RecipientKey{
-			{Fingerprint: h.clientEncFP, PublicKey: h.clientEncPub},
+			{Fingerprint: h.clientEncFP, PublicKey: h.clientEncPub, Kind: seal.KindUserClient},
 		},
 	}
 	env, err := envelope.Compose(in)

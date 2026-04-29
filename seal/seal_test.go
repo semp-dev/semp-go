@@ -102,7 +102,7 @@ func TestWrapForRecipientsMultiple(t *testing.T) {
 		pub, priv, _ := suite.KEM().GenerateKeyPair()
 		fp := keys.Compute(pub)
 		peers[i] = peer{fp: fp, pub: pub, priv: priv}
-		recipients = append(recipients, RecipientKey{Fingerprint: fp, PublicKey: pub})
+		recipients = append(recipients, RecipientKey{Fingerprint: fp, PublicKey: pub, Kind: KindUserClient})
 	}
 
 	symmetricKey, _ := crypto.FreshKey(suite.AEAD())

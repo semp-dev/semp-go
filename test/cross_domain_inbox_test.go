@@ -426,12 +426,12 @@ func submitEnvelopeCrossDomain(t *testing.T, suite crypto.Suite, srvA *testServe
 		},
 		SenderDomainKeyID: keys.Fingerprint("server-fills-in"),
 		BriefRecipients: []seal.RecipientKey{
-			{Fingerprint: senderServerEncFP, PublicKey: senderServerEncPub},
-			{Fingerprint: recipServerEncFP, PublicKey: recipServerEncPub},
-			{Fingerprint: recipEncFP, PublicKey: recipEncPub},
+			{Fingerprint: senderServerEncFP, PublicKey: senderServerEncPub, Kind: seal.KindServerDomain},
+			{Fingerprint: recipServerEncFP, PublicKey: recipServerEncPub, Kind: seal.KindServerDomain},
+			{Fingerprint: recipEncFP, PublicKey: recipEncPub, Kind: seal.KindUserClient},
 		},
 		EnclosureRecipients: []seal.RecipientKey{
-			{Fingerprint: recipEncFP, PublicKey: recipEncPub},
+			{Fingerprint: recipEncFP, PublicKey: recipEncPub, Kind: seal.KindUserClient},
 		},
 	}
 	env, err := envelope.Compose(in)

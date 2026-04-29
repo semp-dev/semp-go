@@ -338,7 +338,7 @@ func submitMultiRecipient(t *testing.T, suite crypto.Suite, conn transport.Conn,
 	senderDomainEncFP := keys.Compute(senderDomainEncPub)
 
 	briefRecipients := []seal.RecipientKey{
-		{Fingerprint: senderDomainEncFP, PublicKey: senderDomainEncPub},
+		{Fingerprint: senderDomainEncFP, PublicKey: senderDomainEncPub, Kind: seal.KindServerDomain},
 	}
 	enclosureRecipients := []seal.RecipientKey{}
 	briefTo := make([]brief.Address, 0, len(to))
@@ -349,8 +349,8 @@ func submitMultiRecipient(t *testing.T, suite crypto.Suite, conn transport.Conn,
 			t.Fatalf("derive recipient enc: %v", err)
 		}
 		encFP := keys.Compute(encPub)
-		briefRecipients = append(briefRecipients, seal.RecipientKey{Fingerprint: encFP, PublicKey: encPub})
-		enclosureRecipients = append(enclosureRecipients, seal.RecipientKey{Fingerprint: encFP, PublicKey: encPub})
+		briefRecipients = append(briefRecipients, seal.RecipientKey{Fingerprint: encFP, PublicKey: encPub, Kind: seal.KindUserClient})
+		enclosureRecipients = append(enclosureRecipients, seal.RecipientKey{Fingerprint: encFP, PublicKey: encPub, Kind: seal.KindUserClient})
 	}
 
 	// Need any handshake-established session_id for the postmark.

@@ -233,18 +233,20 @@ func runSend(args []string) error {
 		},
 	}
 	briefRecipients := []seal.RecipientKey{
-		{Fingerprint: rk.SenderServerEncFP, PublicKey: rk.SenderServerEnc},
-		{Fingerprint: rk.RecipientServerEncFP, PublicKey: rk.RecipientServerEnc},
+		{Fingerprint: rk.SenderServerEncFP, PublicKey: rk.SenderServerEnc, Kind: seal.KindServerDomain},
+		{Fingerprint: rk.RecipientServerEncFP, PublicKey: rk.RecipientServerEnc, Kind: seal.KindServerDomain},
 	}
 	enclosureRecipients := make([]seal.RecipientKey, 0, len(rk.RecipientDevices))
 	for _, dev := range rk.RecipientDevices {
 		briefRecipients = append(briefRecipients, seal.RecipientKey{
 			Fingerprint: dev.Fingerprint,
 			PublicKey:   dev.PublicKey,
+			Kind:        seal.KindUserClient,
 		})
 		enclosureRecipients = append(enclosureRecipients, seal.RecipientKey{
 			Fingerprint: dev.Fingerprint,
 			PublicKey:   dev.PublicKey,
+			Kind:        seal.KindUserClient,
 		})
 	}
 	fmt.Fprintf(os.Stderr, "wrapping for %d recipient device(s)\n", len(rk.RecipientDevices))

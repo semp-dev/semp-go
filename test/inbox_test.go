@@ -267,11 +267,11 @@ func submitEnvelope(t *testing.T, suite crypto.Suite, wsURL, seed, domain, from,
 		},
 		SenderDomainKeyID: keys.Fingerprint("server-fills-in"),
 		BriefRecipients: []seal.RecipientKey{
-			{Fingerprint: domainEncFP, PublicKey: domainEncPub},
-			{Fingerprint: recipEncFP, PublicKey: recipEncPub},
+			{Fingerprint: domainEncFP, PublicKey: domainEncPub, Kind: seal.KindServerDomain},
+			{Fingerprint: recipEncFP, PublicKey: recipEncPub, Kind: seal.KindUserClient},
 		},
 		EnclosureRecipients: []seal.RecipientKey{
-			{Fingerprint: recipEncFP, PublicKey: recipEncPub},
+			{Fingerprint: recipEncFP, PublicKey: recipEncPub, Kind: seal.KindUserClient},
 		},
 	}
 	env, err := envelope.Compose(in)

@@ -99,11 +99,11 @@ func (f *pipelineFixture) composeSigned(t *testing.T, postmarkID, fromAddress st
 		Enclosure:         enc,
 		SenderDomainKeyID: f.senderDomainFP,
 		BriefRecipients: []seal.RecipientKey{
-			{Fingerprint: f.serverEncFP, PublicKey: f.serverEncPub},
-			{Fingerprint: f.clientEncFP, PublicKey: f.clientEncPub},
+			{Fingerprint: f.serverEncFP, PublicKey: f.serverEncPub, Kind: seal.KindServerDomain},
+			{Fingerprint: f.clientEncFP, PublicKey: f.clientEncPub, Kind: seal.KindUserClient},
 		},
 		EnclosureRecipients: []seal.RecipientKey{
-			{Fingerprint: f.clientEncFP, PublicKey: f.clientEncPub},
+			{Fingerprint: f.clientEncFP, PublicKey: f.clientEncPub, Kind: seal.KindUserClient},
 		},
 	}
 	env, err := envelope.Compose(in)

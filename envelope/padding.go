@@ -261,37 +261,93 @@ func buildPaddingValue(targetLen int) (string, error) {
 }
 
 // PadEnclosureRecipients adds indistinguishable dummy entries to the
-// envelope's enclosure_recipients map so that the entry count reaches the
-// next power-of-two bucket per ENVELOPE.md section 4.4.1. Buckets: 1, 2,
-// 4, 8, ..., 1024.
+// envelope's enclosure_recipients map so that the entry count reaches
+// the next power-of-two bucket per ENVELOPE.md section 4.4.1.
+// Buckets: 1, 2, 4, 8, ..., 1024.
 //
-// A dummy entry carries a random 32-byte fingerprint (hex-encoded) and a
-// random ciphertext whose length matches a real wrapped key in the map.
-// An observer cannot distinguish real from dummy entries without a
-// recipient's private key, and legitimate recipients skip dummies because
-// their fingerprints do not match any registered public key.
+// A dummy entry carries a random 32-byte fingerprint (hex-encoded) and
+// a random ciphertext whose length matches a real wrapped key in the
+// map. An observer cannot distinguish real from dummy entries without
+// a recipient's private key, and legitimate recipients skip dummies
+// because their fingerprints do not match any registered public key.
 //
-// This function does NOT pad brief_recipients. The spec requires brief
-// padding to account separately for user-client entries and domain-key
-// entries; the current seal.RecipientMap does not tag entries by kind.
-// Brief padding is deferred pending a RecipientKey API refinement.
+// realUserClients is the count of real user-client wrappings already
+// in s.EnclosureRecipients (no server-domain entries are permitted in
+// the enclosure map per ENVELOPE.md section 4.4). The map MAY contain
+// fewer entries than realUserClients if the caller plans to add more,
+// but the typical flow calls Wrap first and then Pad.
 //
 // Reference: ENVELOPE.md section 4.4.1.
-func PadEnclosureRecipients(s *seal.Seal) error {
+func PadEnclosureRecipients(s *seal.Seal, realUserClients int) error {
 	if s == nil {
 		return errors.New("envelope: nil seal")
 	}
+	if realUserClients < 0 {
+		return fmt.Errorf("envelope: negative real user-client count %d", realUserClients)
+	}
+	target := nextPowerOfTwo(realUserClients)
 	current := len(s.EnclosureRecipients)
-	target := nextPowerOfTwo(current)
 	if target <= current {
 		return nil
 	}
 	need := target - current
-	rawLen, err := exampleRawWrapLength(s.EnclosureRecipients)
+	return appendDummyEntries(s.EnclosureRecipients, need)
+}
+
+// PadBriefRecipients adds indistinguishable dummy entries to the
+// envelope's brief_recipients map so that the entry count reaches
+// `enclosure_bucket + domain_bucket` per ENVELOPE.md section 4.4.1,
+// where enclosure_bucket is next_power_of_two(realUserClients) and
+// domain_bucket is next_power_of_two(max(realServerDomains, 1)).
+//
+// Padding the user-client and server-domain dimensions to separate
+// power-of-two buckets prevents an observer from reading either the
+// recipient client count or the recipient domain count off the brief
+// map. Dummy entries on the wire are indistinguishable from real
+// wrappings to anyone without the corresponding private key.
+//
+// realUserClients is the count of real user-client wrappings already
+// in s.BriefRecipients; realServerDomains is the count of distinct
+// recipient-server domain wrappings (each recipient domain contributes
+// exactly one entry).
+//
+// Reference: ENVELOPE.md section 4.4.1.
+func PadBriefRecipients(s *seal.Seal, realUserClients, realServerDomains int) error {
+	if s == nil {
+		return errors.New("envelope: nil seal")
+	}
+	if realUserClients < 0 {
+		return fmt.Errorf("envelope: negative real user-client count %d", realUserClients)
+	}
+	if realServerDomains < 0 {
+		return fmt.Errorf("envelope: negative real server-domain count %d", realServerDomains)
+	}
+	enclosureBucket := nextPowerOfTwo(realUserClients)
+	domainBucket := nextPowerOfTwo(realServerDomains)
+	if domainBucket < 1 {
+		domainBucket = 1
+	}
+	target := enclosureBucket + domainBucket
+	current := len(s.BriefRecipients)
+	if target <= current {
+		return nil
+	}
+	need := target - current
+	return appendDummyEntries(s.BriefRecipients, need)
+}
+
+// appendDummyEntries adds n dummy entries to m. Each dummy carries a
+// random 32-byte fingerprint and a random ciphertext sized to match an
+// existing real entry.
+func appendDummyEntries(m seal.RecipientMap, n int) error {
+	if n == 0 {
+		return nil
+	}
+	rawLen, err := exampleRawWrapLength(m)
 	if err != nil {
 		return err
 	}
-	for i := 0; i < need; i++ {
+	for i := 0; i < n; i++ {
 		fp, err := randomFingerprint()
 		if err != nil {
 			return err
@@ -300,15 +356,15 @@ func PadEnclosureRecipients(s *seal.Seal) error {
 		if err != nil {
 			return err
 		}
-		s.EnclosureRecipients[fp] = ct
+		m[fp] = ct
 	}
 	return nil
 }
 
-// nextPowerOfTwo returns the smallest power of two in [1, 1024] that is
-// at least n. Values above 1024 return n unchanged (the bucket is then
-// capped at the caller's max; envelopes larger than 1024 recipients fall
-// off the obfuscation scheme).
+// nextPowerOfTwo returns the smallest power of two in [1, 1024] that
+// is at least n. Values above 1024 return n unchanged (the bucket is
+// then capped at the caller's max; envelopes larger than 1024
+// recipients fall off the obfuscation scheme).
 func nextPowerOfTwo(n int) int {
 	if n <= 1 {
 		return 1

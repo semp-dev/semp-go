@@ -163,12 +163,27 @@ func Compose(in *ComposeInput) (*Envelope, error) {
 	env.Enclosure = enclBlob
 
 	// Recipient-count obfuscation (ENVELOPE.md section 4.4.1). Pad
-	// enclosure_recipients to the next power-of-two entry count with
-	// dummy entries indistinguishable from real wrapped keys. Brief
-	// padding is deferred pending a RecipientKey API refinement that
-	// tags user-client vs server-domain entries.
-	if err := PadEnclosureRecipients(&env.Seal); err != nil {
+	// the enclosure map to the next power-of-two of the real
+	// user-client count, and pad the brief map to enclosure_bucket +
+	// domain_bucket. Dummy entries are indistinguishable from real
+	// wrappings on the wire.
+	enclosureRealCount, err := countByKind(in.EnclosureRecipients, seal.KindUserClient)
+	if err != nil {
+		return nil, fmt.Errorf("envelope: enclosure recipient count: %w", err)
+	}
+	if enclosureRealCount != len(in.EnclosureRecipients) {
+		return nil, errors.New("envelope: enclosure_recipients MUST contain only user-client entries (ENVELOPE.md section 4.4)")
+	}
+	briefUserClients, _ := countByKind(in.BriefRecipients, seal.KindUserClient)
+	briefServerDomains, _ := countByKind(in.BriefRecipients, seal.KindServerDomain)
+	if briefUserClients+briefServerDomains != len(in.BriefRecipients) {
+		return nil, errors.New("envelope: every brief_recipients entry MUST set RecipientKey.Kind to KindUserClient or KindServerDomain")
+	}
+	if err := PadEnclosureRecipients(&env.Seal, enclosureRealCount); err != nil {
 		return nil, fmt.Errorf("envelope: pad enclosure recipients: %w", err)
+	}
+	if err := PadBriefRecipients(&env.Seal, briefUserClients, briefServerDomains); err != nil {
+		return nil, fmt.Errorf("envelope: pad brief recipients: %w", err)
 	}
 
 	// Size-bucket obfuscation (ENVELOPE.md section 2.4.1). FillPadding
@@ -186,6 +201,25 @@ func Compose(in *ComposeInput) (*Envelope, error) {
 	}
 
 	return env, nil
+}
+
+// countByKind returns how many entries in rs have Kind == want, plus
+// an error if any entry has an unrecognized Kind. Entries with an
+// empty Kind are reported as the zero count and produce no error here;
+// the caller distinguishes the unknown-kind case via the count check.
+func countByKind(rs []seal.RecipientKey, want seal.RecipientKind) (int, error) {
+	n := 0
+	for _, r := range rs {
+		switch r.Kind {
+		case seal.KindUserClient, seal.KindServerDomain:
+			if r.Kind == want {
+				n++
+			}
+		default:
+			return 0, fmt.Errorf("recipient %q has unrecognized Kind %q", r.Fingerprint, r.Kind)
+		}
+	}
+	return n, nil
 }
 
 // Sign performs steps 10–12 of the encryption flow in ENVELOPE.md §7.1:
