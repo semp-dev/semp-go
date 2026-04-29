@@ -180,12 +180,14 @@ func (a Address) Equal(b Address) bool {
 	return aa == bb
 }
 
-// rejectControlChars returns an error if s contains any ASCII control
-// character (U+0000 through U+001F, or U+007F). Such characters open
-// injection attack surfaces in downstream consumers.
+// rejectControlChars returns an error if s contains any C0 control
+// character (U+0000 through U+001F), DEL (U+007F), or any C1 control
+// character (U+0080 through U+009F) per ENVELOPE.md section 2.3.1.
+// Such characters open injection attack surfaces in downstream
+// consumers.
 func rejectControlChars(s, field string) error {
 	for i, r := range s {
-		if r < 0x20 || r == 0x7F {
+		if r < 0x20 || r == 0x7F || (r >= 0x80 && r <= 0x9F) {
 			return fmt.Errorf("brief: %s contains control character U+%04X at byte %d", field, r, i)
 		}
 	}
