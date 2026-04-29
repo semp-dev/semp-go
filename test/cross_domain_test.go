@@ -46,6 +46,10 @@ func TestCrossDomainEnvelopeFlow(t *testing.T) {
 	sigFPA := storeA.putDomainKey("a.example", sigPubA)
 	storeB.putDomainKey("a.example", sigPubA)
 
+	// Sender user identity key (signs the enclosure per ENVELOPE.md §6.5).
+	identityPubA, identityPrivA, _ := suite.Signer().GenerateKeyPair()
+	identityFPA := keys.Compute(identityPubA)
+
 	// Recipient server (b.example) ed25519 domain SIGNING key.
 	sigPubB, sigPrivB, _ := suite.Signer().GenerateKeyPair()
 	sigFPB := storeA.putDomainKey("b.example", sigPubB)
@@ -140,9 +144,11 @@ func TestCrossDomainEnvelopeFlow(t *testing.T) {
 			ToDomain:   "b.example",
 			Expires:    time.Date(2026, 4, 9, 13, 0, 0, 0, time.UTC),
 		},
-		Brief:             bf,
-		Enclosure:         enc,
-		SenderDomainKeyID: sigFPA,
+		Brief:              bf,
+		Enclosure:          enc,
+		SenderDomainKeyID:  sigFPA,
+		IdentityPrivateKey: identityPrivA,
+		IdentityKeyID:      string(identityFPA),
 		BriefRecipients: []seal.RecipientKey{
 			{Fingerprint: encFPB, PublicKey: encPubB, Kind: seal.KindServerDomain},     // recipient SERVER
 			{Fingerprint: clientFPB, PublicKey: clientPubB, Kind: seal.KindUserClient}, // recipient CLIENT
@@ -260,6 +266,7 @@ func TestCrossDomainSessionMACMismatch(t *testing.T) {
 	// Sender domain key.
 	sigPub, sigPriv, _ := suite.Signer().GenerateKeyPair()
 	sigFP := keys.Compute(sigPub)
+	identityPub, identityPriv, _ := suite.Signer().GenerateKeyPair()
 
 	// Two unrelated K_env_macs — pretend they came from two different
 	// federation sessions.
@@ -281,6 +288,8 @@ func TestCrossDomainSessionMACMismatch(t *testing.T) {
 		Brief:               brief.Brief{MessageID: "m"},
 		Enclosure:           enclosure.Enclosure{ContentType: "text/plain", Body: enclosure.Body{"text/plain": "x"}},
 		SenderDomainKeyID:   sigFP,
+		IdentityPrivateKey:  identityPriv,
+		IdentityKeyID:       string(keys.Compute(identityPub)),
 		BriefRecipients:     []seal.RecipientKey{{Fingerprint: recipFP, PublicKey: recipPub, Kind: seal.KindUserClient}},
 		EnclosureRecipients: []seal.RecipientKey{{Fingerprint: recipFP, PublicKey: recipPub, Kind: seal.KindUserClient}},
 	}

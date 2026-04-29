@@ -48,6 +48,28 @@ type ComposeInput struct {
 	// MUST NOT appear in this list.
 	EnclosureRecipients []seal.RecipientKey
 
+	// IdentityPrivateKey is the sending user's identity private key
+	// used to sign the enclosure per ENVELOPE.md §6.5. The signing key
+	// MUST be the user's published identity key (KEY.md §1.1) and
+	// MUST NOT be a device subkey or session key. Required unless
+	// SkipSenderSignature is true.
+	IdentityPrivateKey []byte
+
+	// IdentityKeyID is the fingerprint of the identity public key
+	// matching IdentityPrivateKey. Goes into
+	// enclosure.sender_signature.key_id so the recipient client can
+	// look up the right verification key. Required unless
+	// SkipSenderSignature is true.
+	IdentityKeyID string
+
+	// SkipSenderSignature, when true, disables the automatic
+	// SignEnclosure call before encryption. Default (false) signs every
+	// composed enclosure per ENVELOPE.md §6.5 (sender_signature is
+	// REQUIRED on every enclosure). Callers that build deterministic
+	// vectors or test specific code paths unrelated to enclosure
+	// signing may opt out; production senders MUST NOT.
+	SkipSenderSignature bool
+
 	// SkipPadding, when true, disables the automatic FillPadding call at
 	// the end of Compose. Default (false) pads every composed envelope
 	// to a bucket per ENVELOPE.md section 2.4.1. Callers that intend to
@@ -90,6 +112,14 @@ func Compose(in *ComposeInput) (*Envelope, error) {
 	if len(in.EnclosureRecipients) == 0 {
 		return nil, errors.New("envelope: at least one enclosure recipient required")
 	}
+	if !in.SkipSenderSignature {
+		if len(in.IdentityPrivateKey) == 0 {
+			return nil, errors.New("envelope: ComposeInput.IdentityPrivateKey is required (set SkipSenderSignature to opt out per ENVELOPE.md §6.5)")
+		}
+		if in.IdentityKeyID == "" {
+			return nil, errors.New("envelope: ComposeInput.IdentityKeyID is required (set SkipSenderSignature to opt out per ENVELOPE.md §6.5)")
+		}
+	}
 
 	aead := in.Suite.AEAD()
 
@@ -122,7 +152,17 @@ func Compose(in *ComposeInput) (*Envelope, error) {
 	briefBlob := base64.StdEncoding.EncodeToString(append(briefNonce, briefCT...))
 
 	// Step 4: encrypt enclosure.
-	enclBytes, err := json.Marshal(in.Enclosure)
+	// ENVELOPE.md §6.5 requires sender_signature on every enclosure.
+	// Sign a working copy so we don't mutate the caller's input value;
+	// SkipSenderSignature opt-out is preserved for tests and
+	// specialized flows that explicitly do not want a signature.
+	enc := in.Enclosure
+	if !in.SkipSenderSignature {
+		if err := enclosure.SignEnclosure(&enc, in.Suite, in.IdentityPrivateKey, in.IdentityKeyID); err != nil {
+			return nil, fmt.Errorf("envelope: sign enclosure: %w", err)
+		}
+	}
+	enclBytes, err := json.Marshal(enc)
 	if err != nil {
 		return nil, fmt.Errorf("envelope: marshal enclosure: %w", err)
 	}

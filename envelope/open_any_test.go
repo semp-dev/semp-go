@@ -29,6 +29,13 @@ func composeMultiDevice(t *testing.T) (env *envelope.Envelope, entryA, entryB, e
 	}
 	sigFP := keys.Compute(sigPub)
 
+	// Sender identity key (signs the enclosure per ENVELOPE.md §6.5).
+	identityPub, identityPriv, err := suite.Signer().GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("identity keypair: %v", err)
+	}
+	identityFP := keys.Compute(identityPub)
+
 	// Server domain enc key.
 	srvEncPub, srvEncPriv, err := suite.KEM().GenerateKeyPair()
 	if err != nil {
@@ -74,7 +81,9 @@ func composeMultiDevice(t *testing.T) (env *envelope.Envelope, entryA, entryB, e
 			ContentType: "text/plain",
 			Body:        enclosure.Body{"text/plain": "each device decrypts its own wrap entry"},
 		},
-		SenderDomainKeyID: sigFP,
+		SenderDomainKeyID:  sigFP,
+		IdentityPrivateKey: identityPriv,
+		IdentityKeyID:      string(identityFP),
 		BriefRecipients: []seal.RecipientKey{
 			{Fingerprint: srvEncFP, PublicKey: srvEncPub, Kind: seal.KindServerDomain},
 			{Fingerprint: devAFP, PublicKey: devAEncPub, Kind: seal.KindUserClient},

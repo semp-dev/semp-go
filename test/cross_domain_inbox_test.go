@@ -404,6 +404,10 @@ func submitEnvelopeCrossDomain(t *testing.T, suite crypto.Suite, srvA *testServe
 	}
 	recipServerEncFP := keys.Compute(recipServerEncPub)
 
+	// Sender identity key for ENVELOPE.md §6.5 sender_signature.
+	senderIdentityPub, senderIdentityPriv := demoseed.Identity(seed, from)
+	senderIdentityFP := keys.Compute(senderIdentityPub)
+
 	in := &envelope.ComposeInput{
 		Suite: suite,
 		Postmark: envelope.Postmark{
@@ -424,7 +428,9 @@ func submitEnvelopeCrossDomain(t *testing.T, suite crypto.Suite, srvA *testServe
 			ContentType: "text/plain",
 			Body:        enclosure.Body{"text/plain": body},
 		},
-		SenderDomainKeyID: keys.Fingerprint("server-fills-in"),
+		SenderDomainKeyID:  keys.Fingerprint("server-fills-in"),
+		IdentityPrivateKey: senderIdentityPriv,
+		IdentityKeyID:      string(senderIdentityFP),
 		BriefRecipients: []seal.RecipientKey{
 			{Fingerprint: senderServerEncFP, PublicKey: senderServerEncPub, Kind: seal.KindServerDomain},
 			{Fingerprint: recipServerEncFP, PublicKey: recipServerEncPub, Kind: seal.KindServerDomain},

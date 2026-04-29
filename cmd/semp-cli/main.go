@@ -264,6 +264,11 @@ func runSend(args []string) error {
 		SenderDomainKeyID:   keys.Fingerprint("server-fills-in"), // server overwrites on Sign
 		BriefRecipients:     briefRecipients,
 		EnclosureRecipients: enclosureRecipients,
+		// TODO(semp-cli): wire a real per-user identity private key
+		// loaded from local key storage so the CLI also conforms to
+		// ENVELOPE.md §6.5. Until then, skip enclosure signing; the
+		// CLI is a development tool, not a production client.
+		SkipSenderSignature: true,
 	}
 	env, err := envelope.Compose(in)
 	if err != nil {

@@ -37,17 +37,19 @@ func (f *fakeStream) Recv(_ context.Context) ([]byte, error) {
 // encryption setup. Optional knobs let individual tests inject a block
 // list or domain policy.
 type inboxdHarness struct {
-	server         *Server
-	suite          crypto.Suite
-	domainSignPub  []byte
-	domainSignPriv []byte
-	domainSignFP   keys.Fingerprint
-	domainEncPub   []byte
-	domainEncPriv  []byte
-	domainEncFP    keys.Fingerprint
-	clientEncPub   []byte
-	clientEncFP    keys.Fingerprint
-	envMAC         []byte
+	server             *Server
+	suite              crypto.Suite
+	domainSignPub      []byte
+	domainSignPriv     []byte
+	domainSignFP       keys.Fingerprint
+	senderIdentityPriv []byte
+	senderIdentityFP   keys.Fingerprint
+	domainEncPub       []byte
+	domainEncPriv      []byte
+	domainEncFP        keys.Fingerprint
+	clientEncPub       []byte
+	clientEncFP        keys.Fingerprint
+	envMAC             []byte
 }
 
 func newInboxdHarness(t *testing.T) *inboxdHarness {
@@ -56,6 +58,10 @@ func newInboxdHarness(t *testing.T) *inboxdHarness {
 	signPub, signPriv, err := suite.Signer().GenerateKeyPair()
 	if err != nil {
 		t.Fatalf("signer: %v", err)
+	}
+	identityPub, identityPriv, err := suite.Signer().GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("identity: %v", err)
 	}
 	encPub, encPriv, err := suite.KEM().GenerateKeyPair()
 	if err != nil {
@@ -70,16 +76,18 @@ func newInboxdHarness(t *testing.T) *inboxdHarness {
 		t.Fatalf("envMAC: %v", err)
 	}
 	h := &inboxdHarness{
-		suite:          suite,
-		domainSignPub:  signPub,
-		domainSignPriv: signPriv,
-		domainSignFP:   keys.Compute(signPub),
-		domainEncPub:   encPub,
-		domainEncPriv:  encPriv,
-		domainEncFP:    keys.Compute(encPub),
-		clientEncPub:   clientPub,
-		clientEncFP:    keys.Compute(clientPub),
-		envMAC:         envMAC,
+		suite:              suite,
+		domainSignPub:      signPub,
+		domainSignPriv:     signPriv,
+		domainSignFP:       keys.Compute(signPub),
+		senderIdentityPriv: identityPriv,
+		senderIdentityFP:   keys.Compute(identityPub),
+		domainEncPub:       encPub,
+		domainEncPriv:      encPriv,
+		domainEncFP:        keys.Compute(encPub),
+		clientEncPub:       clientPub,
+		clientEncFP:        keys.Compute(clientPub),
+		envMAC:             envMAC,
 	}
 	h.server = &Server{
 		Mode:           ModeClient,
@@ -126,7 +134,9 @@ func (h *inboxdHarness) composeUnsigned(t *testing.T, postmarkID, from string, t
 			ContentType: "text/plain",
 			Body:        enclosure.Body{"text/plain": "hello"},
 		},
-		SenderDomainKeyID: h.domainSignFP,
+		SenderDomainKeyID:  h.domainSignFP,
+		IdentityPrivateKey: h.senderIdentityPriv,
+		IdentityKeyID:      string(h.senderIdentityFP),
 		BriefRecipients: []seal.RecipientKey{
 			{Fingerprint: h.domainEncFP, PublicKey: h.domainEncPub, Kind: seal.KindServerDomain},
 			{Fingerprint: h.clientEncFP, PublicKey: h.clientEncPub, Kind: seal.KindUserClient},

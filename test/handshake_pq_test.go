@@ -274,7 +274,9 @@ func TestEnvelopeSealUnderSuitePQ(t *testing.T) {
 			ContentType: "text/plain",
 			Body:        enclosure.Body{"text/plain": "hello pq world"},
 		},
-		SenderDomainKeyID: senderDomainFP,
+		SenderDomainKeyID:  senderDomainFP,
+		IdentityPrivateKey: identityPriv,
+		IdentityKeyID:      string(identityFP),
 		BriefRecipients: []seal.RecipientKey{
 			{Fingerprint: recipEncFP, PublicKey: recipEncPub, Kind: seal.KindUserClient},
 		},
