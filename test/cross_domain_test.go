@@ -142,7 +142,7 @@ func TestCrossDomainEnvelopeFlow(t *testing.T) {
 			SessionID:  sessA.ID, // bind the envelope to the federation session
 			FromDomain: "a.example",
 			ToDomain:   "b.example",
-			Expires:    time.Date(2026, 4, 9, 13, 0, 0, 0, time.UTC),
+			Expires:    time.Now().UTC().Add(time.Hour),
 		},
 		Brief:              bf,
 		Enclosure:          enc,

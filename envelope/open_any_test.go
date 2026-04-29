@@ -254,3 +254,62 @@ func TestOpenEnclosureAnyRejectsServerKey(t *testing.T) {
 		t.Errorf("expected 'no candidate matches' error, got: %v", err)
 	}
 }
+
+// TestComposeRejectsExpiryHeadroom confirms Compose enforces the
+// CONFORMANCE.md §9.3.1 sender-side rule: postmark.expires MUST be
+// at least MinSenderExpiryHeadroom (15 minutes) in the future.
+func TestComposeRejectsExpiryHeadroom(t *testing.T) {
+	suite := crypto.SuiteBaseline
+	idPub, idPriv, err := suite.Signer().GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("identity keypair: %v", err)
+	}
+	recipPub, _, err := suite.KEM().GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("recipient keypair: %v", err)
+	}
+	recipFP := keys.Compute(recipPub)
+	build := func(expires time.Time) *envelope.ComposeInput {
+		return &envelope.ComposeInput{
+			Suite: suite,
+			Postmark: envelope.Postmark{
+				ID:         "01JTESTHEADROOM00000000000001",
+				SessionID:  "01JTESTHEADROOMSESSION0000001",
+				FromDomain: "a.example",
+				ToDomain:   "b.example",
+				Expires:    expires,
+			},
+			Brief:              brief.Brief{MessageID: "m"},
+			Enclosure:          enclosure.Enclosure{ContentType: "text/plain", Body: enclosure.Body{"text/plain": "hi"}},
+			SenderDomainKeyID:  keys.Fingerprint("sender-fp"),
+			IdentityPrivateKey: idPriv,
+			IdentityKeyID:      string(keys.Compute(idPub)),
+			BriefRecipients:    []seal.RecipientKey{{Fingerprint: recipFP, PublicKey: recipPub, Kind: seal.KindUserClient}},
+			EnclosureRecipients: []seal.RecipientKey{{Fingerprint: recipFP, PublicKey: recipPub, Kind: seal.KindUserClient}},
+		}
+	}
+
+	// Past expiry must fail with a headroom error.
+	if _, err := envelope.Compose(build(time.Now().Add(-time.Minute))); err == nil {
+		t.Error("Compose with past expiry: want error, got nil")
+	} else if !strings.Contains(err.Error(), "headroom") {
+		t.Errorf("expected 'headroom' error, got: %v", err)
+	}
+
+	// Just-under-threshold expiry must fail (14 minutes < 15 minutes).
+	if _, err := envelope.Compose(build(time.Now().Add(14 * time.Minute))); err == nil {
+		t.Error("Compose with 14-minute headroom: want error, got nil")
+	}
+
+	// Just-over-threshold expiry must succeed (16 minutes > 15 minutes).
+	if _, err := envelope.Compose(build(time.Now().Add(16 * time.Minute))); err != nil {
+		t.Errorf("Compose with 16-minute headroom: got error %v", err)
+	}
+
+	// SkipExpiryHeadroomCheck bypasses the rule.
+	in := build(time.Now().Add(-time.Minute))
+	in.SkipExpiryHeadroomCheck = true
+	if _, err := envelope.Compose(in); err != nil {
+		t.Errorf("Compose with SkipExpiryHeadroomCheck: got error %v", err)
+	}
+}

@@ -232,9 +232,9 @@ Library's `devicecert.go` was written 2026-04-10, before the spec's `4c14bf5` an
 
 - **Migrate other validation sites to clockskew.** Today the following still use ad-hoc `time.Until` / `time.After` checks rather than the package: `handshake/client.go` PoW `req.Expires` floor check (line 208), receipt-side checks on session `ExpiresAt` in `handshake/server.go` and `handshake/federation.go`, `session/expirylog.go`, and any future observation / block-list / migration timestamp validators. Each site should switch to `clockskew.CheckFutureTimestamp` (for "produced at T" fields) or `clockskew.CheckExpiry` (for "valid until T" fields) so the tolerance posture is uniform.
 
-- **Enforce sender-side headroom in Compose.** Spec §9.3.1 (lines 1780–1783) requires senders to set `expires_at` values with at least 15 minutes of headroom beyond the worst-case expected delivery delay so that receivers applying zero grace continue to accept on-time records. `envelope.Compose` accepts any `Postmark.Expires` value the caller provides. A sender-side guard (`Postmark.Expires < now + 15min` rejects with a typed error) belongs alongside the other compose-time validation, but adding it forces every test fixture to set `Expires` from `time.Now()` rather than the fixed dates many fixtures use today, which is non-trivial test churn that deserves its own commit.
+- ~~**Enforce sender-side headroom in Compose.**~~ Landed: `Compose` now rejects `Postmark.Expires` values closer than `MinSenderExpiryHeadroom` (15 minutes) per CONFORMANCE.md §9.3.1. Tests that intentionally compose already-expired envelopes (for pipeline-rejection tests) opt out via `ComposeInput.SkipExpiryHeadroomCheck = true`.
 
-Track migration as its own follow-up cluster; sender-side headroom enforcement as a second.
+Track migration as its own follow-up cluster.
 
 ### 4.5 Queuing, retry, and cancellation ([delivery/submission.go])
 
