@@ -1,9 +1,11 @@
 package discovery_test
 
 import (
+	"context"
 	"strings"
 	"testing"
 
+	semp "semp.dev/semp-go"
 	"semp.dev/semp-go/discovery"
 )
 
@@ -67,5 +69,46 @@ func TestValidateOnionDomainRejectsInvalidAlphabet(t *testing.T) {
 	err := discovery.ValidateOnionDomain(bad + ".onion")
 	if err == nil {
 		t.Error("ValidateOnionDomain on invalid alphabet: want error")
+	}
+}
+
+// TestResolveOnionUnreachableReturnsServerUnavailable confirms that
+// when a .onion well-known fetch fails (no Tor connectivity, service
+// down, etc.), the resolver returns DiscoveryServerUnavailable rather
+// than DiscoveryNotFound. Per DISCOVERY.md §2.5.2 the failure MUST
+// surface as server_unavailable to the sending user (recoverable per
+// DELIVERY.md §2.3); a not_found return would be non-recoverable and
+// the sender would stop retrying when the recipient may simply be
+// transiently unreachable.
+func TestResolveOnionUnreachableReturnsServerUnavailable(t *testing.T) {
+	r := discovery.NewResolver(discovery.ResolverConfig{
+		Cache: discovery.NewMemCache(),
+		// Point WellKnownURLFunc at a URL that will not connect; the
+		// default http.Client times out quickly enough for the test.
+		// We use a non-routable address so the fetch fails fast.
+		WellKnownURLFunc: func(domain string) string {
+			return "http://127.0.0.1:1/.well-known/semp/configuration"
+		},
+	})
+	addr := "alice@" + v3Label + ".onion"
+	result, err := r.Resolve(context.Background(), addr)
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if result.Status != semp.DiscoveryServerUnavailable {
+		t.Errorf("Status = %q, want %q", result.Status, semp.DiscoveryServerUnavailable)
+	}
+	if result.Status.ToReasonCode() != semp.ReasonServerUnavailable {
+		t.Errorf("ToReasonCode = %q, want %q", result.Status.ToReasonCode(), semp.ReasonServerUnavailable)
+	}
+	// server_unavailable is transient; re-resolving MUST attempt the
+	// fetch again rather than returning a cached unreachable verdict.
+	result2, err := r.Resolve(context.Background(), addr)
+	if err != nil {
+		t.Fatalf("Resolve (second): %v", err)
+	}
+	if result2.Status != semp.DiscoveryServerUnavailable {
+		t.Errorf("Second Status = %q, want still %q (no caching of transient state)",
+			result2.Status, semp.DiscoveryServerUnavailable)
 	}
 }
