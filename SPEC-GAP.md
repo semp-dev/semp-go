@@ -227,6 +227,14 @@ Library's `devicecert.go` was written 2026-04-10, before the spec's `4c14bf5` an
 - Senders MUST NOT rely on grace windows.
 - Applies to `postmark.expires`, challenge `expires`, session `expires_at`, block list sync `timestamp`, queue state, backup bundle `created_at`, migration `migrated_at`, forwarder attestations, delegated cert lifetimes.
 
+**Integration status (post-commit 659185e).** The `clockskew` package landed with `Default()` / `Strict()` tolerances and `CheckFutureTimestamp` / `CheckExpiry` helpers. `delivery/pipeline.go` migrated to `clockskew.CheckExpiry(..., Strict())` for `postmark.expires`. Open work that this cluster does NOT yet cover:
+
+- **Migrate other validation sites to clockskew.** Today the following still use ad-hoc `time.Until` / `time.After` checks rather than the package: `handshake/client.go` PoW `req.Expires` floor check (line 208), receipt-side checks on session `ExpiresAt` in `handshake/server.go` and `handshake/federation.go`, `session/expirylog.go`, and any future observation / block-list / migration timestamp validators. Each site should switch to `clockskew.CheckFutureTimestamp` (for "produced at T" fields) or `clockskew.CheckExpiry` (for "valid until T" fields) so the tolerance posture is uniform.
+
+- **Enforce sender-side headroom in Compose.** Spec §9.3.1 (lines 1780–1783) requires senders to set `expires_at` values with at least 15 minutes of headroom beyond the worst-case expected delivery delay so that receivers applying zero grace continue to accept on-time records. `envelope.Compose` accepts any `Postmark.Expires` value the caller provides. A sender-side guard (`Postmark.Expires < now + 15min` rejects with a typed error) belongs alongside the other compose-time validation, but adding it forces every test fixture to set `Expires` from `time.Now()` rather than the fixed dates many fixtures use today, which is non-trivial test churn that deserves its own commit.
+
+Track migration as its own follow-up cluster; sender-side headroom enforcement as a second.
+
 ### 4.5 Queuing, retry, and cancellation ([delivery/submission.go])
 
 `[commit e864388, b0869f8]`
