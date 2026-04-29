@@ -3,10 +3,26 @@ package handshake
 import (
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/base64"
 	"errors"
 	"fmt"
 )
+
+// firstContactBindingTag is the domain-separation prefix mixed into
+// the first-contact prefix binding hash per HANDSHAKE.md section
+// 2.2a.3. The version suffix lets future revisions of the binding
+// rule (for example, a switch to a different hash) coexist with this
+// one without ambiguity.
+const firstContactBindingTag = "SEMP-FIRST-CONTACT-V1:"
+
+// firstContactFieldSep is the NUL octet placed between the three
+// input fields (sender_domain, recipient_address, postmark_id) in
+// the binding hash. NUL is forbidden in all three field types by
+// ENVELOPE.md sections 2.2 and 2.3, so its appearance here is
+// unambiguous: no field can contain a NUL that would shift a
+// boundary.
+const firstContactFieldSep = 0x00
 
 // FirstContactBindingHashSize is the length in bytes of the
 // binding-hash portion of a first-contact PoW prefix. 32 bytes for
@@ -22,15 +38,21 @@ const FirstContactPrefixRandBytes = 16
 // PoW challenge prefix that binds a solved token to a specific envelope
 // per HANDSHAKE.md section 2.2a.3:
 //
-//   prefix = random_bytes(16) || SHA-256(sender_domain || recipient_address || postmark_id)
+//   prefix = random_bytes(16) || SHA-256(
+//       "SEMP-FIRST-CONTACT-V1:" ||
+//       sender_domain || 0x00 ||
+//       recipient_address || 0x00 ||
+//       postmark_id
+//   )
 //
 // The returned slice is the raw pre-base64 bytes. Callers typically
 // base64-encode it for transmission as FirstContactToken.Prefix.
 //
 // The random nonce prevents different rejections for the same triple
-// from producing identical prefixes; the hash binds the prefix to the
-// triple so a token cannot be transplanted to a different sender,
-// recipient, or envelope.
+// from producing identical prefixes; the domain-separated, NUL-bounded
+// hash binds the prefix to the triple so a token cannot be transplanted
+// to a different sender, recipient, or envelope, and so the same
+// SHA-256 cannot be reinterpreted in another protocol context.
 func ComputeFirstContactPrefix(senderDomain, recipientAddress, postmarkID string) ([]byte, error) {
 	if senderDomain == "" || recipientAddress == "" || postmarkID == "" {
 		return nil, errors.New("handshake: first-contact prefix requires sender_domain, recipient_address, and postmark_id")
@@ -66,7 +88,7 @@ func VerifyFirstContactBinding(prefix []byte, senderDomain, recipientAddress, po
 	}
 	want := firstContactBindingHash(senderDomain, recipientAddress, postmarkID)
 	got := prefix[len(prefix)-FirstContactBindingHashSize:]
-	if !constantTimeEqual(want, got) {
+	if subtle.ConstantTimeCompare(want, got) != 1 {
 		return errors.New("handshake: first-contact prefix binding mismatch")
 	}
 	return nil
@@ -82,31 +104,26 @@ func DecodeFirstContactPrefix(b64 string) ([]byte, error) {
 	return raw, nil
 }
 
-// firstContactBindingHash computes SHA-256(sender_domain || recipient_address || postmark_id).
-// Separators are intentionally omitted because each field is fixed by
-// its position in the concatenation; callers MUST NOT introduce
-// separator bytes, as doing so would produce a non-interoperable
-// prefix.
+// firstContactBindingHash computes the domain-separated, NUL-bounded
+// SHA-256 over the binding triple per HANDSHAKE.md section 2.2a.3:
+//
+//   H( "SEMP-FIRST-CONTACT-V1:" ||
+//      sender_domain || 0x00 ||
+//      recipient_address || 0x00 ||
+//      postmark_id )
+//
+// The leading tag isolates this hash from any other SHA-256 use in
+// the protocol. The NUL separators prevent boundary-shift collisions
+// (e.g., ("alic", "ebob@y", "pid") and ("alice", "bob@y", "pid")
+// produce the same concatenation without separators); NUL is forbidden
+// in all three input fields by ENVELOPE.md sections 2.2 and 2.3.
 func firstContactBindingHash(senderDomain, recipientAddress, postmarkID string) []byte {
 	h := sha256.New()
+	h.Write([]byte(firstContactBindingTag))
 	h.Write([]byte(senderDomain))
+	h.Write([]byte{firstContactFieldSep})
 	h.Write([]byte(recipientAddress))
+	h.Write([]byte{firstContactFieldSep})
 	h.Write([]byte(postmarkID))
 	return h.Sum(nil)
-}
-
-// constantTimeEqual is a constant-time byte-slice equality check. Used
-// so binding-hash comparison does not leak timing information about
-// early-mismatch positions. Reuses the standard library's comparison
-// through a small adapter to avoid pulling crypto/subtle into
-// handshake's import graph directly at the top of the file.
-func constantTimeEqual(a, b []byte) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	var diff byte
-	for i := range a {
-		diff |= a[i] ^ b[i]
-	}
-	return diff == 0
 }
