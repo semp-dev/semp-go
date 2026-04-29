@@ -149,9 +149,12 @@ func (r *defaultResolver) Resolve(ctx context.Context, address string) (*Result,
 	// section 2.5.2). The well-known fetch is expected to travel over
 	// a Tor circuit; operators wire Tor into the HTTP client's
 	// transport. Clearnet fallback is prohibited for .onion
-	// recipients. If the Tor fetch fails, the result is not_found
-	// (surfacing as server_unavailable to the caller) rather than
-	// falling through to DNS or MX.
+	// recipients. If the Tor fetch fails, the result is
+	// server_unavailable (recoverable per DELIVERY.md §2.3) rather
+	// than not_found, since the recipient may exist but is not
+	// reachable on this attempt; a sender that gets not_found would
+	// stop retrying, but the spec requires backoff-and-retry when Tor
+	// is transiently unavailable.
 	if IsOnionDomain(domain) {
 		if err := ValidateOnionDomain(domain); err != nil {
 			return nil, fmt.Errorf("discovery: %w", err)
@@ -162,10 +165,12 @@ func (r *defaultResolver) Resolve(ctx context.Context, address string) (*Result,
 		}
 		result := &Result{
 			Address: address,
-			Status:  semp.DiscoveryNotFound,
+			Status:  semp.DiscoveryServerUnavailable,
 			TTL:     int(DefaultTTLNotFound.Seconds()),
 		}
-		r.cacheResult(ctx, address, result)
+		// Do NOT cache server_unavailable: the condition is transient
+		// and a cached entry would suppress retries that should
+		// succeed once the Tor circuit recovers.
 		return result, nil
 	}
 

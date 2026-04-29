@@ -40,6 +40,15 @@ const (
 	ReasonScopeExceeded         ReasonCode = "scope_exceeded"
 	ReasonScopeInvalid          ReasonCode = "scope_invalid"
 	ReasonCertificateExpired    ReasonCode = "certificate_expired"
+
+	// ReasonServerUnavailable signals a transient transport failure to the
+	// recipient server: discovery succeeded but no transport could be
+	// opened, a .onion well-known fetch failed under the no-clearnet-
+	// fallback rule (DISCOVERY.md §2.5.2), or a key fetch propagated a
+	// transient transport failure (KEY.md §6.4). Recoverable per
+	// DELIVERY.md §2.3; senders back off and retry without switching
+	// recipient address.
+	ReasonServerUnavailable ReasonCode = "server_unavailable"
 )
 
 // Rekey reason codes (SESSION.md §3.2, ERRORS.md §4).
@@ -143,6 +152,17 @@ const (
 	DiscoverySEMP     DiscoveryStatus = "semp"
 	DiscoveryLegacy   DiscoveryStatus = "legacy"
 	DiscoveryNotFound DiscoveryStatus = "not_found"
+
+	// DiscoveryServerUnavailable signals that discovery located a SEMP
+	// recipient server but the transport to it could not be opened on
+	// this attempt: a .onion well-known fetch that failed without a
+	// clearnet fallback path (DISCOVERY.md §2.5.2), a SEMP_KEYS fetch
+	// that propagated a transient transport failure (KEY.md §6.4), or a
+	// transient connectivity error encountered during well-known
+	// configuration retrieval. Distinct from DiscoveryNotFound, which
+	// signals the recipient does not exist; ServerUnavailable signals
+	// the recipient may exist but is not reachable now.
+	DiscoveryServerUnavailable DiscoveryStatus = "server_unavailable"
 )
 
 // String satisfies fmt.Stringer.
@@ -150,7 +170,9 @@ func (s DiscoveryStatus) String() string { return string(s) }
 
 // ToSubmissionStatus maps a discovery outcome to the submission status that
 // the home server returns to the client per DISCOVERY.md §7.1: semp →
-// proceed, legacy → legacy_required, not_found → recipient_not_found.
+// proceed, legacy → legacy_required, not_found → recipient_not_found,
+// server_unavailable → rejected (with reason_code "server_unavailable"
+// attached separately by the caller per ERRORS.md §3).
 func (s DiscoveryStatus) ToSubmissionStatus() SubmissionStatus {
 	switch s {
 	case DiscoverySEMP:
@@ -159,8 +181,23 @@ func (s DiscoveryStatus) ToSubmissionStatus() SubmissionStatus {
 		return StatusLegacyRequired
 	case DiscoveryNotFound:
 		return StatusRecipientNotFound
+	case DiscoveryServerUnavailable:
+		return StatusRejected
 	default:
 		return StatusRejected
+	}
+}
+
+// ToReasonCode returns the reason_code (per ERRORS.md §3) that callers
+// SHOULD attach when ToSubmissionStatus returns a rejected outcome.
+// Returns the empty string for outcomes that do not warrant a reason
+// code.
+func (s DiscoveryStatus) ToReasonCode() ReasonCode {
+	switch s {
+	case DiscoveryServerUnavailable:
+		return ReasonServerUnavailable
+	default:
+		return ""
 	}
 }
 
