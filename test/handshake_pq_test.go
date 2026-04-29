@@ -276,10 +276,10 @@ func TestEnvelopeSealUnderSuitePQ(t *testing.T) {
 		},
 		SenderDomainKeyID: senderDomainFP,
 		BriefRecipients: []seal.RecipientKey{
-			{Fingerprint: recipEncFP, PublicKey: recipEncPub},
+			{Fingerprint: recipEncFP, PublicKey: recipEncPub, Kind: seal.KindUserClient},
 		},
 		EnclosureRecipients: []seal.RecipientKey{
-			{Fingerprint: recipEncFP, PublicKey: recipEncPub},
+			{Fingerprint: recipEncFP, PublicKey: recipEncPub, Kind: seal.KindUserClient},
 		},
 	}
 	env, err := envelope.Compose(in)

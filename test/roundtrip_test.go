@@ -87,11 +87,11 @@ func TestEnvelopeRoundTrip(t *testing.T) {
 		Enclosure:         enc,
 		SenderDomainKeyID: senderDomainKeyID,
 		BriefRecipients: []seal.RecipientKey{
-			{Fingerprint: receiverServerKeyID, PublicKey: receiverServerEncPub},
-			{Fingerprint: receiverClientKeyID, PublicKey: receiverClientEncPub},
+			{Fingerprint: receiverServerKeyID, PublicKey: receiverServerEncPub, Kind: seal.KindServerDomain},
+			{Fingerprint: receiverClientKeyID, PublicKey: receiverClientEncPub, Kind: seal.KindUserClient},
 		},
 		EnclosureRecipients: []seal.RecipientKey{
-			{Fingerprint: receiverClientKeyID, PublicKey: receiverClientEncPub},
+			{Fingerprint: receiverClientKeyID, PublicKey: receiverClientEncPub, Kind: seal.KindUserClient},
 		},
 	}
 
@@ -207,8 +207,8 @@ func TestEnvelopeRejectsWrongDomainKey(t *testing.T) {
 		Brief:             brief.Brief{MessageID: "m"},
 		Enclosure:         enclosure.Enclosure{ContentType: "text/plain", Body: enclosure.Body{"text/plain": "x"}},
 		SenderDomainKeyID: keys.Compute(wrongPub),
-		BriefRecipients:   []seal.RecipientKey{{Fingerprint: recipFP, PublicKey: recipPub}},
-		EnclosureRecipients: []seal.RecipientKey{{Fingerprint: recipFP, PublicKey: recipPub}},
+		BriefRecipients:   []seal.RecipientKey{{Fingerprint: recipFP, PublicKey: recipPub, Kind: seal.KindUserClient}},
+		EnclosureRecipients: []seal.RecipientKey{{Fingerprint: recipFP, PublicKey: recipPub, Kind: seal.KindUserClient}},
 	}
 	env, err := envelope.Compose(in)
 	if err != nil {

@@ -146,13 +146,13 @@ func TestMultiDeviceSEMPKeysReturnsAllDevices(t *testing.T) {
 		},
 		SenderDomainKeyID: keys.Fingerprint("server-fills-in"),
 		BriefRecipients: []seal.RecipientKey{
-			{Fingerprint: domainEncFP, PublicKey: domainEncPub},
-			{Fingerprint: bob1FP, PublicKey: bob1Pub},
-			{Fingerprint: bob2FP, PublicKey: bob2Pub},
+			{Fingerprint: domainEncFP, PublicKey: domainEncPub, Kind: seal.KindServerDomain},
+			{Fingerprint: bob1FP, PublicKey: bob1Pub, Kind: seal.KindUserClient},
+			{Fingerprint: bob2FP, PublicKey: bob2Pub, Kind: seal.KindUserClient},
 		},
 		EnclosureRecipients: []seal.RecipientKey{
-			{Fingerprint: bob1FP, PublicKey: bob1Pub},
-			{Fingerprint: bob2FP, PublicKey: bob2Pub},
+			{Fingerprint: bob1FP, PublicKey: bob1Pub, Kind: seal.KindUserClient},
+			{Fingerprint: bob2FP, PublicKey: bob2Pub, Kind: seal.KindUserClient},
 		},
 	}
 	env, err := envelope.Compose(in)

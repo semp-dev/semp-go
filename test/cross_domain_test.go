@@ -144,11 +144,11 @@ func TestCrossDomainEnvelopeFlow(t *testing.T) {
 		Enclosure:         enc,
 		SenderDomainKeyID: sigFPA,
 		BriefRecipients: []seal.RecipientKey{
-			{Fingerprint: encFPB, PublicKey: encPubB},     // recipient SERVER
-			{Fingerprint: clientFPB, PublicKey: clientPubB}, // recipient CLIENT
+			{Fingerprint: encFPB, PublicKey: encPubB, Kind: seal.KindServerDomain},     // recipient SERVER
+			{Fingerprint: clientFPB, PublicKey: clientPubB, Kind: seal.KindUserClient}, // recipient CLIENT
 		},
 		EnclosureRecipients: []seal.RecipientKey{
-			{Fingerprint: clientFPB, PublicKey: clientPubB}, // client only
+			{Fingerprint: clientFPB, PublicKey: clientPubB, Kind: seal.KindUserClient}, // client only
 		},
 	}
 	env, err := envelope.Compose(in)
@@ -281,8 +281,8 @@ func TestCrossDomainSessionMACMismatch(t *testing.T) {
 		Brief:               brief.Brief{MessageID: "m"},
 		Enclosure:           enclosure.Enclosure{ContentType: "text/plain", Body: enclosure.Body{"text/plain": "x"}},
 		SenderDomainKeyID:   sigFP,
-		BriefRecipients:     []seal.RecipientKey{{Fingerprint: recipFP, PublicKey: recipPub}},
-		EnclosureRecipients: []seal.RecipientKey{{Fingerprint: recipFP, PublicKey: recipPub}},
+		BriefRecipients:     []seal.RecipientKey{{Fingerprint: recipFP, PublicKey: recipPub, Kind: seal.KindUserClient}},
+		EnclosureRecipients: []seal.RecipientKey{{Fingerprint: recipFP, PublicKey: recipPub, Kind: seal.KindUserClient}},
 	}
 	env, err := envelope.Compose(in)
 	if err != nil {

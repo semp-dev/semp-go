@@ -76,13 +76,13 @@ func composeMultiDevice(t *testing.T) (env *envelope.Envelope, entryA, entryB, e
 		},
 		SenderDomainKeyID: sigFP,
 		BriefRecipients: []seal.RecipientKey{
-			{Fingerprint: srvEncFP, PublicKey: srvEncPub},
-			{Fingerprint: devAFP, PublicKey: devAEncPub},
-			{Fingerprint: devBFP, PublicKey: devBEncPub},
+			{Fingerprint: srvEncFP, PublicKey: srvEncPub, Kind: seal.KindServerDomain},
+			{Fingerprint: devAFP, PublicKey: devAEncPub, Kind: seal.KindUserClient},
+			{Fingerprint: devBFP, PublicKey: devBEncPub, Kind: seal.KindUserClient},
 		},
 		EnclosureRecipients: []seal.RecipientKey{
-			{Fingerprint: devAFP, PublicKey: devAEncPub},
-			{Fingerprint: devBFP, PublicKey: devBEncPub},
+			{Fingerprint: devAFP, PublicKey: devAEncPub, Kind: seal.KindUserClient},
+			{Fingerprint: devBFP, PublicKey: devBEncPub, Kind: seal.KindUserClient},
 		},
 	}
 	envOut, err := envelope.Compose(in)
