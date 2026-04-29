@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"time"
 
+	"semp.dev/semp-go/clockskew"
 	"semp.dev/semp-go/crypto"
 	"semp.dev/semp-go/internal/canonical"
 )
@@ -124,9 +125,13 @@ func (c *DeviceCertificate) VerifyChain(ctx context.Context, suite crypto.Suite,
 	if store == nil {
 		return errors.New("keys: nil store")
 	}
-	if !c.Expires.IsZero() && time.Now().After(c.Expires) {
-		return fmt.Errorf("keys: device certificate for %s expired at %s",
-			c.DeviceKeyID, c.Expires.Format(time.RFC3339))
+	// Cross-party expiry check uses the protocol-default 15-minute
+	// grace per CONFORMANCE.md §9.3.1: the certificate's Expires is a
+	// timestamp produced by another device whose clock may differ.
+	if !c.Expires.IsZero() {
+		if err := clockskew.CheckExpiry(c.Expires, time.Now(), clockskew.Default()); err != nil {
+			return fmt.Errorf("keys: device certificate for %s: %w", c.DeviceKeyID, err)
+		}
 	}
 
 	// 1. Look up the issuing device's public key.

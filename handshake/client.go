@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"time"
 
+	"semp.dev/semp-go/clockskew"
 	"semp.dev/semp-go/crypto"
 	"semp.dev/semp-go/extensions"
 	"semp.dev/semp-go/keys"
@@ -205,9 +206,19 @@ func (c *Client) OnChallenge(data []byte) ([]byte, error) {
 		return nil, &ChallengeInvalidError{Reason: fmt.Sprintf(
 			"difficulty %d exceeds protocol cap %d", params.Difficulty, MaxPoWDifficulty)}
 	}
-	if floor := MinExpiryForDifficulty(params.Difficulty); !req.Expires.IsZero() && time.Until(req.Expires) < floor {
-		return nil, &ChallengeInvalidError{Reason: fmt.Sprintf(
-			"expires window shorter than %s floor for difficulty %d", floor, params.Difficulty)}
+	// CONFORMANCE.md §9.3.1 cross-party tolerance applies first: an
+	// already-expired challenge is rejected outright. Then the
+	// difficulty-keyed floor (HANDSHAKE.md §2.2a.2) checks whether the
+	// remaining window is long enough to plausibly solve.
+	if !req.Expires.IsZero() {
+		if err := clockskew.CheckExpiry(req.Expires, time.Now(), clockskew.Default()); err != nil {
+			return nil, &ChallengeInvalidError{Reason: fmt.Sprintf(
+				"challenge already expired: %s", err)}
+		}
+		if floor := MinExpiryForDifficulty(params.Difficulty); time.Until(req.Expires) < floor {
+			return nil, &ChallengeInvalidError{Reason: fmt.Sprintf(
+				"expires window shorter than %s floor for difficulty %d", floor, params.Difficulty)}
+		}
 	}
 	prefix, err := base64.StdEncoding.DecodeString(params.Prefix)
 	if err != nil {
