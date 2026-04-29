@@ -87,6 +87,14 @@ Brand-new surface in the envelope's plaintext layer. `[commit dd798c2]`
 - `enclosure.forwarded_from`: non-null on forwarded envelopes. Carries `original_enclosure_plaintext` (verbatim, including its own `sender_signature`), `forwarder_attestation` signed by the forwarder's identity key, and metadata (forwarded_from address, received_at).
 - Verification chain on receipt: verify new enclosure `sender_signature`, verify `forwarder_attestation`, then verify original `sender_signature`. If step 1 or 3 fail while step 2 passes, rendering rules per `ENVELOPE.md §6.6.4`.
 
+**Integration status (post-commit e511738).** Scaffolding landed: `enclosure.SignEnclosure`, `VerifyEnclosureSignature`, `SignForwarderAttestation`, `VerifyForwarderAttestation`, the `Signature` and `ForwardedFrom` types, and the canonical eliders. Open work that this cluster does NOT yet cover:
+
+- `envelope.Compose` does not invoke `SignEnclosure`. Until it does, every wire envelope this library produces violates `ENVELOPE.md §6.5` (which requires `sender_signature` on every enclosure). `ComposeInput` needs an `IdentityPrivateKey` plus key-id field, and `Compose` MUST sign the enclosure before encryption.
+- The decrypt paths (`OpenEnclosure`, `OpenBriefAny`, `OpenEnclosureAny`) do not invoke `VerifyEnclosureSignature` after decryption. Per `ENVELOPE.md §6.5.3`, the recipient client MUST verify before rendering. Open paths need a sender-identity-key resolver hook (typically a callback that maps `sender_signature.key_id` to a public key fetched from `KEY.md §3` published key sets).
+- No higher-level helper enforces `ENVELOPE.md §6.6.3`'s rule that `forwarded_from.forwarder_attestation.key_id` MUST equal the outer `enclosure.sender_signature.key_id`. The §6.6.4 three-step verification flow (outer sender → forwarder attestation → original sender) needs a single entry point that returns a structured result (each step's outcome) so client UIs can render the §6.6.4 warning rules.
+
+Track the integration as its own follow-up cluster once a `ComposeInput.IdentityPrivateKey` API decision lands.
+
 ### 1.9 Handshake compression removal ([handshake/capabilities.go])
 
 The spec dropped compression from handshake capabilities. `[commit 87e1576]` Check that the library does not advertise or negotiate compression.
