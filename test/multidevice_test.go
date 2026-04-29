@@ -124,6 +124,10 @@ func TestMultiDeviceSEMPKeysReturnsAllDevices(t *testing.T) {
 	}
 	domainEncFP := keys.Compute(domainEncPub)
 
+	// Sender identity key for ENVELOPE.md §6.5 sender_signature.
+	aliceIdentityPub, aliceIdentityPriv := demoseed.Identity(seed, alice)
+	aliceIdentityFP := keys.Compute(aliceIdentityPub)
+
 	in := &envelope.ComposeInput{
 		Suite: suite,
 		Postmark: envelope.Postmark{
@@ -144,7 +148,9 @@ func TestMultiDeviceSEMPKeysReturnsAllDevices(t *testing.T) {
 			ContentType: "text/plain",
 			Body:        enclosure.Body{"text/plain": "each of bob's two devices should decrypt this"},
 		},
-		SenderDomainKeyID: keys.Fingerprint("server-fills-in"),
+		SenderDomainKeyID:  keys.Fingerprint("server-fills-in"),
+		IdentityPrivateKey: aliceIdentityPriv,
+		IdentityKeyID:      string(aliceIdentityFP),
 		BriefRecipients: []seal.RecipientKey{
 			{Fingerprint: domainEncFP, PublicKey: domainEncPub, Kind: seal.KindServerDomain},
 			{Fingerprint: bob1FP, PublicKey: bob1Pub, Kind: seal.KindUserClient},

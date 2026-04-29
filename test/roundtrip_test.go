@@ -34,6 +34,13 @@ func TestEnvelopeRoundTrip(t *testing.T) {
 	}
 	senderDomainKeyID := keys.Compute(senderDomainPub)
 
+	// --- Sender identity key (signs the enclosure per ENVELOPE.md §6.5).
+	senderIdentityPub, senderIdentityPriv, err := suite.Signer().GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("sender identity keypair: %v", err)
+	}
+	senderIdentityKeyID := keys.Compute(senderIdentityPub)
+
 	// --- Sender's home server: K_env_mac for the active session.
 	// In a real flow this comes from a completed handshake; here we
 	// fabricate a fresh 32-byte key.
@@ -83,9 +90,11 @@ func TestEnvelopeRoundTrip(t *testing.T) {
 			ToDomain:   "recipient.example",
 			Expires:    time.Date(2026, 4, 9, 13, 0, 0, 0, time.UTC),
 		},
-		Brief:             bf,
-		Enclosure:         enc,
-		SenderDomainKeyID: senderDomainKeyID,
+		Brief:              bf,
+		Enclosure:          enc,
+		SenderDomainKeyID:  senderDomainKeyID,
+		IdentityPrivateKey: senderIdentityPriv,
+		IdentityKeyID:      string(senderIdentityKeyID),
 		BriefRecipients: []seal.RecipientKey{
 			{Fingerprint: receiverServerKeyID, PublicKey: receiverServerEncPub, Kind: seal.KindServerDomain},
 			{Fingerprint: receiverClientKeyID, PublicKey: receiverClientEncPub, Kind: seal.KindUserClient},
@@ -166,6 +175,21 @@ func TestEnvelopeRoundTrip(t *testing.T) {
 		t.Errorf("enclosure body mismatch")
 	}
 
+	// --- 8a. ENVELOPE.md §6.5: the decrypted enclosure carries a
+	// sender_signature signed by the sender's identity key. The
+	// recipient client verifies it before rendering. Compose should
+	// have populated SenderSignature; verify it round-trips.
+	if encForClient.SenderSignature == nil {
+		t.Fatal("decrypted enclosure has no sender_signature; Compose did not sign per ENVELOPE.md §6.5")
+	}
+	if encForClient.SenderSignature.KeyID != string(senderIdentityKeyID) {
+		t.Errorf("sender_signature.key_id = %q, want %q",
+			encForClient.SenderSignature.KeyID, senderIdentityKeyID)
+	}
+	if err := enclosure.VerifyEnclosureSignature(encForClient, suite, senderIdentityPub); err != nil {
+		t.Errorf("VerifyEnclosureSignature: %v", err)
+	}
+
 	// --- 9. Receiving server CANNOT decrypt the enclosure (no wrap).
 	if _, err := envelope.OpenEnclosure(got, suite, receiverServerKeyID, receiverServerEncPriv, receiverServerEncPub); err == nil {
 		t.Error("server was able to decrypt the enclosure — this MUST NOT happen")
@@ -190,6 +214,7 @@ func TestEnvelopeRejectsWrongDomainKey(t *testing.T) {
 
 	_, senderPriv, _ := suite.Signer().GenerateKeyPair()
 	wrongPub, _, _ := suite.Signer().GenerateKeyPair()
+	identityPub, identityPriv, _ := suite.Signer().GenerateKeyPair()
 	envMAC, _ := crypto.FreshKey(suite.AEAD())
 
 	recipPub, _, _ := suite.KEM().GenerateKeyPair()
@@ -204,10 +229,12 @@ func TestEnvelopeRejectsWrongDomainKey(t *testing.T) {
 			ToDomain:   "b.example",
 			Expires:    time.Date(2030, 1, 1, 0, 0, 0, 0, time.UTC),
 		},
-		Brief:             brief.Brief{MessageID: "m"},
-		Enclosure:         enclosure.Enclosure{ContentType: "text/plain", Body: enclosure.Body{"text/plain": "x"}},
-		SenderDomainKeyID: keys.Compute(wrongPub),
-		BriefRecipients:   []seal.RecipientKey{{Fingerprint: recipFP, PublicKey: recipPub, Kind: seal.KindUserClient}},
+		Brief:              brief.Brief{MessageID: "m"},
+		Enclosure:          enclosure.Enclosure{ContentType: "text/plain", Body: enclosure.Body{"text/plain": "x"}},
+		SenderDomainKeyID:  keys.Compute(wrongPub),
+		IdentityPrivateKey: identityPriv,
+		IdentityKeyID:      string(keys.Compute(identityPub)),
+		BriefRecipients:    []seal.RecipientKey{{Fingerprint: recipFP, PublicKey: recipPub, Kind: seal.KindUserClient}},
 		EnclosureRecipients: []seal.RecipientKey{{Fingerprint: recipFP, PublicKey: recipPub, Kind: seal.KindUserClient}},
 	}
 	env, err := envelope.Compose(in)

@@ -21,16 +21,18 @@ import (
 // receiver server domain encryption key, receiver client encryption
 // key, plus K_env_mac.
 type pipelineFixture struct {
-	suite           crypto.Suite
-	senderDomainPub []byte
-	senderDomainPriv []byte
-	senderDomainFP  keys.Fingerprint
-	serverEncFP     keys.Fingerprint
-	serverEncPub    []byte
-	serverEncPriv   []byte
-	clientEncFP     keys.Fingerprint
-	clientEncPub    []byte
-	envMAC          []byte
+	suite             crypto.Suite
+	senderDomainPub   []byte
+	senderDomainPriv  []byte
+	senderDomainFP    keys.Fingerprint
+	senderIdentityPriv []byte
+	senderIdentityFP  keys.Fingerprint
+	serverEncFP       keys.Fingerprint
+	serverEncPub      []byte
+	serverEncPriv     []byte
+	clientEncFP       keys.Fingerprint
+	clientEncPub      []byte
+	envMAC            []byte
 }
 
 func newFixture(t *testing.T) *pipelineFixture {
@@ -39,6 +41,10 @@ func newFixture(t *testing.T) *pipelineFixture {
 	signPub, signPriv, err := suite.Signer().GenerateKeyPair()
 	if err != nil {
 		t.Fatalf("sender signer keypair: %v", err)
+	}
+	identityPub, identityPriv, err := suite.Signer().GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("sender identity keypair: %v", err)
 	}
 	serverPub, serverPriv, err := suite.KEM().GenerateKeyPair()
 	if err != nil {
@@ -53,16 +59,18 @@ func newFixture(t *testing.T) *pipelineFixture {
 		t.Fatalf("envMAC: %v", err)
 	}
 	return &pipelineFixture{
-		suite:            suite,
-		senderDomainPub:  signPub,
-		senderDomainPriv: signPriv,
-		senderDomainFP:   keys.Compute(signPub),
-		serverEncFP:      keys.Compute(serverPub),
-		serverEncPub:     serverPub,
-		serverEncPriv:    serverPriv,
-		clientEncFP:      keys.Compute(clientPub),
-		clientEncPub:     clientPub,
-		envMAC:           envMAC,
+		suite:              suite,
+		senderDomainPub:    signPub,
+		senderDomainPriv:   signPriv,
+		senderDomainFP:     keys.Compute(signPub),
+		senderIdentityPriv: identityPriv,
+		senderIdentityFP:   keys.Compute(identityPub),
+		serverEncFP:        keys.Compute(serverPub),
+		serverEncPub:       serverPub,
+		serverEncPriv:      serverPriv,
+		clientEncFP:        keys.Compute(clientPub),
+		clientEncPub:       clientPub,
+		envMAC:             envMAC,
 	}
 }
 
@@ -95,9 +103,11 @@ func (f *pipelineFixture) composeSigned(t *testing.T, postmarkID, fromAddress st
 			ToDomain:   "recv.example",
 			Expires:    time.Now().UTC().Add(time.Hour),
 		},
-		Brief:             bf,
-		Enclosure:         enc,
-		SenderDomainKeyID: f.senderDomainFP,
+		Brief:              bf,
+		Enclosure:          enc,
+		SenderDomainKeyID:  f.senderDomainFP,
+		IdentityPrivateKey: f.senderIdentityPriv,
+		IdentityKeyID:      string(f.senderIdentityFP),
 		BriefRecipients: []seal.RecipientKey{
 			{Fingerprint: f.serverEncFP, PublicKey: f.serverEncPub, Kind: seal.KindServerDomain},
 			{Fingerprint: f.clientEncFP, PublicKey: f.clientEncPub, Kind: seal.KindUserClient},

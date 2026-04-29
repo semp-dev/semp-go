@@ -341,6 +341,8 @@ func submitMultiRecipient(t *testing.T, suite crypto.Suite, conn transport.Conn,
 		{Fingerprint: senderDomainEncFP, PublicKey: senderDomainEncPub, Kind: seal.KindServerDomain},
 	}
 	enclosureRecipients := []seal.RecipientKey{}
+	senderIdentityPub, senderIdentityPriv := demoseed.Identity(seed, from)
+	senderIdentityFP := keys.Compute(senderIdentityPub)
 	briefTo := make([]brief.Address, 0, len(to))
 	for _, recip := range to {
 		briefTo = append(briefTo, brief.Address(recip))
@@ -378,6 +380,8 @@ func submitMultiRecipient(t *testing.T, suite crypto.Suite, conn transport.Conn,
 			Body:        enclosure.Body{"text/plain": body},
 		},
 		SenderDomainKeyID:   keys.Fingerprint("server-fills-in"),
+		IdentityPrivateKey:  senderIdentityPriv,
+		IdentityKeyID:       string(senderIdentityFP),
 		BriefRecipients:     briefRecipients,
 		EnclosureRecipients: enclosureRecipients,
 	}
