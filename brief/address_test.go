@@ -45,6 +45,9 @@ func TestAddressValidateRejects(t *testing.T) {
 		{"lf injection", "alice\n@example.com", "control character"},
 		{"cr injection", "alice\r@example.com", "control character"},
 		{"tab in local", "alice\t@example.com", "control character"},
+		{"c1 control in local", "alice@example.com", "control character"},
+		{"c1 boundary low", "alice@example.com", "control character"},
+		{"c1 boundary high", "alice@example.com", "control character"},
 		{"domain leading dot", "alice@.example.com", "leading or trailing dot"},
 		{"domain trailing dot", "alice@example.com.", "leading or trailing dot"},
 		{"domain empty label", "alice@example..com", "empty label"},
