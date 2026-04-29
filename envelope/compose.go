@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"time"
 
 	"semp.dev/semp-go/brief"
 	"semp.dev/semp-go/crypto"
@@ -12,6 +13,16 @@ import (
 	"semp.dev/semp-go/keys"
 	"semp.dev/semp-go/seal"
 )
+
+// MinSenderExpiryHeadroom is the minimum time between now and
+// Postmark.Expires that Compose enforces by default per
+// CONFORMANCE.md §9.3.1: senders MUST set expires_at values with at
+// least 15 minutes of headroom beyond the worst-case expected
+// delivery delay so that receivers applying zero grace continue to
+// accept on-time records. Headroom is "Expires - now"; receivers
+// MAY apply up to 15 minutes of their own grace, but senders MUST
+// NOT rely on that.
+const MinSenderExpiryHeadroom = 15 * time.Minute
 
 // ComposeInput is the bundle of inputs the sending client provides to
 // Compose to produce a sealed-but-unsigned envelope.
@@ -70,6 +81,14 @@ type ComposeInput struct {
 	// signing may opt out; production senders MUST NOT.
 	SkipSenderSignature bool
 
+	// SkipExpiryHeadroomCheck, when true, disables the default
+	// sender-side enforcement that Postmark.Expires is at least
+	// MinSenderExpiryHeadroom (15 minutes) in the future of now per
+	// CONFORMANCE.md §9.3.1. Tests that intentionally compose
+	// already-expired or just-about-to-expire envelopes use this
+	// opt-out; production senders MUST NOT.
+	SkipExpiryHeadroomCheck bool
+
 	// SkipPadding, when true, disables the automatic FillPadding call at
 	// the end of Compose. Default (false) pads every composed envelope
 	// to a bucket per ENVELOPE.md section 2.4.1. Callers that intend to
@@ -118,6 +137,15 @@ func Compose(in *ComposeInput) (*Envelope, error) {
 		}
 		if in.IdentityKeyID == "" {
 			return nil, errors.New("envelope: ComposeInput.IdentityKeyID is required (set SkipSenderSignature to opt out per ENVELOPE.md §6.5)")
+		}
+	}
+	if !in.SkipExpiryHeadroomCheck {
+		if in.Postmark.Expires.IsZero() {
+			return nil, errors.New("envelope: postmark.expires is required (set SkipExpiryHeadroomCheck to opt out per CONFORMANCE.md §9.3.1)")
+		}
+		if headroom := time.Until(in.Postmark.Expires); headroom < MinSenderExpiryHeadroom {
+			return nil, fmt.Errorf("envelope: postmark.expires has only %s headroom, want at least %s per CONFORMANCE.md §9.3.1 (set SkipExpiryHeadroomCheck to opt out)",
+				headroom, MinSenderExpiryHeadroom)
 		}
 	}
 

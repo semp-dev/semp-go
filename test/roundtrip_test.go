@@ -88,7 +88,7 @@ func TestEnvelopeRoundTrip(t *testing.T) {
 			SessionID:  "01JTESTSESSION0000000000000001",
 			FromDomain: "sender.example",
 			ToDomain:   "recipient.example",
-			Expires:    time.Date(2026, 4, 9, 13, 0, 0, 0, time.UTC),
+			Expires:    time.Now().UTC().Add(time.Hour),
 		},
 		Brief:              bf,
 		Enclosure:          enc,
