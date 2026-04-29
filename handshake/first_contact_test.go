@@ -78,6 +78,28 @@ func TestVerifyFirstContactBindingRejectsShortPrefix(t *testing.T) {
 	}
 }
 
+// TestVerifyFirstContactBindingRejectsBoundaryShift confirms the
+// domain-separation tag and NUL field separators close the
+// boundary-shift collision channel that an unseparated
+// concatenation would have left open.
+//
+// Without separators, H("alic" || "ebob@y.example" || "pid") would
+// equal H("alice" || "bob@y.example" || "pid") because the byte
+// stream "alicebob@y.examplepid" is identical. With NUL separators,
+// the two stream are "alic\x00ebob@y.example\x00pid" and
+// "alice\x00bob@y.example\x00pid", which differ.
+func TestVerifyFirstContactBindingRejectsBoundaryShift(t *testing.T) {
+	prefix, err := handshake.ComputeFirstContactPrefix("alic", "ebob@y.example", "pid")
+	if err != nil {
+		t.Fatalf("ComputeFirstContactPrefix: %v", err)
+	}
+	// Verifying the same prefix against the boundary-shifted triple
+	// MUST fail: the two triples produce different binding hashes.
+	if err := handshake.VerifyFirstContactBinding(prefix, "alice", "bob@y.example", "pid"); err == nil {
+		t.Error("VerifyFirstContactBinding on boundary-shifted triple: want error, got nil")
+	}
+}
+
 func TestDecodeFirstContactPrefix(t *testing.T) {
 	raw := []byte("any-bytes-here-abcdefghij")
 	b64 := base64.StdEncoding.EncodeToString(raw)
