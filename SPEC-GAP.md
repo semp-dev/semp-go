@@ -210,14 +210,19 @@ Library's `devicecert.go` was written 2026-04-10, before the spec's `4c14bf5` an
 
 ### 4.3 Session resumption ([session/], [handshake/])
 
-`[commit a50cf1c]`. New `resume` handshake step.
+`[commit a50cf1c]`. New `resume` handshake step. **Landed.**
 
-- `SEMP_HANDSHAKE` with `step: "resume"` and `resumption_ticket` field.
-- Server issues `resumption_ticket` after a successful full handshake. Ticket max lifetime 7 days.
-- Ticket carries encrypted `K_resumption` under server-held ticket-encryption key (rotated at least quarterly).
-- Resumed-session keys derive from `K_resumption` mixed with fresh ephemeral DH; not from ephemeral DH alone.
-- Failure cases surface `resumption_failed`; client falls back to full handshake.
-- No 0-RTT application data.
+- `SEMP_HANDSHAKE` with `step: "resume"` and `resumption_ticket` field. Implemented as `handshake.Resume` and `handshake.StepResume`; the `Accepted` message gained optional `ServerNonce` / `ServerEphemeralKey` / `ResumptionTicket` fields (omitempty so full-handshake bytes are unchanged).
+- Server issues `resumption_ticket` after a successful full handshake. Ticket max lifetime 7 days. Issued by `session.TicketIssuer`; `OnConfirm` populates the field automatically when a ticket issuer is configured on the server.
+- Ticket carries encrypted `K_resumption` under server-held ticket-encryption key (rotated at least quarterly). Implemented as `session.StatelessTicketIssuer`: each ticket is `[ticket_id (16B) | aead_nonce (12B) | AEAD(JSON{identity, K_resumption, expires_at}, AAD=ticket_id)]`. Single-use via in-memory consumed-ticket cache keyed by `ticket_id`; `PruneConsumed` sweeps expired entries.
+- Resumed-session keys derive from `K_resumption` mixed with fresh ephemeral DH; not from ephemeral DH alone. Implemented as `crypto.DeriveResumedSessionKeys` per HANDSHAKE.md §2.8.3.
+- Failure cases surface `resumption_failed`; client falls back to full handshake. The library's `OnResume` returns typed errors that the driver/caller maps to `resumption_failed`; the spec's fallback logic is the caller's responsibility (try `Resume`, on error perform a full handshake).
+- No 0-RTT application data. The `Resume` wire shape carries no envelope-bearing fields; the spec's "no 0-RTT" rule is enforced structurally.
+
+**Open follow-ups:**
+
+- Federation resumption (HANDSHAKE.md §2.8.7) is not yet wired through the federation initiator/responder; the data model is reusable but the federation flow needs its own resume entry points.
+- A driver helper that wraps "try `Resume`, on `resumption_failed` fall back to full handshake" would simplify integration callers; today they orchestrate it themselves.
 
 ### 4.4 Clock skew tolerance ([conformance boundary across handshake/, delivery/, envelope/])
 

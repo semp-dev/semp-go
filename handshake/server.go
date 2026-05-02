@@ -36,6 +36,12 @@ type Server struct {
 	domainPrivateKey []byte
 	capabilities     Capabilities
 
+	// TicketIssuer issues and opens resumption tickets per
+	// HANDSHAKE.md §2.8 and SESSION.md §2.7. nil disables
+	// resumption support: OnConfirm omits the resumption_ticket
+	// field on the Accepted message and OnResume rejects.
+	ticketIssuer session.TicketIssuer
+
 	// Internal state populated by OnInit and consumed by OnConfirm.
 	sessionID          string
 	clientNonce        []byte
@@ -81,6 +87,14 @@ type ServerConfig struct {
 
 	// Capabilities, if non-zero, overrides DefaultServerCapabilities.
 	Capabilities Capabilities
+
+	// TicketIssuer enables resumption support per HANDSHAKE.md §2.8.
+	// When non-nil, OnConfirm issues a fresh resumption_ticket on
+	// every accepted handshake and OnResume becomes available for
+	// short-circuit resumption flows. nil disables resumption: the
+	// Accepted message omits resumption_ticket and clients fall back
+	// to full handshakes on every reconnect.
+	TicketIssuer session.TicketIssuer
 }
 
 // Policy is the set of decisions a server delegates to its operator:
@@ -138,6 +152,7 @@ func NewServer(cfg ServerConfig) *Server {
 		domainKey:        cfg.DomainKeyID,
 		domainPrivateKey: cfg.DomainPrivateKey,
 		capabilities:     caps,
+		ticketIssuer:     cfg.TicketIssuer,
 	}
 }
 
@@ -455,6 +470,21 @@ func (s *Server) OnConfirm(data []byte) (acceptedBytes []byte, sess *session.Ses
 		Permissions: permissions,
 		Extensions:  extensions.Map{},
 	}
+	// Issue a resumption ticket per HANDSHAKE.md §2.8 if the server
+	// supports it. The ticket binds the just-authenticated identity
+	// to K_resumption so a later resume attempt can derive a fresh
+	// session schedule per §2.8.3.
+	if s.ticketIssuer != nil && len(s.sessionKeys.Resumption) > 0 {
+		expires := time.Now().UTC().Add(session.MaxTicketLifetime)
+		ticketBytes, err := s.ticketIssuer.Issue(context.Background(), proof.ClientIdentity, s.sessionKeys.Resumption, expires)
+		if err != nil {
+			return nil, nil, fmt.Errorf("handshake: issue resumption ticket: %w", err)
+		}
+		acc.ResumptionTicket = &ResumptionTicket{
+			Value:     base64.StdEncoding.EncodeToString(ticketBytes),
+			ExpiresAt: expires,
+		}
+	}
 	sigB64, err := s.signServerMessage(&acc)
 	if err != nil {
 		return nil, nil, err
@@ -582,4 +612,176 @@ func (s *Server) lookupClientIdentityKey(identity string, keyID keys.Fingerprint
 
 func bytesEqual(a, b []byte) bool {
 	return subtle.ConstantTimeCompare(a, b) == 1
+}
+
+// OnResume processes a Resume request per HANDSHAKE.md §2.8 and
+// returns the canonical Accepted bytes plus the resumed
+// *session.Session on success. On any failure it returns a typed
+// error; the driver maps it to a Rejected with reason_code
+// "resumption_failed" (or one of the identity-invalidation codes
+// from §4.1 when the identity in the ticket has been revoked).
+//
+// The resumed session uses fresh ephemeral DH mixed with the
+// resumption secret recovered from the ticket per §2.8.3, so it has
+// forward secrecy independent of long-term ticket compromise. The
+// authenticated identity carries forward from the original handshake;
+// no fresh identity proof is required.
+//
+// Servers without a TicketIssuer configured MUST return an error
+// here so the driver rejects with resumption_failed.
+func (s *Server) OnResume(data []byte) (acceptedBytes []byte, sess *session.Session, err error) {
+	if s == nil || s.suite == nil {
+		return nil, nil, errors.New("handshake: nil server or suite")
+	}
+	if s.ticketIssuer == nil {
+		return nil, nil, errors.New("handshake: server has no TicketIssuer; resumption disabled")
+	}
+	var resume Resume
+	if err := json.Unmarshal(data, &resume); err != nil {
+		return nil, nil, fmt.Errorf("handshake: parse resume: %w", err)
+	}
+	if resume.Type != MessageType || resume.Step != StepResume || resume.Party != PartyClient {
+		return nil, nil, errors.New("handshake: resume type/step/party mismatch")
+	}
+	if resume.Nonce == "" {
+		return nil, nil, errors.New("handshake: resume missing nonce")
+	}
+	if resume.ResumptionTicket == "" {
+		return nil, nil, errors.New("handshake: resume missing resumption_ticket")
+	}
+	if resume.ClientEphemeralKey.Key == "" {
+		return nil, nil, errors.New("handshake: resume missing client_ephemeral_key")
+	}
+
+	// Decode the opaque ticket bytes and open via TicketIssuer. Map
+	// every issuer error to a generic "ticket failure" so the
+	// outbound rejection does not leak which underlying reason
+	// triggered the failure (corrupt vs expired vs consumed).
+	ticketRaw, err := base64.StdEncoding.DecodeString(resume.ResumptionTicket)
+	if err != nil {
+		return nil, nil, fmt.Errorf("handshake: resumption_ticket base64: %w", err)
+	}
+	now := time.Now().UTC()
+	ctx := context.Background()
+	identity, resumptionSecret, _, err := s.ticketIssuer.Open(ctx, ticketRaw, now)
+	if err != nil {
+		return nil, nil, fmt.Errorf("handshake: open resumption ticket: %w", err)
+	}
+	defer crypto.Zeroize(resumptionSecret)
+
+	// Mark consumed BEFORE we proceed: even if subsequent steps
+	// fail, the ticket is single-use per §2.8.4. A failure after
+	// this point still leaves the ticket dead, which is the safe
+	// default.
+	if err := s.ticketIssuer.Consume(ctx, ticketRaw); err != nil {
+		return nil, nil, fmt.Errorf("handshake: mark ticket consumed: %w", err)
+	}
+
+	// Decode client's nonce and ephemeral pub.
+	clientNonce, err := base64.StdEncoding.DecodeString(resume.Nonce)
+	if err != nil {
+		return nil, nil, fmt.Errorf("handshake: resume client nonce base64: %w", err)
+	}
+	clientEphPub, err := base64.StdEncoding.DecodeString(resume.ClientEphemeralKey.Key)
+	if err != nil {
+		return nil, nil, fmt.Errorf("handshake: resume client ephemeral base64: %w", err)
+	}
+
+	// Server-side KEM step: encapsulate against the client's
+	// ephemeral pub, derive ephemeral_shared_secret. Server holds no
+	// ephemeral private key after this call.
+	ephShared, ephPub, err := s.suite.KEM().Encapsulate(clientEphPub)
+	if err != nil {
+		return nil, nil, fmt.Errorf("handshake: resume ephemeral KEM encapsulate: %w", err)
+	}
+	defer crypto.Zeroize(ephShared)
+
+	// Fresh server nonce.
+	serverNonce := make([]byte, 32)
+	if _, err := rand.Read(serverNonce); err != nil {
+		return nil, nil, fmt.Errorf("handshake: resume server nonce: %w", err)
+	}
+
+	// Derive resumed-session keys per §2.8.3: IKM = eph_shared || K_resumption.
+	resumedKeys, err := crypto.DeriveResumedSessionKeys(s.suite.KDF(), ephShared, resumptionSecret, clientNonce, serverNonce)
+	if err != nil {
+		return nil, nil, fmt.Errorf("handshake: derive resumed keys: %w", err)
+	}
+
+	// Build a fresh session_id for the resumed session per §2.8.2
+	// example. Identity carries forward from the ticket.
+	newSessionID, err := newULID()
+	if err != nil {
+		resumedKeys.Erase()
+		return nil, nil, err
+	}
+
+	// Issue a fresh ticket bound to the resumed session's K_resumption
+	// so a future resume attempt can chain off this session per
+	// §2.8.4.
+	ticketExpires := now.Add(session.MaxTicketLifetime)
+	newTicketBytes, err := s.ticketIssuer.Issue(ctx, identity, resumedKeys.Resumption, ticketExpires)
+	if err != nil {
+		resumedKeys.Erase()
+		return nil, nil, fmt.Errorf("handshake: issue replacement ticket: %w", err)
+	}
+
+	ttl := 300
+	permissions := []string{"send", "receive"}
+	if s.policy != nil {
+		if v := s.policy.SessionTTL(identity); v > 0 {
+			ttl = v
+		}
+		if p := s.policy.Permissions(identity); p != nil {
+			permissions = p
+		}
+	}
+	acc := Accepted{
+		Type:        MessageType,
+		Step:        StepAccepted,
+		Party:       PartyServer,
+		Version:     "1.0.0",
+		SessionID:   newSessionID,
+		SessionTTL:  ttl,
+		Permissions: permissions,
+		ServerNonce: base64.StdEncoding.EncodeToString(serverNonce),
+		ServerEphemeralKey: &EphemeralKey{
+			Algorithm: string(s.suite.ID()),
+			Key:       base64.StdEncoding.EncodeToString(ephPub),
+			KeyID:     string(keys.Compute(ephPub)),
+		},
+		ResumptionTicket: &ResumptionTicket{
+			Value:     base64.StdEncoding.EncodeToString(newTicketBytes),
+			ExpiresAt: ticketExpires,
+		},
+		Extensions: extensions.Map{},
+	}
+	sigB64, err := s.signServerMessage(&acc)
+	if err != nil {
+		resumedKeys.Erase()
+		return nil, nil, err
+	}
+	acc.ServerSignature = sigB64
+	out, err := CanonicalForHashing(&acc)
+	if err != nil {
+		resumedKeys.Erase()
+		return nil, nil, fmt.Errorf("handshake: canonical resumed accepted: %w", err)
+	}
+
+	sess = session.New(session.RoleClient)
+	sess.ID = newSessionID
+	sess.PeerIdentity = identity
+	sess.State = session.StateActive
+	sess.SetKeys(resumedKeys)
+	sess.TTL = time.Duration(ttl) * time.Second
+	now = time.Now()
+	sess.EstablishedAt = now
+	sess.ExpiresAt = now.Add(sess.TTL)
+
+	// Commit the new identity onto the Server so subsequent
+	// accessors (ClientIdentity / SessionID) reflect the resumed
+	// session, mirroring OnConfirm's commit pattern.
+	s.sessionID = newSessionID
+	s.clientIdentity = identity
+	return out, sess, nil
 }

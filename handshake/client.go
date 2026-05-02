@@ -55,6 +55,11 @@ type Client struct {
 	sessionKeys       *crypto.SessionKeys
 	negotiated        Negotiated
 	sessionID         string
+
+	// Populated by LoadResumptionSecret in the resume flow. Mixed into
+	// the resumed-session HKDF input keying material per
+	// HANDSHAKE.md §2.8.3 by OnResumeAccepted, then zeroized.
+	resumptionSecret []byte
 }
 
 // ClientConfig groups the inputs to NewClient. The store provides the
@@ -490,6 +495,173 @@ func (c *Client) Erase() {
 		c.sessionKeys.Erase()
 		c.sessionKeys = nil
 	}
+	crypto.Zeroize(c.resumptionSecret)
+	c.resumptionSecret = nil
+}
+
+// Resume produces the bytes of a Resume message (HANDSHAKE.md §2.8.2)
+// to send to the server. ticket is the opaque ticket bytes recovered
+// from the prior Accepted message's resumption_ticket.value (already
+// base64-decoded). The returned bytes are sent to the server and the
+// next call is OnResumeAccepted (or OnRejected).
+//
+// Resume generates a fresh nonce and ephemeral key pair so the
+// resumed session derives forward-secure keys per §2.8.3 even if the
+// ticket is later compromised.
+func (c *Client) Resume(ticket []byte) ([]byte, error) {
+	if c == nil || c.suite == nil {
+		return nil, errors.New("handshake: nil client or suite")
+	}
+	if len(ticket) == 0 {
+		return nil, errors.New("handshake: empty resumption ticket")
+	}
+	c.nonce = make([]byte, 32)
+	if _, err := rand.Read(c.nonce); err != nil {
+		return nil, fmt.Errorf("handshake: resume nonce: %w", err)
+	}
+	ephPub, ephPriv, err := c.suite.KEM().GenerateKeyPair()
+	if err != nil {
+		return nil, fmt.Errorf("handshake: resume ephemeral keypair: %w", err)
+	}
+	c.ephemeralPub = ephPub
+	c.ephemeralPriv = ephPriv
+
+	msg := Resume{
+		Type:             MessageType,
+		Step:             StepResume,
+		Party:            PartyClient,
+		Version:          "1.0.0",
+		Nonce:            base64.StdEncoding.EncodeToString(c.nonce),
+		ResumptionTicket: base64.StdEncoding.EncodeToString(ticket),
+		ClientEphemeralKey: EphemeralKey{
+			Algorithm: string(c.suite.ID()),
+			Key:       base64.StdEncoding.EncodeToString(ephPub),
+			KeyID:     string(keys.Compute(ephPub)),
+		},
+		Transport:  c.transport,
+		Extensions: extensions.Map{},
+	}
+	out, err := CanonicalForHashing(&msg)
+	if err != nil {
+		return nil, fmt.Errorf("handshake: canonical resume: %w", err)
+	}
+	return out, nil
+}
+
+// OnResumeAccepted processes the server's Accepted response to a
+// Resume request, derives the resumed session keys per
+// HANDSHAKE.md §2.8.3, verifies the server's signature, and returns
+// the established *session.Session and the new opaque ticket bytes
+// the server issued for chaining a future resume.
+//
+// On any failure (signature mismatch, missing resumption fields,
+// KEM decapsulate error) the caller MUST treat the resume as failed
+// and fall back to a full handshake per §2.8.5.
+func (c *Client) OnResumeAccepted(data []byte) (*session.Session, []byte, error) {
+	if c == nil || c.suite == nil {
+		return nil, nil, errors.New("handshake: nil client or suite")
+	}
+	if len(c.ephemeralPriv) == 0 {
+		return nil, nil, errors.New("handshake: OnResumeAccepted called before Resume")
+	}
+	var acc Accepted
+	if err := json.Unmarshal(data, &acc); err != nil {
+		return nil, nil, fmt.Errorf("handshake: parse resumed accepted: %w", err)
+	}
+	if acc.Type != MessageType || acc.Step != StepAccepted || acc.Party != PartyServer {
+		return nil, nil, errors.New("handshake: resumed accepted type/step/party mismatch")
+	}
+	if acc.ServerEphemeralKey == nil || acc.ServerNonce == "" {
+		return nil, nil, errors.New("handshake: resumed accepted missing server_ephemeral_key or server_nonce")
+	}
+	if acc.ResumptionTicket == nil {
+		return nil, nil, errors.New("handshake: resumed accepted missing resumption_ticket")
+	}
+
+	// Verify the server signature before consuming any cryptographic
+	// material the response carries.
+	domainPub, err := c.lookupServerDomainKey()
+	if err != nil {
+		return nil, nil, err
+	}
+	if err := VerifyServerMessage(c.suite, domainPub, &acc, acc.ServerSignature); err != nil {
+		return nil, nil, err
+	}
+
+	serverNonce, err := base64.StdEncoding.DecodeString(acc.ServerNonce)
+	if err != nil {
+		return nil, nil, fmt.Errorf("handshake: server nonce base64: %w", err)
+	}
+	serverEphPub, err := base64.StdEncoding.DecodeString(acc.ServerEphemeralKey.Key)
+	if err != nil {
+		return nil, nil, fmt.Errorf("handshake: server ephemeral key base64: %w", err)
+	}
+	ephShared, err := c.suite.KEM().Decapsulate(serverEphPub, c.ephemeralPriv)
+	if err != nil {
+		return nil, nil, fmt.Errorf("handshake: resume ephemeral KEM decapsulate: %w", err)
+	}
+	defer crypto.Zeroize(ephShared)
+	// Erase the ephemeral private key now that the shared secret is
+	// computed (SESSION.md §2.2).
+	crypto.Zeroize(c.ephemeralPriv)
+	c.ephemeralPriv = nil
+
+	// The resumption secret recovered from the prior session lives
+	// only on the server side (encrypted into the ticket). The
+	// CLIENT, however, retained K_resumption from the original
+	// session via session.Session.SetKeys; for this Resume helper
+	// it MUST be passed in by the caller through the parent
+	// session. We expect the caller to have invoked
+	// `c.LoadResumptionSecret(prevSecret)` before Resume; that
+	// hook is added below as a setter.
+	if len(c.resumptionSecret) == 0 {
+		return nil, nil, errors.New("handshake: resumption secret not loaded; call LoadResumptionSecret before Resume")
+	}
+	resumedKeys, err := crypto.DeriveResumedSessionKeys(c.suite.KDF(), ephShared, c.resumptionSecret, c.nonce, serverNonce)
+	if err != nil {
+		return nil, nil, fmt.Errorf("handshake: derive resumed keys: %w", err)
+	}
+	// Wipe the prior resumption secret and the resume nonce; the
+	// resumed session's K_resumption (in resumedKeys.Resumption)
+	// stands in for it.
+	crypto.Zeroize(c.resumptionSecret)
+	c.resumptionSecret = nil
+	crypto.Zeroize(c.nonce)
+	c.nonce = nil
+
+	newTicket, err := base64.StdEncoding.DecodeString(acc.ResumptionTicket.Value)
+	if err != nil {
+		resumedKeys.Erase()
+		return nil, nil, fmt.Errorf("handshake: new ticket base64: %w", err)
+	}
+
+	sess := session.New(session.RoleClient)
+	sess.ID = acc.SessionID
+	sess.PeerIdentity = c.identity
+	sess.State = session.StateActive
+	sess.SetKeys(resumedKeys)
+	sess.TTL = time.Duration(acc.SessionTTL) * time.Second
+	now := time.Now()
+	sess.EstablishedAt = now
+	sess.ExpiresAt = now.Add(sess.TTL)
+	return sess, newTicket, nil
+}
+
+// LoadResumptionSecret pre-loads the K_resumption secret recovered
+// from the prior session's keys. The caller invokes this before
+// Resume so OnResumeAccepted can mix it into the resumed-session
+// HKDF input keying material per HANDSHAKE.md §2.8.3. The secret is
+// erased after the resumed key derivation completes.
+func (c *Client) LoadResumptionSecret(secret []byte) {
+	if c == nil {
+		return
+	}
+	crypto.Zeroize(c.resumptionSecret)
+	if len(secret) == 0 {
+		c.resumptionSecret = nil
+		return
+	}
+	c.resumptionSecret = append([]byte(nil), secret...)
 }
 
 func (c *Client) lookupServerDomainKey() ([]byte, error) {

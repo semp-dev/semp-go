@@ -140,6 +140,19 @@ func (s *Session) EncS2C() []byte { return s.rawKey(func(k *crypto.SessionKeys) 
 func (s *Session) MACC2S() []byte { return s.rawKey(func(k *crypto.SessionKeys) []byte { return k.MACC2S }) }
 func (s *Session) MACS2C() []byte { return s.rawKey(func(k *crypto.SessionKeys) []byte { return k.MACS2C }) }
 
+// Resumption returns K_resumption, the secret used to derive a
+// resumed session per HANDSHAKE.md §2.8.3. Returns nil when the
+// session was established without resumption support.
+//
+// Clients pass this value into handshake.Client.LoadResumptionSecret
+// before invoking Resume. The value is sensitive (a leak plus
+// observation of the resumption DH lets an attacker derive the
+// resumed session keys); callers MUST NOT log or persist it outside
+// the documented client-side ticket-paired storage.
+func (s *Session) Resumption() []byte {
+	return s.rawKey(func(k *crypto.SessionKeys) []byte { return k.Resumption })
+}
+
 func (s *Session) rawKey(pick func(*crypto.SessionKeys) []byte) []byte {
 	if s == nil || s.keys == nil {
 		return nil

@@ -345,3 +345,170 @@ func TestHandshakeWithChallenge(t *testing.T) {
 func bytesEqualHelper(a, b []byte) bool {
 	return bytesEqual(a, b)
 }
+
+// TestClientHandshakeResume exercises the full §2.8 resumption flow:
+// a client and server complete a normal handshake (the server issues a
+// ResumptionTicket), then the client uses Client.Resume on a fresh
+// state machine to short-circuit to a resumed session via Server.OnResume,
+// and the resumed session's K_env_mac matches across both sides.
+//
+// This is the milestone-3b acceptance test for SPEC-GAP §4.3. The
+// resumed session derives its keys from a fresh ephemeral DH mixed
+// with K_resumption per HANDSHAKE.md §2.8.3, so a passive observer
+// who later compromises the ticket alone cannot derive the resumed
+// session's keys.
+func TestClientHandshakeResume(t *testing.T) {
+	suite := crypto.SuiteBaseline
+	store := newMemStore()
+
+	identityPub, identityPriv, err := suite.Signer().GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("identity keypair: %v", err)
+	}
+	identityFP := store.putUserKey("alice@example.com", keys.TypeIdentity, identityPub)
+	store.putPrivateKey(identityFP, identityPriv)
+
+	domainPub, domainPriv, err := suite.Signer().GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("domain keypair: %v", err)
+	}
+	domainFP := store.putDomainKey("example.com", domainPub)
+
+	// Stateless ticket issuer with a fresh ticket-encryption key.
+	ticketKey := make([]byte, suite.AEAD().KeySize())
+	for i := range ticketKey {
+		ticketKey[i] = byte(i + 1)
+	}
+	issuer, err := session.NewStatelessTicketIssuer(suite.AEAD(), ticketKey)
+	if err != nil {
+		t.Fatalf("NewStatelessTicketIssuer: %v", err)
+	}
+
+	mkClient := func() *handshake.Client {
+		return handshake.NewClient(handshake.ClientConfig{
+			Suite:         suite,
+			Store:         store,
+			Identity:      "alice@example.com",
+			IdentityKeyID: identityFP,
+			ServerDomain:  "example.com",
+		})
+	}
+	mkServer := func() *handshake.Server {
+		return handshake.NewServer(handshake.ServerConfig{
+			Suite:            suite,
+			Store:            store,
+			Policy:           permitAllPolicy{},
+			Domain:           "example.com",
+			DomainKeyID:      domainFP,
+			DomainPrivateKey: domainPriv,
+			TicketIssuer:     issuer,
+		})
+	}
+
+	// ---- 1. Full handshake to obtain the initial ticket.
+	client1 := mkClient()
+	server1 := mkServer()
+	defer client1.Erase()
+	defer server1.Erase()
+
+	initBytes, err := client1.Init()
+	if err != nil {
+		t.Fatalf("client1.Init: %v", err)
+	}
+	respBytes, err := server1.OnInit(initBytes)
+	if err != nil {
+		t.Fatalf("server1.OnInit: %v", err)
+	}
+	confirmBytes, clientSession1, err := client1.OnResponse(respBytes)
+	if err != nil {
+		t.Fatalf("client1.OnResponse: %v", err)
+	}
+	acceptedBytes, _, err := server1.OnConfirm(confirmBytes)
+	if err != nil {
+		t.Fatalf("server1.OnConfirm: %v", err)
+	}
+	if err := client1.OnAccepted(acceptedBytes, clientSession1); err != nil {
+		t.Fatalf("client1.OnAccepted: %v", err)
+	}
+
+	// Pull the ticket from the Accepted bytes.
+	var firstAcc struct {
+		ResumptionTicket *struct {
+			Value     string    `json:"value"`
+			ExpiresAt time.Time `json:"expires_at"`
+		} `json:"resumption_ticket"`
+	}
+	if err := json.Unmarshal(acceptedBytes, &firstAcc); err != nil {
+		t.Fatalf("unmarshal first accepted: %v", err)
+	}
+	if firstAcc.ResumptionTicket == nil {
+		t.Fatal("server did not issue a resumption ticket")
+	}
+	ticketBytes, err := base64.StdEncoding.DecodeString(firstAcc.ResumptionTicket.Value)
+	if err != nil {
+		t.Fatalf("decode ticket: %v", err)
+	}
+	resumptionSecret := append([]byte(nil), clientSession1.Resumption()...)
+	if len(resumptionSecret) == 0 {
+		t.Fatal("client session has no K_resumption")
+	}
+
+	// ---- 2. Resume on fresh state machines.
+	client2 := mkClient()
+	server2 := mkServer()
+	defer client2.Erase()
+	defer server2.Erase()
+
+	client2.LoadResumptionSecret(resumptionSecret)
+	resumeBytes, err := client2.Resume(ticketBytes)
+	if err != nil {
+		t.Fatalf("client2.Resume: %v", err)
+	}
+	resumedAcceptedBytes, serverSession2, err := server2.OnResume(resumeBytes)
+	if err != nil {
+		t.Fatalf("server2.OnResume: %v", err)
+	}
+	clientSession2, newTicketBytes, err := client2.OnResumeAccepted(resumedAcceptedBytes)
+	if err != nil {
+		t.Fatalf("client2.OnResumeAccepted: %v", err)
+	}
+
+	// ---- 3. Both sides agree on the resumed session keys.
+	if clientSession2.ID == "" {
+		t.Error("resumed client session ID is empty")
+	}
+	if clientSession2.ID != serverSession2.ID {
+		t.Errorf("resumed session ID mismatch: client=%s server=%s",
+			clientSession2.ID, serverSession2.ID)
+	}
+	if !bytesEqualHelper(clientSession2.EnvMAC(), serverSession2.EnvMAC()) {
+		t.Error("resumed K_env_mac mismatch between client and server")
+	}
+	// Resumed keys MUST differ from the original session's keys
+	// (proves fresh derivation, not key reuse).
+	if bytesEqualHelper(clientSession1.EnvMAC(), clientSession2.EnvMAC()) {
+		t.Error("resumed K_env_mac matches original; resume did not derive fresh keys")
+	}
+	if serverSession2.PeerIdentity != "alice@example.com" {
+		t.Errorf("resumed server peer identity = %q, want alice@example.com",
+			serverSession2.PeerIdentity)
+	}
+	if len(newTicketBytes) == 0 {
+		t.Error("OnResumeAccepted returned empty replacement ticket")
+	}
+
+	// ---- 4. Single-use enforcement: a second resume with the SAME
+	// ticket MUST fail.
+	client3 := mkClient()
+	defer client3.Erase()
+	server3 := mkServer()
+	defer server3.Erase()
+	client3.LoadResumptionSecret(resumptionSecret)
+	resumeBytes2, err := client3.Resume(ticketBytes)
+	if err != nil {
+		t.Fatalf("client3.Resume: %v", err)
+	}
+	if _, _, err := server3.OnResume(resumeBytes2); err == nil {
+		t.Error("second OnResume with consumed ticket: want error, got nil")
+	}
+}
