@@ -22,6 +22,12 @@ const (
 	StepConfirm           Step = "confirm"
 	StepAccepted          Step = "accepted"
 	StepRejected          Step = "rejected"
+	// StepResume is the client-initiated message that requests a
+	// resumed session in lieu of a full four-message handshake per
+	// HANDSHAKE.md §2.8. The server responds with StepAccepted (with
+	// a fresh resumption_ticket and ephemeral key) or StepRejected
+	// (typically with reason_code "resumption_failed").
+	StepResume Step = "resume"
 )
 
 // ChallengeType is the discriminator for the kind of challenge a
@@ -208,7 +214,17 @@ type AuthBlock struct {
 	Params map[string]any `json:"params"`
 }
 
-// Accepted is the success outcome message 4 (HANDSHAKE.md §2.7).
+// Accepted is the success outcome message 4 (HANDSHAKE.md §2.7) and
+// also the success response to a Resume request (HANDSHAKE.md §2.8.2).
+//
+// In the full-handshake case the message is a thin "yes" because the
+// session keys were already derived from the messages 1/2 ephemeral
+// exchange. In the resumption case the message also carries a fresh
+// server_nonce and server_ephemeral_key so the resumed session has
+// fresh DH material per §2.8.3, plus a new resumption_ticket that
+// replaces the consumed one. The four resume-only fields are
+// omitempty so the canonical bytes of a full-handshake Accepted are
+// unchanged.
 type Accepted struct {
 	Type            string         `json:"type"`
 	Step            Step           `json:"step"` // StepAccepted
@@ -217,8 +233,45 @@ type Accepted struct {
 	SessionID       string         `json:"session_id"`
 	SessionTTL      int            `json:"session_ttl"`
 	Permissions     []string       `json:"permissions,omitempty"`
+	// Resumption-only fields, present when Accepted responds to a
+	// Resume request. Omitted in the full-handshake case.
+	ServerNonce        string             `json:"server_nonce,omitempty"`
+	ServerEphemeralKey *EphemeralKey      `json:"server_ephemeral_key,omitempty"`
+	ResumptionTicket   *ResumptionTicket  `json:"resumption_ticket,omitempty"`
+
 	ServerSignature string         `json:"server_signature"`
 	Extensions      extensions.Map `json:"extensions"`
+}
+
+// ResumptionTicket is the wire shape of a server-issued resumption
+// ticket per HANDSHAKE.md §2.8.2 ticket-shape table. Value is opaque
+// to the client and to any third party; only the issuing server can
+// open it. ExpiresAt MUST NOT exceed 7 days from issuance per
+// SESSION.md §2.7.
+type ResumptionTicket struct {
+	Value     string    `json:"value"`
+	ExpiresAt time.Time `json:"expires_at"`
+}
+
+// Resume is the client-initiated message that requests a resumed
+// session per HANDSHAKE.md §2.8.2. The server responds with
+// StepAccepted (with a fresh ResumptionTicket and ephemeral key) or
+// StepRejected (with reason_code "resumption_failed" or one of the
+// identity-invalidation codes from §4.1).
+//
+// Resume MUST NOT carry application data per §2.8.6 ("No 0-RTT
+// Data"); a server that observes envelope-bearing fields in a Resume
+// message MUST reject with reason_code "resumption_failed".
+type Resume struct {
+	Type               string         `json:"type"`  // SEMP_HANDSHAKE
+	Step               Step           `json:"step"`  // StepResume
+	Party              Party          `json:"party"` // PartyClient
+	Version            string         `json:"version"`
+	Nonce              string         `json:"nonce"`
+	ResumptionTicket   string         `json:"resumption_ticket"` // base64 opaque bytes
+	ClientEphemeralKey EphemeralKey   `json:"client_ephemeral_key"`
+	Transport          string         `json:"transport"`
+	Extensions         extensions.Map `json:"extensions"`
 }
 
 // Rejected is the failure-outcome handshake message. It is emitted by
