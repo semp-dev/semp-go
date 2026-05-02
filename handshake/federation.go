@@ -152,20 +152,64 @@ type FederationAcceptance struct {
 	Reason             string `json:"reason,omitempty"`
 }
 
-// FederationAccepted is the responder's success outcome (HANDSHAKE.md §5.6).
-// SessionTTL is the lifetime in seconds; the spec example does not show it
-// but SESSION.md requires every active session to have a TTL, so we surface
-// it through the same field used by the client handshake.
+// FederationAccepted is the responder's success outcome (HANDSHAKE.md
+// §5.6) and also the success response to a FederationResume request
+// (HANDSHAKE.md §2.8.7). SessionTTL is the lifetime in seconds; the
+// spec example does not show it but SESSION.md requires every active
+// session to have a TTL, so we surface it through the same field used
+// by the client handshake.
+//
+// The resumption-only fields (ServerNonce, ServerEphemeralKey,
+// ResumptionTicket) are present when Accepted responds to a Resume
+// request and omitted (omitempty) in the full-handshake case so the
+// canonical bytes of a full-handshake FederationAccepted are
+// unchanged.
 type FederationAccepted struct {
-	Type            string         `json:"type"`
-	Step            Step           `json:"step"`
-	Party           Party          `json:"party"`
-	Version         string         `json:"version"`
-	SessionID       string         `json:"session_id"`
-	Status          string         `json:"status"`      // always "accepted"
-	SessionTTL      int            `json:"session_ttl"` // seconds
+	Type       string `json:"type"`
+	Step       Step   `json:"step"`
+	Party      Party  `json:"party"`
+	Version    string `json:"version"`
+	SessionID  string `json:"session_id"`
+	Status     string `json:"status"`      // always "accepted"
+	SessionTTL int    `json:"session_ttl"` // seconds
+
+	// Resumption-only fields, present when responding to FederationResume.
+	ServerNonce        string             `json:"server_nonce,omitempty"`
+	ServerEphemeralKey *EphemeralKey      `json:"server_ephemeral_key,omitempty"`
+	ResumptionTicket   *ResumptionTicket  `json:"resumption_ticket,omitempty"`
+
 	ServerSignature string         `json:"server_signature"`
 	Extensions      extensions.Map `json:"extensions"`
+}
+
+// FederationResume is the federation-side resume request per
+// HANDSHAKE.md §2.8.7. Symmetric to handshake.Resume (the client
+// resume) but with the federation identity fields ServerID,
+// ServerDomain, and PeerConfigurationRevision attached so the
+// responder can route the resume to the right peer state and surface
+// configuration drift via SEMP_CONFIGURATION_UPDATE per
+// DISCOVERY.md §3.5.4.
+//
+// Party is "server" because both sides of a federation handshake
+// are servers; the initiator is still the side that sends the resume.
+//
+// FederationResume MUST NOT carry application data per §2.8.6
+// ("No 0-RTT Data"); a responder that observes envelope-bearing
+// fields in a resume message MUST reject with reason_code
+// "resumption_failed".
+type FederationResume struct {
+	Type                       string         `json:"type"`  // SEMP_HANDSHAKE
+	Step                       Step           `json:"step"`  // StepResume
+	Party                      Party          `json:"party"` // PartyServer
+	Version                    string         `json:"version"`
+	Nonce                      string         `json:"nonce"`
+	ServerID                   string         `json:"server_id"`
+	ServerDomain               string         `json:"server_domain"`
+	PeerConfigurationRevision  int            `json:"peer_configuration_revision,omitempty"`
+	ResumptionTicket           string         `json:"resumption_ticket"` // base64 opaque bytes
+	ClientEphemeralKey         EphemeralKey   `json:"client_ephemeral_key"`
+	Transport                  string         `json:"transport"`
+	Extensions                 extensions.Map `json:"extensions"`
 }
 
 // DomainVerifier checks a DomainProof presented by the initiator during the
@@ -247,6 +291,11 @@ type Initiator struct {
 	sessionKeys       *crypto.SessionKeys
 	sessionID         string
 	negotiated        Negotiated
+
+	// Populated by LoadResumptionSecret in the federation resume
+	// flow. Mixed into the resumed-session HKDF input keying material
+	// per HANDSHAKE.md §2.8.3 by OnResumeAccepted, then zeroized.
+	resumptionSecret []byte
 }
 
 // PolicyAcceptor is invoked by the initiator on the responder's federation
@@ -608,6 +657,172 @@ func (i *Initiator) Erase() {
 		i.sessionKeys.Erase()
 		i.sessionKeys = nil
 	}
+	crypto.Zeroize(i.resumptionSecret)
+	i.resumptionSecret = nil
+}
+
+// LoadResumptionSecret pre-loads the K_resumption secret recovered
+// from the prior federation session's keys. The caller invokes this
+// before Resume so OnResumeAccepted can mix it into the resumed-
+// session HKDF input keying material per HANDSHAKE.md §2.8.3. The
+// secret is erased after the resumed key derivation completes.
+func (i *Initiator) LoadResumptionSecret(secret []byte) {
+	if i == nil {
+		return
+	}
+	crypto.Zeroize(i.resumptionSecret)
+	if len(secret) == 0 {
+		i.resumptionSecret = nil
+		return
+	}
+	i.resumptionSecret = append([]byte(nil), secret...)
+}
+
+// Resume produces the bytes of a FederationResume message
+// (HANDSHAKE.md §2.8.7) to send to the peer responder. ticket is the
+// opaque ticket bytes recovered from the prior FederationAccepted
+// message's resumption_ticket.value (already base64-decoded). The
+// caller MAY pass the cached peerConfigurationRevision (DISCOVERY.md
+// §3.5) so the responder can detect cache drift; pass 0 to omit.
+//
+// Resume generates a fresh nonce and ephemeral key pair so the
+// resumed session derives forward-secure keys per §2.8.3 even if
+// the ticket is later compromised. Domain-ownership proof is NOT
+// repeated; the ticket stands in for it per §2.8.7.
+func (i *Initiator) Resume(ticket []byte, peerConfigurationRevision int) ([]byte, error) {
+	if i == nil || i.suite == nil {
+		return nil, errors.New("handshake: nil initiator or suite")
+	}
+	if len(ticket) == 0 {
+		return nil, errors.New("handshake: empty federation resumption ticket")
+	}
+	if i.localServerID == "" {
+		return nil, errors.New("handshake: empty local server_id")
+	}
+	if i.localDomain == "" {
+		return nil, errors.New("handshake: empty local server_domain")
+	}
+
+	i.nonce = make([]byte, 32)
+	if _, err := rand.Read(i.nonce); err != nil {
+		return nil, fmt.Errorf("handshake: federation resume nonce: %w", err)
+	}
+	ephPub, ephPriv, err := i.suite.KEM().GenerateKeyPair()
+	if err != nil {
+		return nil, fmt.Errorf("handshake: federation resume ephemeral keypair: %w", err)
+	}
+	i.ephemeralPub = ephPub
+	i.ephemeralPriv = ephPriv
+
+	msg := FederationResume{
+		Type:                      MessageType,
+		Step:                      StepResume,
+		Party:                     PartyServer,
+		Version:                   "1.0.0",
+		Nonce:                     base64.StdEncoding.EncodeToString(i.nonce),
+		ServerID:                  i.localServerID,
+		ServerDomain:              i.localDomain,
+		PeerConfigurationRevision: peerConfigurationRevision,
+		ResumptionTicket:          base64.StdEncoding.EncodeToString(ticket),
+		ClientEphemeralKey: EphemeralKey{
+			Algorithm: string(i.suite.ID()),
+			Key:       base64.StdEncoding.EncodeToString(ephPub),
+			KeyID:     string(keys.Compute(ephPub)),
+		},
+		Transport:  "websocket",
+		Extensions: extensions.Map{},
+	}
+	out, err := CanonicalForHashing(&msg)
+	if err != nil {
+		return nil, fmt.Errorf("handshake: canonical federation resume: %w", err)
+	}
+	return out, nil
+}
+
+// OnResumeAccepted processes the responder's FederationAccepted
+// response to a FederationResume request, derives the resumed
+// session keys per HANDSHAKE.md §2.8.3, verifies the responder's
+// signature, and returns the established *session.Session and the
+// new opaque ticket bytes the responder issued for chaining a
+// future resume.
+//
+// On any failure the caller MUST treat the resume as failed and
+// fall back to a full federation handshake per §2.8.5.
+func (i *Initiator) OnResumeAccepted(data []byte) (*session.Session, []byte, error) {
+	if i == nil || i.suite == nil {
+		return nil, nil, errors.New("handshake: nil initiator or suite")
+	}
+	if len(i.ephemeralPriv) == 0 {
+		return nil, nil, errors.New("handshake: OnResumeAccepted called before Resume")
+	}
+	var acc FederationAccepted
+	if err := json.Unmarshal(data, &acc); err != nil {
+		return nil, nil, fmt.Errorf("handshake: parse resumed federation accepted: %w", err)
+	}
+	if acc.Type != MessageType || acc.Step != StepAccepted || acc.Party != PartyServer {
+		return nil, nil, errors.New("handshake: resumed federation accepted type/step/party mismatch")
+	}
+	if acc.ServerEphemeralKey == nil || acc.ServerNonce == "" {
+		return nil, nil, errors.New("handshake: resumed federation accepted missing server_ephemeral_key or server_nonce")
+	}
+	if acc.ResumptionTicket == nil {
+		return nil, nil, errors.New("handshake: resumed federation accepted missing resumption_ticket")
+	}
+
+	// Verify the responder's signature against the published peer
+	// domain key before consuming any cryptographic material.
+	peerPub, err := i.lookupPeerDomainKey()
+	if err != nil {
+		return nil, nil, err
+	}
+	if err := VerifyServerMessage(i.suite, peerPub, &acc, acc.ServerSignature); err != nil {
+		return nil, nil, err
+	}
+
+	serverNonce, err := base64.StdEncoding.DecodeString(acc.ServerNonce)
+	if err != nil {
+		return nil, nil, fmt.Errorf("handshake: federation server nonce base64: %w", err)
+	}
+	serverEphPub, err := base64.StdEncoding.DecodeString(acc.ServerEphemeralKey.Key)
+	if err != nil {
+		return nil, nil, fmt.Errorf("handshake: federation server ephemeral key base64: %w", err)
+	}
+	ephShared, err := i.suite.KEM().Decapsulate(serverEphPub, i.ephemeralPriv)
+	if err != nil {
+		return nil, nil, fmt.Errorf("handshake: federation resume ephemeral KEM decapsulate: %w", err)
+	}
+	defer crypto.Zeroize(ephShared)
+	crypto.Zeroize(i.ephemeralPriv)
+	i.ephemeralPriv = nil
+
+	if len(i.resumptionSecret) == 0 {
+		return nil, nil, errors.New("handshake: federation resumption secret not loaded; call LoadResumptionSecret before Resume")
+	}
+	resumedKeys, err := crypto.DeriveResumedSessionKeys(i.suite.KDF(), ephShared, i.resumptionSecret, i.nonce, serverNonce)
+	if err != nil {
+		return nil, nil, fmt.Errorf("handshake: derive resumed federation keys: %w", err)
+	}
+	crypto.Zeroize(i.resumptionSecret)
+	i.resumptionSecret = nil
+	crypto.Zeroize(i.nonce)
+	i.nonce = nil
+
+	newTicket, err := base64.StdEncoding.DecodeString(acc.ResumptionTicket.Value)
+	if err != nil {
+		resumedKeys.Erase()
+		return nil, nil, fmt.Errorf("handshake: federation new ticket base64: %w", err)
+	}
+
+	sess := session.New(session.RoleFederation)
+	sess.ID = acc.SessionID
+	sess.PeerIdentity = i.peerDomain
+	sess.State = session.StateActive
+	sess.SetKeys(resumedKeys)
+	sess.TTL = time.Duration(acc.SessionTTL) * time.Second
+	now := time.Now()
+	sess.EstablishedAt = now
+	sess.ExpiresAt = now.Add(sess.TTL)
+	return sess, newTicket, nil
 }
 
 func (i *Initiator) lookupPeerDomainKey() ([]byte, error) {
@@ -647,6 +862,10 @@ type Responder struct {
 	localDomainPriv  []byte
 	capabilities     Capabilities
 	sessionTTL       int
+
+	// TicketIssuer issues and opens federation resumption tickets
+	// per HANDSHAKE.md §2.8.7. nil disables federation resumption.
+	ticketIssuer session.TicketIssuer
 
 	// State populated by OnInit.
 	sessionID         string
@@ -693,6 +912,15 @@ type ResponderConfig struct {
 
 	// Capabilities, if non-zero, overrides DefaultServerCapabilities.
 	Capabilities Capabilities
+
+	// TicketIssuer enables federation resumption per HANDSHAKE.md
+	// §2.8.7. When non-nil, OnConfirm issues a fresh
+	// resumption_ticket on every accepted federation handshake and
+	// OnResume becomes available for short-circuit resumption flows.
+	// nil disables resumption: the FederationAccepted message omits
+	// resumption_ticket and initiators fall back to full handshakes
+	// on every reconnect.
+	TicketIssuer session.TicketIssuer
 }
 
 // NewResponder constructs a federation Responder from a config. When
@@ -730,6 +958,7 @@ func NewResponder(cfg ResponderConfig) *Responder {
 		localDomainPriv: cfg.LocalDomainPrivateKey,
 		capabilities:    caps,
 		sessionTTL:      ttl,
+		ticketIssuer:    cfg.TicketIssuer,
 	}
 }
 
@@ -971,6 +1200,21 @@ func (r *Responder) OnConfirm(data []byte) ([]byte, *session.Session, error) {
 		SessionTTL: r.sessionTTL,
 		Extensions: extensions.Map{},
 	}
+	// Issue a federation resumption ticket per HANDSHAKE.md §2.8.7
+	// when an issuer is configured. The ticket binds the peer domain
+	// identity to K_resumption with a 7-day expiry per SESSION.md
+	// §2.7.
+	if r.ticketIssuer != nil && len(r.sessionKeys.Resumption) > 0 {
+		expires := time.Now().UTC().Add(session.MaxTicketLifetime)
+		ticketBytes, ticketErr := r.ticketIssuer.Issue(context.Background(), r.peerDomain, r.sessionKeys.Resumption, expires)
+		if ticketErr != nil {
+			return nil, nil, fmt.Errorf("handshake: issue federation resumption ticket: %w", ticketErr)
+		}
+		acc.ResumptionTicket = &ResumptionTicket{
+			Value:     base64.StdEncoding.EncodeToString(ticketBytes),
+			ExpiresAt: expires,
+		}
+	}
 	sigB64, err := SignServerMessage(r.suite, r.localDomainPriv, &acc)
 	if err != nil {
 		return nil, nil, err
@@ -1061,4 +1305,152 @@ func (r *Responder) lookupPeerDomainKey(domain string) ([]byte, error) {
 		return nil, fmt.Errorf("handshake: peer domain key not found for %s", domain)
 	}
 	return base64.StdEncoding.DecodeString(rec.PublicKey)
+}
+
+// OnResume processes a federation Resume request per HANDSHAKE.md
+// §2.8.7 and returns the canonical FederationAccepted bytes plus the
+// resumed *session.Session on success. On any failure it returns a
+// typed error; the driver maps it to a Rejected with reason_code
+// "resumption_failed" (or one of the identity-invalidation codes
+// from §4.1 when the peer's domain key has been revoked).
+//
+// Domain-ownership proof is NOT repeated on resumption per §2.8.7:
+// the ticket, issued after the original full handshake verified
+// domain ownership, stands in for it. The resumed session uses
+// fresh ephemeral DH mixed with K_resumption per §2.8.3, so it has
+// forward secrecy independent of long-term ticket compromise.
+func (r *Responder) OnResume(data []byte) (acceptedBytes []byte, sess *session.Session, err error) {
+	if r == nil || r.suite == nil {
+		return nil, nil, errors.New("handshake: nil responder or suite")
+	}
+	if r.ticketIssuer == nil {
+		return nil, nil, errors.New("handshake: responder has no TicketIssuer; federation resumption disabled")
+	}
+	var resume FederationResume
+	if err := json.Unmarshal(data, &resume); err != nil {
+		return nil, nil, fmt.Errorf("handshake: parse federation resume: %w", err)
+	}
+	if resume.Type != MessageType || resume.Step != StepResume || resume.Party != PartyServer {
+		return nil, nil, errors.New("handshake: federation resume type/step/party mismatch")
+	}
+	if resume.Nonce == "" || resume.ResumptionTicket == "" || resume.ClientEphemeralKey.Key == "" {
+		return nil, nil, errors.New("handshake: federation resume missing required field")
+	}
+	if resume.ServerDomain == "" {
+		return nil, nil, errors.New("handshake: federation resume missing server_domain")
+	}
+
+	// Open the opaque ticket. Map every issuer error to a generic
+	// failure so the outbound rejection does not leak which underlying
+	// reason triggered (corrupt vs expired vs consumed).
+	ticketRaw, err := base64.StdEncoding.DecodeString(resume.ResumptionTicket)
+	if err != nil {
+		return nil, nil, fmt.Errorf("handshake: federation resumption_ticket base64: %w", err)
+	}
+	now := time.Now().UTC()
+	ctx := context.Background()
+	ticketIdentity, resumptionSecret, _, err := r.ticketIssuer.Open(ctx, ticketRaw, now)
+	if err != nil {
+		return nil, nil, fmt.Errorf("handshake: open federation resumption ticket: %w", err)
+	}
+	defer crypto.Zeroize(resumptionSecret)
+
+	// Cross-check: the ticket's bound identity (peer domain at issue
+	// time) MUST equal the server_domain field in the resume request.
+	// Without this check, an attacker who steals a ticket for one
+	// domain could replay it claiming to be a different domain.
+	if ticketIdentity != resume.ServerDomain {
+		return nil, nil, fmt.Errorf("handshake: federation ticket bound to %q, request claims %q",
+			ticketIdentity, resume.ServerDomain)
+	}
+
+	// Mark consumed BEFORE we proceed. Single-use is irreversible
+	// even on later failure.
+	if err := r.ticketIssuer.Consume(ctx, ticketRaw); err != nil {
+		return nil, nil, fmt.Errorf("handshake: mark federation ticket consumed: %w", err)
+	}
+
+	clientNonce, err := base64.StdEncoding.DecodeString(resume.Nonce)
+	if err != nil {
+		return nil, nil, fmt.Errorf("handshake: federation resume client nonce base64: %w", err)
+	}
+	clientEphPub, err := base64.StdEncoding.DecodeString(resume.ClientEphemeralKey.Key)
+	if err != nil {
+		return nil, nil, fmt.Errorf("handshake: federation resume client ephemeral base64: %w", err)
+	}
+
+	ephShared, ephPub, err := r.suite.KEM().Encapsulate(clientEphPub)
+	if err != nil {
+		return nil, nil, fmt.Errorf("handshake: federation resume ephemeral KEM encapsulate: %w", err)
+	}
+	defer crypto.Zeroize(ephShared)
+
+	serverNonce := make([]byte, 32)
+	if _, err := rand.Read(serverNonce); err != nil {
+		return nil, nil, fmt.Errorf("handshake: federation resume server nonce: %w", err)
+	}
+
+	resumedKeys, err := crypto.DeriveResumedSessionKeys(r.suite.KDF(), ephShared, resumptionSecret, clientNonce, serverNonce)
+	if err != nil {
+		return nil, nil, fmt.Errorf("handshake: derive resumed federation keys: %w", err)
+	}
+
+	newSessionID, err := newULID()
+	if err != nil {
+		resumedKeys.Erase()
+		return nil, nil, err
+	}
+
+	ticketExpires := now.Add(session.MaxTicketLifetime)
+	newTicketBytes, err := r.ticketIssuer.Issue(ctx, ticketIdentity, resumedKeys.Resumption, ticketExpires)
+	if err != nil {
+		resumedKeys.Erase()
+		return nil, nil, fmt.Errorf("handshake: issue federation replacement ticket: %w", err)
+	}
+
+	acc := FederationAccepted{
+		Type:        MessageType,
+		Step:        StepAccepted,
+		Party:       PartyServer,
+		Version:     "1.0.0",
+		SessionID:   newSessionID,
+		Status:      "accepted",
+		SessionTTL:  r.sessionTTL,
+		ServerNonce: base64.StdEncoding.EncodeToString(serverNonce),
+		ServerEphemeralKey: &EphemeralKey{
+			Algorithm: string(r.suite.ID()),
+			Key:       base64.StdEncoding.EncodeToString(ephPub),
+			KeyID:     string(keys.Compute(ephPub)),
+		},
+		ResumptionTicket: &ResumptionTicket{
+			Value:     base64.StdEncoding.EncodeToString(newTicketBytes),
+			ExpiresAt: ticketExpires,
+		},
+		Extensions: extensions.Map{},
+	}
+	sigB64, err := SignServerMessage(r.suite, r.localDomainPriv, &acc)
+	if err != nil {
+		resumedKeys.Erase()
+		return nil, nil, err
+	}
+	acc.ServerSignature = sigB64
+	out, err := CanonicalForHashing(&acc)
+	if err != nil {
+		resumedKeys.Erase()
+		return nil, nil, fmt.Errorf("handshake: canonical resumed federation accepted: %w", err)
+	}
+
+	sess = session.New(session.RoleFederation)
+	sess.ID = newSessionID
+	sess.PeerIdentity = ticketIdentity
+	sess.State = session.StateActive
+	sess.SetKeys(resumedKeys)
+	sess.TTL = time.Duration(r.sessionTTL) * time.Second
+	now = time.Now()
+	sess.EstablishedAt = now
+	sess.ExpiresAt = now.Add(sess.TTL)
+
+	r.sessionID = newSessionID
+	r.peerDomain = ticketIdentity
+	return out, sess, nil
 }

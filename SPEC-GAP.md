@@ -221,7 +221,7 @@ Library's `devicecert.go` was written 2026-04-10, before the spec's `4c14bf5` an
 
 **Open follow-ups:**
 
-- Federation resumption (HANDSHAKE.md §2.8.7) is not yet wired through the federation initiator/responder; the data model is reusable but the federation flow needs its own resume entry points.
+- ~~Federation resumption (HANDSHAKE.md §2.8.7)~~ Landed: `FederationResume` wire type, `FederationAccepted` resume-only fields, `Responder.OnResume`, `Initiator.Resume` / `Initiator.OnResumeAccepted`, `LoadResumptionSecret` setter, ResponderConfig.TicketIssuer field. `OnResume` cross-checks the ticket-bound identity against the request's `server_domain` so a ticket leaked for one domain cannot be replayed under another. End-to-end exercised by `TestFederationHandshakeResume`.
 - A driver helper that wraps "try `Resume`, on `resumption_failed` fall back to full handshake" would simplify integration callers; today they orchestrate it themselves.
 
 ### 4.4 Clock skew tolerance ([conformance boundary across handshake/, delivery/, envelope/])

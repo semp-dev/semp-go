@@ -2,6 +2,8 @@ package test
 
 import (
 	"bytes"
+	"encoding/base64"
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -12,6 +14,7 @@ import (
 	"semp.dev/semp-go/handshake"
 	"semp.dev/semp-go/keys"
 	"semp.dev/semp-go/seal"
+	"semp.dev/semp-go/session"
 )
 
 // TestCrossDomainEnvelopeFlow combines the federation handshake with the
@@ -307,5 +310,167 @@ func TestCrossDomainSessionMACMismatch(t *testing.T) {
 	// Sanity: verifies under the CORRECT key.
 	if err := envelope.VerifySessionMAC(env, suite, macA); err != nil {
 		t.Errorf("VerifySessionMAC under correct key failed: %v", err)
+	}
+}
+
+// TestFederationHandshakeResume exercises HANDSHAKE.md §2.8.7
+// federation resumption: an initiator and responder complete a normal
+// federation handshake (the responder issues a ResumptionTicket),
+// then the initiator uses Initiator.Resume on a fresh state machine
+// to short-circuit to a resumed federation session via
+// Responder.OnResume, and the resumed session's K_env_mac matches
+// across both sides.
+func TestFederationHandshakeResume(t *testing.T) {
+	suite := crypto.SuiteBaseline
+
+	storeA := newMemStore()
+	storeB := newMemStore()
+	sigPubA, sigPrivA, _ := suite.Signer().GenerateKeyPair()
+	sigFPA := storeA.putDomainKey("a.example", sigPubA)
+	storeB.putDomainKey("a.example", sigPubA)
+	sigPubB, sigPrivB, _ := suite.Signer().GenerateKeyPair()
+	sigFPB := storeA.putDomainKey("b.example", sigPubB)
+	storeB.putDomainKey("b.example", sigPubB)
+	_ = sigFPB
+
+	ticketKey := make([]byte, suite.AEAD().KeySize())
+	for i := range ticketKey {
+		ticketKey[i] = byte(i + 1)
+	}
+	issuer, err := session.NewStatelessTicketIssuer(suite.AEAD(), ticketKey)
+	if err != nil {
+		t.Fatalf("NewStatelessTicketIssuer: %v", err)
+	}
+
+	mkInitiator := func() *handshake.Initiator {
+		return handshake.NewInitiator(handshake.InitiatorConfig{
+			Suite:                 suite,
+			Store:                 storeA,
+			LocalDomain:           "a.example",
+			LocalServerID:         "server-a-1",
+			LocalDomainKeyID:      sigFPA,
+			LocalDomainPrivateKey: sigPrivA,
+			PeerDomain:            "b.example",
+			DomainProof: handshake.DomainProof{
+				Method: handshake.DomainVerifyTestTrust, Data: "ok",
+			},
+		})
+	}
+	mkResponder := func() *handshake.Responder {
+		return handshake.NewResponder(handshake.ResponderConfig{
+			Suite:                 suite,
+			Store:                 storeB,
+			LocalDomain:           "b.example",
+			LocalServerID:         "server-b-1",
+			LocalDomainKeyID:      sigFPB,
+			LocalDomainPrivateKey: sigPrivB,
+			Policy: handshake.FederationPolicy{
+				MessageRetention: "7d",
+				UserDiscovery:    "allowed",
+				RelayAllowed:     true,
+			},
+			SessionTTL:   3600,
+			TicketIssuer: issuer,
+		})
+	}
+
+	// ---- 1. Full federation handshake to obtain the ticket.
+	initiator1 := mkInitiator()
+	responder1 := mkResponder()
+	defer initiator1.Erase()
+	defer responder1.Erase()
+
+	initBytes, err := initiator1.Init()
+	if err != nil {
+		t.Fatalf("initiator1.Init: %v", err)
+	}
+	respBytes, err := responder1.OnInit(initBytes)
+	if err != nil {
+		t.Fatalf("responder1.OnInit: %v", err)
+	}
+	confirmBytes, sessA1, err := initiator1.OnResponse(respBytes)
+	if err != nil {
+		t.Fatalf("initiator1.OnResponse: %v", err)
+	}
+	acceptedBytes, _, err := responder1.OnConfirm(confirmBytes)
+	if err != nil {
+		t.Fatalf("responder1.OnConfirm: %v", err)
+	}
+	if err := initiator1.OnAccepted(acceptedBytes, sessA1); err != nil {
+		t.Fatalf("initiator1.OnAccepted: %v", err)
+	}
+
+	// Pull the ticket.
+	var firstAcc struct {
+		ResumptionTicket *struct {
+			Value     string    `json:"value"`
+			ExpiresAt time.Time `json:"expires_at"`
+		} `json:"resumption_ticket"`
+	}
+	if err := json.Unmarshal(acceptedBytes, &firstAcc); err != nil {
+		t.Fatalf("unmarshal first accepted: %v", err)
+	}
+	if firstAcc.ResumptionTicket == nil {
+		t.Fatal("responder did not issue a federation resumption ticket")
+	}
+	ticketBytes, err := base64.StdEncoding.DecodeString(firstAcc.ResumptionTicket.Value)
+	if err != nil {
+		t.Fatalf("decode federation ticket: %v", err)
+	}
+	resumptionSecret := append([]byte(nil), sessA1.Resumption()...)
+	if len(resumptionSecret) == 0 {
+		t.Fatal("federation session has no K_resumption")
+	}
+
+	// ---- 2. Federation resume on fresh state machines.
+	initiator2 := mkInitiator()
+	responder2 := mkResponder()
+	defer initiator2.Erase()
+	defer responder2.Erase()
+
+	initiator2.LoadResumptionSecret(resumptionSecret)
+	resumeBytes, err := initiator2.Resume(ticketBytes, 0)
+	if err != nil {
+		t.Fatalf("initiator2.Resume: %v", err)
+	}
+	resumedAcceptedBytes, sessB2, err := responder2.OnResume(resumeBytes)
+	if err != nil {
+		t.Fatalf("responder2.OnResume: %v", err)
+	}
+	sessA2, newTicketBytes, err := initiator2.OnResumeAccepted(resumedAcceptedBytes)
+	if err != nil {
+		t.Fatalf("initiator2.OnResumeAccepted: %v", err)
+	}
+
+	// ---- 3. Both sides agree on the resumed session keys.
+	if sessA2.ID != sessB2.ID {
+		t.Errorf("resumed federation session ID mismatch: A=%s B=%s", sessA2.ID, sessB2.ID)
+	}
+	if !bytesEqualHelper(sessA2.EnvMAC(), sessB2.EnvMAC()) {
+		t.Error("resumed federation K_env_mac mismatch between initiator and responder")
+	}
+	if bytesEqualHelper(sessA1.EnvMAC(), sessA2.EnvMAC()) {
+		t.Error("resumed federation K_env_mac matches original; resume did not derive fresh keys")
+	}
+	if sessB2.PeerIdentity != "a.example" {
+		t.Errorf("resumed responder peer identity = %q, want a.example", sessB2.PeerIdentity)
+	}
+	if len(newTicketBytes) == 0 {
+		t.Error("OnResumeAccepted returned empty federation replacement ticket")
+	}
+
+	// ---- 4. Single-use enforcement: a second resume with the SAME
+	// ticket MUST fail.
+	initiator3 := mkInitiator()
+	defer initiator3.Erase()
+	responder3 := mkResponder()
+	defer responder3.Erase()
+	initiator3.LoadResumptionSecret(resumptionSecret)
+	resumeBytes2, err := initiator3.Resume(ticketBytes, 0)
+	if err != nil {
+		t.Fatalf("initiator3.Resume: %v", err)
+	}
+	if _, _, err := responder3.OnResume(resumeBytes2); err == nil {
+		t.Error("second federation OnResume with consumed ticket: want error, got nil")
 	}
 }
