@@ -21,6 +21,14 @@ const (
 	InfoSessionMACC2S = "SEMP-v1-session-mac-c2s"
 	InfoSessionMACS2C = "SEMP-v1-session-mac-s2c"
 	InfoSessionEnvMAC = "SEMP-v1-session-env-mac"
+	// InfoSessionResumption labels the K_resumption HKDF expansion per
+	// SESSION.md section 2.1. K_resumption is NOT used to encrypt or
+	// MAC any message in the current session; it is the secret a
+	// server retains so that, mixed with a fresh ephemeral DH on a
+	// later resume attempt, the resumed session derives a new key
+	// schedule. See HANDSHAKE.md section 2.8.3 and SESSION.md
+	// section 2.7.
+	InfoSessionResumption = "SEMP-v1-session-resumption"
 )
 
 // Rekey HKDF info labels. Distinct from the initial session labels to
@@ -80,10 +88,17 @@ func (kdfHKDFSHA512) Expand(prk, info []byte, length int) []byte {
 	return out
 }
 
-// SessionKeys holds the five symmetric keys derived from the handshake
-// shared secret. Every field is exactly 32 bytes when populated. The struct
+// SessionKeys holds the symmetric keys derived from the handshake
+// shared secret. Every populated field is exactly 32 bytes. The struct
 // MUST be erased via Erase before the Session that owns it is freed
 // (SESSION.md §2.4).
+//
+// EncC2S, EncS2C, MACC2S, MACS2C, and EnvMAC are the five
+// in-session keys. Resumption is the optional sixth key per
+// SESSION.md section 2.1: a server that supports resumption retains
+// it; clients leave it empty (or, for stateless ticket flows, the
+// server stores it inside the ticket and never returns it
+// directly).
 type SessionKeys struct {
 	// EncC2S encrypts client → server handshake messages.
 	EncC2S []byte
@@ -95,6 +110,12 @@ type SessionKeys struct {
 	MACS2C []byte
 	// EnvMAC authenticates envelopes via seal.session_mac.
 	EnvMAC []byte
+	// Resumption is the K_resumption secret retained for a future
+	// resume attempt per HANDSHAKE.md §2.8. Servers that issue
+	// resumption tickets bind this value into the ticket and erase
+	// the in-memory copy after issuance. Clients do not see this
+	// value.
+	Resumption []byte
 }
 
 // Erase zeroes every key field in place. Callers MUST invoke Erase as part
@@ -103,23 +124,24 @@ func (k *SessionKeys) Erase() {
 	if k == nil {
 		return
 	}
-	for _, b := range [][]byte{k.EncC2S, k.EncS2C, k.MACC2S, k.MACS2C, k.EnvMAC} {
+	for _, b := range [][]byte{k.EncC2S, k.EncS2C, k.MACC2S, k.MACS2C, k.EnvMAC, k.Resumption} {
 		Zeroize(b)
 	}
 }
 
-// DeriveSessionKeys produces the five session keys from the ephemeral shared
-// secret and the client/server nonces. The procedure is:
+// DeriveSessionKeys produces the six session keys from the ephemeral
+// shared secret and the client/server nonces. The procedure is:
 //
 //  1. salt = client_nonce || server_nonce
 //  2. PRK  = HKDF-Extract(salt, sharedSecret)
-//  3. K_enc_c2s = HKDF-Expand(PRK, InfoSessionEncC2S, 32)
-//  4. ... and so on for the four other labels.
+//  3. K_enc_c2s     = HKDF-Expand(PRK, InfoSessionEncC2S, 32)
+//  4. ... and so on for the four other in-session labels.
+//  5. K_resumption  = HKDF-Expand(PRK, InfoSessionResumption, 32)
 //
-// kdf may be nil; if so, NewKDFHKDFSHA512 is used. Both currently defined
-// SEMP suites use HKDF-SHA-512.
+// kdf may be nil; if so, NewKDFHKDFSHA512 is used. Both currently
+// defined SEMP suites use HKDF-SHA-512.
 //
-// Reference: SESSION.md §2.1, VECTORS.md §2.1.
+// Reference: SESSION.md §2.1, HANDSHAKE.md §2.8, VECTORS.md §2.1.
 func DeriveSessionKeys(kdf KDF, sharedSecret, clientNonce, serverNonce []byte) (*SessionKeys, error) {
 	if len(sharedSecret) == 0 {
 		return nil, errors.New("crypto: empty shared secret")
@@ -137,11 +159,58 @@ func DeriveSessionKeys(kdf KDF, sharedSecret, clientNonce, serverNonce []byte) (
 	defer Zeroize(prk)
 
 	return &SessionKeys{
-		EncC2S: kdf.Expand(prk, []byte(InfoSessionEncC2S), sessionKeyLength),
-		EncS2C: kdf.Expand(prk, []byte(InfoSessionEncS2C), sessionKeyLength),
-		MACC2S: kdf.Expand(prk, []byte(InfoSessionMACC2S), sessionKeyLength),
-		MACS2C: kdf.Expand(prk, []byte(InfoSessionMACS2C), sessionKeyLength),
-		EnvMAC: kdf.Expand(prk, []byte(InfoSessionEnvMAC), sessionKeyLength),
+		EncC2S:     kdf.Expand(prk, []byte(InfoSessionEncC2S), sessionKeyLength),
+		EncS2C:     kdf.Expand(prk, []byte(InfoSessionEncS2C), sessionKeyLength),
+		MACC2S:     kdf.Expand(prk, []byte(InfoSessionMACC2S), sessionKeyLength),
+		MACS2C:     kdf.Expand(prk, []byte(InfoSessionMACS2C), sessionKeyLength),
+		EnvMAC:     kdf.Expand(prk, []byte(InfoSessionEnvMAC), sessionKeyLength),
+		Resumption: kdf.Expand(prk, []byte(InfoSessionResumption), sessionKeyLength),
+	}, nil
+}
+
+// DeriveResumedSessionKeys derives a fresh SessionKeys for a resumed
+// session per HANDSHAKE.md §2.8.3. The HKDF-Extract input keying
+// material is the concatenation of the fresh ephemeral DH output and
+// the resumption secret recovered from the ticket; the salt is
+// client_nonce || server_nonce, same as the full-handshake derivation.
+// The five in-session keys and the next resumption secret use the
+// same labels as DeriveSessionKeys, so the output schedule is
+// indistinguishable from a full handshake at the per-key level: only
+// the IKM mixing differs.
+//
+// Mixing both inputs preserves forward secrecy on resumption: an
+// attacker who steals the ticket alone cannot derive the resumed
+// session's keys without also breaking the ephemeral DH assumption.
+func DeriveResumedSessionKeys(kdf KDF, ephemeralSharedSecret, resumptionSecret, clientNonce, serverNonce []byte) (*SessionKeys, error) {
+	if len(ephemeralSharedSecret) == 0 {
+		return nil, errors.New("crypto: empty ephemeral shared secret")
+	}
+	if len(resumptionSecret) == 0 {
+		return nil, errors.New("crypto: empty resumption secret")
+	}
+	if len(clientNonce) == 0 || len(serverNonce) == 0 {
+		return nil, errors.New("crypto: empty nonce")
+	}
+	if kdf == nil {
+		kdf = NewKDFHKDFSHA512()
+	}
+	ikm := make([]byte, 0, len(ephemeralSharedSecret)+len(resumptionSecret))
+	ikm = append(ikm, ephemeralSharedSecret...)
+	ikm = append(ikm, resumptionSecret...)
+	defer Zeroize(ikm)
+	salt := make([]byte, 0, len(clientNonce)+len(serverNonce))
+	salt = append(salt, clientNonce...)
+	salt = append(salt, serverNonce...)
+	prk := kdf.Extract(salt, ikm)
+	defer Zeroize(prk)
+
+	return &SessionKeys{
+		EncC2S:     kdf.Expand(prk, []byte(InfoSessionEncC2S), sessionKeyLength),
+		EncS2C:     kdf.Expand(prk, []byte(InfoSessionEncS2C), sessionKeyLength),
+		MACC2S:     kdf.Expand(prk, []byte(InfoSessionMACC2S), sessionKeyLength),
+		MACS2C:     kdf.Expand(prk, []byte(InfoSessionMACS2C), sessionKeyLength),
+		EnvMAC:     kdf.Expand(prk, []byte(InfoSessionEnvMAC), sessionKeyLength),
+		Resumption: kdf.Expand(prk, []byte(InfoSessionResumption), sessionKeyLength),
 	}, nil
 }
 

@@ -309,3 +309,87 @@ func TestSuiteEndToEnd(t *testing.T) {
 		}
 	}
 }
+
+// TestDeriveSessionKeysIncludesResumption confirms that DeriveSessionKeys
+// produces a non-empty K_resumption alongside the five in-session keys
+// per SESSION.md §2.1. K_resumption is not used to encrypt or MAC any
+// in-session message; it is the secret a server retains for a future
+// resume attempt.
+func TestDeriveSessionKeysIncludesResumption(t *testing.T) {
+	suite := SuiteBaseline
+	shared := bytes.Repeat([]byte{0xAB}, 32)
+	clientNonce := bytes.Repeat([]byte{0x11}, 32)
+	serverNonce := bytes.Repeat([]byte{0x22}, 32)
+	keys, err := DeriveSessionKeys(suite.KDF(), shared, clientNonce, serverNonce)
+	if err != nil {
+		t.Fatalf("DeriveSessionKeys: %v", err)
+	}
+	if len(keys.Resumption) != 32 {
+		t.Errorf("Resumption length = %d, want 32", len(keys.Resumption))
+	}
+	// K_resumption MUST be distinct from every other derived key
+	// (different HKDF info label).
+	for name, k := range map[string][]byte{
+		"EncC2S": keys.EncC2S,
+		"EncS2C": keys.EncS2C,
+		"MACC2S": keys.MACC2S,
+		"MACS2C": keys.MACS2C,
+		"EnvMAC": keys.EnvMAC,
+	} {
+		if bytes.Equal(k, keys.Resumption) {
+			t.Errorf("K_resumption matches %s; HKDF labels collided", name)
+		}
+	}
+	keys.Erase()
+	for _, x := range keys.Resumption {
+		if x != 0 {
+			t.Error("Erase did not zero K_resumption")
+			break
+		}
+	}
+}
+
+// TestDeriveResumedSessionKeysMixesBothInputs confirms that the
+// resumption key derivation requires BOTH the fresh ephemeral DH and
+// the resumption secret per HANDSHAKE.md §2.8.3. Output schedules with
+// either input swapped MUST differ.
+func TestDeriveResumedSessionKeysMixesBothInputs(t *testing.T) {
+	suite := SuiteBaseline
+	ephA := bytes.Repeat([]byte{0xAA}, 32)
+	ephB := bytes.Repeat([]byte{0xBB}, 32)
+	resumptionA := bytes.Repeat([]byte{0xCC}, 32)
+	resumptionB := bytes.Repeat([]byte{0xDD}, 32)
+	clientNonce := bytes.Repeat([]byte{0x11}, 32)
+	serverNonce := bytes.Repeat([]byte{0x22}, 32)
+
+	base, err := DeriveResumedSessionKeys(suite.KDF(), ephA, resumptionA, clientNonce, serverNonce)
+	if err != nil {
+		t.Fatalf("base DeriveResumedSessionKeys: %v", err)
+	}
+	if len(base.EnvMAC) != 32 || len(base.Resumption) != 32 {
+		t.Fatalf("derived keys are wrong size")
+	}
+	// Same resumption secret, different ephemeral → different keys.
+	diffEph, err := DeriveResumedSessionKeys(suite.KDF(), ephB, resumptionA, clientNonce, serverNonce)
+	if err != nil {
+		t.Fatalf("diffEph DeriveResumedSessionKeys: %v", err)
+	}
+	if bytes.Equal(base.EnvMAC, diffEph.EnvMAC) {
+		t.Error("changing only the ephemeral DH did not change EnvMAC; ephemeral input not mixed in")
+	}
+	// Same ephemeral, different resumption secret → different keys.
+	diffResume, err := DeriveResumedSessionKeys(suite.KDF(), ephA, resumptionB, clientNonce, serverNonce)
+	if err != nil {
+		t.Fatalf("diffResume DeriveResumedSessionKeys: %v", err)
+	}
+	if bytes.Equal(base.EnvMAC, diffResume.EnvMAC) {
+		t.Error("changing only the resumption secret did not change EnvMAC; resumption input not mixed in")
+	}
+	// Empty inputs are rejected.
+	if _, err := DeriveResumedSessionKeys(suite.KDF(), nil, resumptionA, clientNonce, serverNonce); err == nil {
+		t.Error("empty ephemeral: want error")
+	}
+	if _, err := DeriveResumedSessionKeys(suite.KDF(), ephA, nil, clientNonce, serverNonce); err == nil {
+		t.Error("empty resumption: want error")
+	}
+}
