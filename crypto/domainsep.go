@@ -86,6 +86,11 @@ const (
 	// attestation over the canonical forwarded_from block
 	// (ENVELOPE.md section 6.6.3).
 	SigCtxForwarderAttestation = "SEMP-FORWARDER-ATTESTATION:"
+
+	// SigCtxUserPolicy prefixes the originating-device signature on a
+	// SEMP_USER_POLICY update record (DELIVERY.md section 7.1 plus
+	// ENVELOPE.md section 4.3, registered in spec commit 4e7eef7).
+	SigCtxUserPolicy = "SEMP-USER-POLICY:"
 )
 
 // PrefixedMessage prepends a domain-separation context prefix to a message.

@@ -277,6 +277,8 @@ Track migration as its own follow-up cluster.
 - First base interval of 60s MUST be enforced (no shorter initial delay).
 - Non-recoverable reason codes MUST NOT retry. Unknown reason code defaults to non-recoverable.
 
+**Status:** Helpers landed in commit 6f60102. `RetryConfig` + `SanitizeRetry` + `BaseInterval` + `JitterInterval` + `NextAttempt` + `IsRecoverable` + `EffectiveDeadline` cover the §2.3-§2.4 rules. `QueueState` + `QueueRecordState` + `QueueState.SetTerminal` cover §2.5. `CancelRequest` / `CancelResponse` + `SubmissionStepCancel` / `SubmissionStepCancelResponse` cover §2.7. Server-side scheduler that consumes these to drive an actual queue is the open follow-up.
+
 ### 4.6 Staged delivery ([delivery/])
 
 `[commit fe95e40]`. Device-sync delivery-disposition for staged filter pipelines.
@@ -286,6 +288,8 @@ Track migration as its own follow-up cluster.
 - `SEMP_DISPOSITION` sync message per `DELIVERY.md §3.2`.
 - Conservative aggregation: any `suppress` at a stage drops the envelope; otherwise `advance`.
 - Fail-open on stage timeout.
+
+**Status:** Disposition types landed in commit c46398e. `Disposition` (the inner data of the `delivery-disposition` sync kind) plus `DispositionDecision` enum, `DispositionStageOutcome`, `AggregateDispositions` (suppress-wins per §3.2.3, fail-open per §3.2.4), `StagedHeld` / `StagedHeldStage` data structures, and `IsStageComplete` for the §3.2.2 wait-termination rule. Authentication (§3.2.5) and the home-server wait-and-aggregate loop are open follow-ups.
 
 ### 4.7 Signed delivery receipts, evidence, user policy ([delivery/], [reputation/])
 
@@ -298,6 +302,16 @@ Track migration as its own follow-up cluster.
 - Retention per `DELIVERY.md §1.1.1.6` and `CONFORMANCE §4.13.1` (SHOULD drop after client ack; MUST NOT exceed `postmark.expires + 30 days`).
 - Envelope `evidence` properties (pointer into reputation abuse report).
 - `SEMP_USER_POLICY` message frame for policy sync (block list, first-contact mode, other rule kinds).
+
+**Status:** Wire records landed. `DeliveryReceipt` + `ComputeEnvelopeHash` + `SignDeliveryReceipt` + `VerifyDeliveryReceipt` + `VerifyEnvelopeBinding` cover §1.1.1. `UserPolicyMessage` + `PolicyOperation` + `PolicyOp` enum + `SignUserPolicyMessage` + `VerifyUserPolicyMessage` cover §7.1, including the §7.3 singleton-vs-list op rules (first_contact accepts only modify; remove requires entry_id; add requires entry). Spec commit 4e7eef7 registered the missing `SEMP-USER-POLICY:` domain-separation prefix; library mirrors it as `crypto.SigCtxUserPolicy`.
+
+**Open follow-ups:**
+
+- Sender-server `delivered` flow: verify the receipt before acknowledging (DELIVERY.md §1.1.1.6 obligation). Currently the inboxd happy-path treats a successful peer response as `delivered` without receipt verification.
+- Recipient-server inline issuance: produce a receipt alongside every `delivered` acknowledgment (§1.1.1.5).
+- Receipt-retention pruning: drop receipt copies after client ack per the §1.1.1.6 retention rule.
+- `evidence` envelope properties: pointer into reputation abuse report (separate spec section, not yet read).
+- Home-server policy-version state: monotonically increasing counter per user, atomic application of operations per §7.2, conflict resolution by `(policy_version, timestamp)` per §7.2, propagation to other devices on next connection.
 
 ### 4.8 Multi-device: registration, revocation, directory ([keys/])
 
