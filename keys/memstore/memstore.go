@@ -18,6 +18,7 @@ import (
 	"context"
 	"encoding/base64"
 	"errors"
+	"fmt"
 	"sync"
 	"time"
 
@@ -199,14 +200,23 @@ func (s *Store) LookupDeviceCertificate(_ context.Context, deviceKeyID keys.Fing
 	return cert, nil
 }
 
-// PutDeviceCertificate implements keys.Store.
+// PutDeviceCertificate implements keys.Store. The store keys
+// certificates by the delegated device's public-key fingerprint
+// computed from cert.DevicePublicKey (base64-decoded), matching
+// the LookupDeviceCertificate parameter shape used by
+// inboxd's scope-enforcement path.
 func (s *Store) PutDeviceCertificate(_ context.Context, cert *keys.DeviceCertificate) error {
 	if cert == nil {
 		return errors.New("memstore: nil certificate")
 	}
+	pub, err := base64.StdEncoding.DecodeString(cert.DevicePublicKey)
+	if err != nil {
+		return fmt.Errorf("memstore: decode device_public_key: %w", err)
+	}
+	fp := keys.Compute(pub)
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.deviceCerts[cert.DeviceKeyID] = cert
+	s.deviceCerts[fp] = cert
 	return nil
 }
 

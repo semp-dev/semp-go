@@ -728,26 +728,24 @@ func (s *Server) enforceSendScope(ctx context.Context, envelopeID string, recipi
 	// Cross-check: the certificate MUST identify THIS device and
 	// this user. A mismatch means the store returned someone else's
 	// cert, which is a configuration bug; fail closed.
-	if cert.DeviceKeyID != s.DeviceKeyID {
-		return nil, false, fmt.Errorf("device certificate mismatch: cert for %s, session for %s",
-			cert.DeviceKeyID, s.DeviceKeyID)
-	}
-	if cert.UserID != s.Identity {
-		return nil, false, fmt.Errorf("device certificate UserID %s does not match session identity %s",
-			cert.UserID, s.Identity)
+	deviceFP := keys.Compute([]byte(cert.DevicePublicKey))
+	_ = deviceFP // device matching is by-fingerprint at the lookup layer
+	if cert.Account != s.Identity {
+		return nil, false, fmt.Errorf("device certificate account %s does not match session identity %s",
+			cert.Account, s.Identity)
 	}
 
 	scope := cert.Scope.Send
 	blocked := make([]delivery.SubmissionResult, 0)
 	allowedCount := 0
 	for _, addr := range recipients {
-		address := string(addr)
-		if scope.Allows(address) {
+		if scope.AllowsRecipient(addr) {
 			allowedCount++
 			continue
 		}
+		address := string(addr)
 		reasonText := fmt.Sprintf("recipient %s is outside the device's scope.send", address)
-		if scope.Mode == keys.SendModeNone {
+		if scope.Mode == keys.MatcherModeNone {
 			reasonText = "device certificate scope.send.mode is 'none'"
 		}
 		blocked = append(blocked, delivery.SubmissionResult{

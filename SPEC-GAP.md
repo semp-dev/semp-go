@@ -200,6 +200,15 @@ Library's `devicecert.go` was written 2026-04-10, before the spec's `4c14bf5` an
 - Certificate lifetime cap 365 days (`expires_at` bound).
 - `delivery_stage` only valid on `receive` matcher.
 
+**Status:** Type refactor landed. `DeviceCertificate` now has the spec-shape fields (`device_id`, `device_public_key`, `account`, `issued_by`, `issued_at`, `expires_at`). `Scope` exposes the five uniform fields. `ScopeMatcher` carries `mode`/`allow`/`deny`/`rate_limits` (+ optional `delivery_stage` on receive). `ScopeResource` carries `read`/`write`/`rate_limits`. `RateLimitTier` enforces per-spec bounds. `Validate()` enforces the §10.3.3 well-formedness rules and the §10.3.8 365-day lifetime cap. inboxd's send-scope enforcement updated to use `ScopeMatcher.AllowsRecipient`. Tests cover all matcher modes, all entry types, every validation failure path, and the lifetime cap.
+
+**Open follow-ups:**
+
+- `delivery_stage` enforcement at receive-side delivery dispatch (DELIVERY.md §3.2 staged delivery).
+- Resource-permission enforcement at the blocklist / key-management / device-management endpoints (read/write gates currently surface as errors only at the type level).
+- Rate-limit tier enforcement against rolling counters (no counter store yet).
+- Issuance flow validation (KEY.md §10.3.5–10.3.9) when device registration paths land.
+
 ### 4.2 Handshake challenge abstraction ([handshake/message.go], [handshake/client.go])
 
 `[commit 97e7bb0]`. The spec generalized first-contact policy to an extensible `challenge_type`.

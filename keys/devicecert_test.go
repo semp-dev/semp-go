@@ -2,19 +2,47 @@ package keys_test
 
 import (
 	"context"
+	"encoding/base64"
 	"testing"
 	"time"
 
+	"semp.dev/semp-go/brief"
 	"semp.dev/semp-go/crypto"
 	"semp.dev/semp-go/keys"
 	"semp.dev/semp-go/keys/memstore"
 )
 
-// TestSignDeviceCertificateRoundTrip signs a device certificate with
-// a fabricated primary identity key, then verifies both via the
-// direct VerifyDeviceCertificate path and the VerifyChain path
-// (which additionally walks the store to confirm the issuer is
-// authorized for the cert's UserID).
+// minimalScope returns a Scope that satisfies the §10.3.3 "every
+// field REQUIRED" rule. Adjust returned fields in callers that want
+// to exercise non-default behavior.
+func minimalScope() keys.Scope {
+	return keys.Scope{
+		Send:      keys.ScopeMatcher{Mode: keys.MatcherModeUnrestricted, RateLimits: []keys.RateLimitTier{}},
+		Receive:   keys.ScopeMatcher{Mode: keys.MatcherModeUnrestricted, RateLimits: []keys.RateLimitTier{}, DeliveryStage: 1},
+		Blocklist: keys.ScopeResource{Read: false, Write: false, RateLimits: []keys.RateLimitTier{}},
+		Keys:      keys.ScopeResource{Read: false, Write: false, RateLimits: []keys.RateLimitTier{}},
+		Devices:   keys.ScopeResource{Read: false, Write: false, RateLimits: []keys.RateLimitTier{}},
+	}
+}
+
+// newTestCert assembles a DeviceCertificate with the supplied
+// delegated public key, account, and scope. issuedAt and expiresAt
+// default to "now and 30 days from now"; tests can override.
+func newTestCert(devicePub []byte, account string, issuerKeyID keys.Fingerprint, scope keys.Scope) *keys.DeviceCertificate {
+	now := time.Now().UTC()
+	return &keys.DeviceCertificate{
+		Type:            "SEMP_DEVICE_CERTIFICATE",
+		Version:         "1.0.0",
+		DeviceID:        "01JTESTDEVICE000000000000001",
+		DevicePublicKey: base64.StdEncoding.EncodeToString(devicePub),
+		Account:         account,
+		IssuedBy:        "01JTESTISSUER0000000000000001",
+		IssuedAt:        now,
+		ExpiresAt:       now.Add(30 * 24 * time.Hour),
+		Scope:           scope,
+	}
+}
+
 func TestSignDeviceCertificateRoundTrip(t *testing.T) {
 	suite := crypto.SuiteBaseline
 	signer := suite.Signer()
@@ -24,30 +52,19 @@ func TestSignDeviceCertificateRoundTrip(t *testing.T) {
 		t.Fatalf("primary keypair: %v", err)
 	}
 	primaryFP := keys.Compute(primaryPub)
-
-	// Delegated device key (just a fingerprint — we never actually
-	// sign anything with it in this test).
 	delegatedPub, _, _ := signer.GenerateKeyPair()
-	delegatedFP := keys.Compute(delegatedPub)
 
-	cert := &keys.DeviceCertificate{
-		Type:               "SEMP_DEVICE_CERTIFICATE",
-		Version:            "1.0.0",
-		UserID:             "alice@example.com",
-		DeviceID:           "01JTESTDEVICE000000000000001",
-		DeviceKeyID:        delegatedFP,
-		IssuingDeviceKeyID: primaryFP,
-		Scope: keys.Scope{
-			Send: keys.SendScope{
-				Mode:  keys.SendModeRestricted,
-				Allow: []string{"bob@example.com"},
-			},
-			Receive: true,
+	scope := minimalScope()
+	scope.Send = keys.ScopeMatcher{
+		Mode: keys.MatcherModeRestricted,
+		Allow: []keys.ScopeEntry{
+			{Type: keys.EntityTypeUser, Address: "bob@example.com"},
 		},
-		IssuedAt: time.Date(2026, 4, 10, 0, 0, 0, 0, time.UTC),
+		RateLimits: []keys.RateLimitTier{},
 	}
+	cert := newTestCert(delegatedPub, "alice@example.com", primaryFP, scope)
 
-	if err := keys.SignDeviceCertificate(signer, primaryPriv, cert); err != nil {
+	if err := keys.SignDeviceCertificate(signer, primaryPriv, primaryFP, cert); err != nil {
 		t.Fatalf("SignDeviceCertificate: %v", err)
 	}
 	if cert.Signature.Value == "" {
@@ -57,13 +74,10 @@ func TestSignDeviceCertificateRoundTrip(t *testing.T) {
 		t.Errorf("Signature.KeyID = %s, want %s", cert.Signature.KeyID, primaryFP)
 	}
 
-	// Direct verify: pass the issuer's public key.
 	if err := keys.VerifyDeviceCertificate(signer, cert, primaryPub); err != nil {
 		t.Errorf("VerifyDeviceCertificate on untampered cert: %v", err)
 	}
 
-	// VerifyChain: requires the issuer to be registered as an
-	// identity key in the store for the cert's UserID.
 	store := memstore.New()
 	store.PutUserKey("alice@example.com", keys.TypeIdentity, "ed25519", primaryPub)
 	if err := cert.VerifyChain(context.Background(), suite, store); err != nil {
@@ -76,34 +90,24 @@ func TestSignDeviceCertificateRoundTrip(t *testing.T) {
 		t.Error("VerifyChain accepted a cert whose issuer is not registered")
 	}
 
-	// Tampering with a covered field (DeviceKeyID) MUST break verify.
+	// Tampering with a covered field MUST break verify.
 	tampered := *cert
-	tampered.DeviceKeyID = "attacker-chosen-fp"
+	tampered.Account = "mallory@attacker.example"
 	if err := keys.VerifyDeviceCertificate(signer, &tampered, primaryPub); err == nil {
-		t.Error("VerifyDeviceCertificate accepted a tampered DeviceKeyID")
+		t.Error("VerifyDeviceCertificate accepted a tampered Account")
 	}
 }
 
-// TestSignDeviceCertificateWrongKey confirms a signature by one
-// primary device key does not verify under a different public key.
 func TestSignDeviceCertificateWrongKey(t *testing.T) {
 	suite := crypto.SuiteBaseline
 	signer := suite.Signer()
 
-	_, realPriv, _ := signer.GenerateKeyPair()
+	realPub, realPriv, _ := signer.GenerateKeyPair()
 	wrongPub, _, _ := signer.GenerateKeyPair()
+	delegatedPub, _, _ := signer.GenerateKeyPair()
 
-	cert := &keys.DeviceCertificate{
-		Type:               "SEMP_DEVICE_CERTIFICATE",
-		Version:            "1.0.0",
-		UserID:             "alice@example.com",
-		DeviceID:           "id",
-		DeviceKeyID:        "dev-fp",
-		IssuingDeviceKeyID: "primary-fp",
-		Scope:              keys.Scope{Send: keys.SendScope{Mode: keys.SendModeAll}},
-		IssuedAt:           time.Now(),
-	}
-	if err := keys.SignDeviceCertificate(signer, realPriv, cert); err != nil {
+	cert := newTestCert(delegatedPub, "alice@example.com", keys.Compute(realPub), minimalScope())
+	if err := keys.SignDeviceCertificate(signer, realPriv, keys.Compute(realPub), cert); err != nil {
 		t.Fatalf("SignDeviceCertificate: %v", err)
 	}
 	if err := keys.VerifyDeviceCertificate(signer, cert, wrongPub); err == nil {
@@ -111,32 +115,20 @@ func TestSignDeviceCertificateWrongKey(t *testing.T) {
 	}
 }
 
-// TestVerifyChainRevokedIssuer confirms that a revoked issuing
-// identity key causes VerifyChain to fail even if the signature
-// itself is cryptographically valid.
 func TestVerifyChainRevokedIssuer(t *testing.T) {
 	suite := crypto.SuiteBaseline
 	signer := suite.Signer()
 	primaryPub, primaryPriv, _ := signer.GenerateKeyPair()
 	primaryFP := keys.Compute(primaryPub)
+	delegatedPub, _, _ := signer.GenerateKeyPair()
 
-	cert := &keys.DeviceCertificate{
-		Type:               "SEMP_DEVICE_CERTIFICATE",
-		Version:            "1.0.0",
-		UserID:             "alice@example.com",
-		DeviceID:           "id",
-		DeviceKeyID:        "dev-fp",
-		IssuingDeviceKeyID: primaryFP,
-		Scope:              keys.Scope{Send: keys.SendScope{Mode: keys.SendModeAll}},
-		IssuedAt:           time.Now(),
-	}
-	if err := keys.SignDeviceCertificate(signer, primaryPriv, cert); err != nil {
+	cert := newTestCert(delegatedPub, "alice@example.com", primaryFP, minimalScope())
+	if err := keys.SignDeviceCertificate(signer, primaryPriv, primaryFP, cert); err != nil {
 		t.Fatalf("SignDeviceCertificate: %v", err)
 	}
 
 	store := memstore.New()
 	store.PutUserKey("alice@example.com", keys.TypeIdentity, "ed25519", primaryPub)
-	// Mark the issuer key as revoked.
 	if err := store.PutRevocation(context.Background(), primaryFP, &keys.Revocation{
 		Reason:    keys.ReasonKeyCompromise,
 		RevokedAt: time.Now(),
@@ -148,27 +140,18 @@ func TestVerifyChainRevokedIssuer(t *testing.T) {
 	}
 }
 
-// TestVerifyChainExpired confirms that a certificate whose Expires
-// timestamp is in the past is rejected, even if the signature and
-// chain are otherwise valid.
 func TestVerifyChainExpired(t *testing.T) {
 	suite := crypto.SuiteBaseline
 	signer := suite.Signer()
 	primaryPub, primaryPriv, _ := signer.GenerateKeyPair()
 	primaryFP := keys.Compute(primaryPub)
+	delegatedPub, _, _ := signer.GenerateKeyPair()
 
-	cert := &keys.DeviceCertificate{
-		Type:               "SEMP_DEVICE_CERTIFICATE",
-		Version:            "1.0.0",
-		UserID:             "alice@example.com",
-		DeviceID:           "id",
-		DeviceKeyID:        "dev-fp",
-		IssuingDeviceKeyID: primaryFP,
-		Scope:              keys.Scope{Send: keys.SendScope{Mode: keys.SendModeAll}},
-		IssuedAt:           time.Now().Add(-48 * time.Hour),
-		Expires:            time.Now().Add(-time.Hour),
-	}
-	if err := keys.SignDeviceCertificate(signer, primaryPriv, cert); err != nil {
+	now := time.Now().UTC()
+	cert := newTestCert(delegatedPub, "alice@example.com", primaryFP, minimalScope())
+	cert.IssuedAt = now.Add(-48 * time.Hour)
+	cert.ExpiresAt = now.Add(-time.Hour)
+	if err := keys.SignDeviceCertificate(signer, primaryPriv, primaryFP, cert); err != nil {
 		t.Fatalf("SignDeviceCertificate: %v", err)
 	}
 	store := memstore.New()
@@ -178,51 +161,159 @@ func TestVerifyChainExpired(t *testing.T) {
 	}
 }
 
-// TestSendScopeAllows exercises the allow-list decision logic
-// across every mode the spec defines.
-func TestSendScopeAllows(t *testing.T) {
+// TestScopeMatcherAllows exercises every matcher mode and entry type
+// per KEY.md §10.3.3.1.
+func TestScopeMatcherAllows(t *testing.T) {
 	cases := []struct {
-		name      string
-		scope     keys.SendScope
-		recipient string
-		want      bool
+		name string
+		m    keys.ScopeMatcher
+		addr brief.Address
+		want bool
 	}{
-		{"mode=all permits everyone", keys.SendScope{Mode: keys.SendModeAll}, "alice@example.com", true},
-		{"mode=none forbids everyone", keys.SendScope{Mode: keys.SendModeNone}, "alice@example.com", false},
 		{
-			"restricted permits exact match",
-			keys.SendScope{Mode: keys.SendModeRestricted, Allow: []string{"bob@example.com"}},
+			"unrestricted permits everyone",
+			keys.ScopeMatcher{Mode: keys.MatcherModeUnrestricted},
+			"alice@example.com", true,
+		},
+		{
+			"none forbids everyone",
+			keys.ScopeMatcher{Mode: keys.MatcherModeNone},
+			"alice@example.com", false,
+		},
+		{
+			"restricted permits exact user match",
+			keys.ScopeMatcher{
+				Mode:  keys.MatcherModeRestricted,
+				Allow: []keys.ScopeEntry{{Type: keys.EntityTypeUser, Address: "bob@example.com"}},
+			},
 			"bob@example.com", true,
 		},
 		{
-			"restricted denies unlisted address",
-			keys.SendScope{Mode: keys.SendModeRestricted, Allow: []string{"bob@example.com"}},
+			"restricted denies unlisted user",
+			keys.ScopeMatcher{
+				Mode:  keys.MatcherModeRestricted,
+				Allow: []keys.ScopeEntry{{Type: keys.EntityTypeUser, Address: "bob@example.com"}},
+			},
 			"carol@example.com", false,
 		},
 		{
 			"restricted permits domain entry",
-			keys.SendScope{Mode: keys.SendModeRestricted, Allow: []string{"partner.example"}},
+			keys.ScopeMatcher{
+				Mode:  keys.MatcherModeRestricted,
+				Allow: []keys.ScopeEntry{{Type: keys.EntityTypeDomain, Domain: "partner.example"}},
+			},
 			"alice@partner.example", true,
 		},
 		{
-			"restricted denies address outside domain",
-			keys.SendScope{Mode: keys.SendModeRestricted, Allow: []string{"partner.example"}},
-			"alice@evil.example", false,
+			"denylist denies listed user",
+			keys.ScopeMatcher{
+				Mode: keys.MatcherModeDenylist,
+				Deny: []keys.ScopeEntry{{Type: keys.EntityTypeUser, Address: "spammer@example.com"}},
+			},
+			"spammer@example.com", false,
 		},
 		{
-			"restricted is case-insensitive on domain",
-			keys.SendScope{Mode: keys.SendModeRestricted, Allow: []string{"Partner.Example"}},
-			"alice@partner.EXAMPLE", true,
+			"denylist permits unlisted user",
+			keys.ScopeMatcher{
+				Mode: keys.MatcherModeDenylist,
+				Deny: []keys.ScopeEntry{{Type: keys.EntityTypeUser, Address: "spammer@example.com"}},
+			},
+			"alice@example.com", true,
 		},
 		{
 			"unknown mode fails closed",
-			keys.SendScope{Mode: "wild-west"},
+			keys.ScopeMatcher{Mode: "wild-west"},
 			"alice@example.com", false,
 		},
 	}
 	for _, tc := range cases {
-		if got := tc.scope.Allows(tc.recipient); got != tc.want {
-			t.Errorf("%s: Allows(%q) = %v, want %v", tc.name, tc.recipient, got, tc.want)
-		}
+		t.Run(tc.name, func(t *testing.T) {
+			if got := tc.m.AllowsRecipient(tc.addr); got != tc.want {
+				t.Errorf("AllowsRecipient(%q) = %v, want %v", tc.addr, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestScopeValidate covers the §10.3.3 well-formedness rules: each
+// matcher mode constrains allow/deny shape; rate-limit tiers have
+// caps; resource and matcher fields are independently required.
+func TestScopeValidate(t *testing.T) {
+	good := minimalScope()
+	if err := good.Validate(); err != nil {
+		t.Errorf("minimalScope: Validate = %v, want nil", err)
+	}
+
+	// Restricted mode requires non-empty allow.
+	bad := minimalScope()
+	bad.Send = keys.ScopeMatcher{Mode: keys.MatcherModeRestricted, RateLimits: []keys.RateLimitTier{}}
+	if err := bad.Validate(); err == nil {
+		t.Error("Validate accepted restricted matcher with empty allow")
+	}
+
+	// Denylist mode requires non-empty deny.
+	bad2 := minimalScope()
+	bad2.Send = keys.ScopeMatcher{Mode: keys.MatcherModeDenylist, RateLimits: []keys.RateLimitTier{}}
+	if err := bad2.Validate(); err == nil {
+		t.Error("Validate accepted denylist matcher with empty deny")
+	}
+
+	// Unrestricted MUST NOT have allow or deny.
+	bad3 := minimalScope()
+	bad3.Send = keys.ScopeMatcher{
+		Mode:       keys.MatcherModeUnrestricted,
+		Allow:      []keys.ScopeEntry{{Type: keys.EntityTypeUser, Address: "x@y"}},
+		RateLimits: []keys.RateLimitTier{},
+	}
+	if err := bad3.Validate(); err == nil {
+		t.Error("Validate accepted unrestricted matcher with non-empty allow")
+	}
+
+	// delivery_stage MUST be omitted on send.
+	bad4 := minimalScope()
+	bad4.Send.DeliveryStage = 1
+	if err := bad4.Validate(); err == nil {
+		t.Error("Validate accepted delivery_stage on send matcher")
+	}
+
+	// Rate-limit tier with negative amount.
+	bad5 := minimalScope()
+	bad5.Blocklist.RateLimits = []keys.RateLimitTier{{PeriodSeconds: 60, AmountAllowed: -1}}
+	if err := bad5.Validate(); err == nil {
+		t.Error("Validate accepted rate-limit tier with negative amount_allowed")
+	}
+
+	// Rate-limit tier with zero period.
+	bad6 := minimalScope()
+	bad6.Blocklist.RateLimits = []keys.RateLimitTier{{PeriodSeconds: 0, AmountAllowed: 1}}
+	if err := bad6.Validate(); err == nil {
+		t.Error("Validate accepted rate-limit tier with period_seconds = 0")
+	}
+
+	// Too many tiers.
+	bad7 := minimalScope()
+	tiers := make([]keys.RateLimitTier, keys.MaxScopeRateLimitTiers+1)
+	for i := range tiers {
+		tiers[i] = keys.RateLimitTier{PeriodSeconds: 60, AmountAllowed: 100}
+	}
+	bad7.Keys.RateLimits = tiers
+	if err := bad7.Validate(); err == nil {
+		t.Error("Validate accepted rate-limit array exceeding 16 tiers")
+	}
+}
+
+// TestDeviceCertificateValidateLifetime confirms the §10.3.8 cap on
+// certificate lifetime.
+func TestDeviceCertificateValidateLifetime(t *testing.T) {
+	now := time.Now().UTC()
+	cert := newTestCert([]byte("pub"), "alice@example.com", "primary-fp", minimalScope())
+	cert.IssuedAt = now
+	cert.ExpiresAt = now.Add(366 * 24 * time.Hour) // > 365 days
+	if err := cert.Validate(); err == nil {
+		t.Error("Validate accepted a certificate exceeding the 365-day lifetime cap")
+	}
+	cert.ExpiresAt = now.Add(364 * 24 * time.Hour)
+	if err := cert.Validate(); err != nil {
+		t.Errorf("Validate rejected a 364-day certificate: %v", err)
 	}
 }

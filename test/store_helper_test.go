@@ -152,9 +152,14 @@ func (m *memStore) LookupDeviceCertificate(_ context.Context, deviceKeyID keys.F
 }
 
 func (m *memStore) PutDeviceCertificate(_ context.Context, cert *keys.DeviceCertificate) error {
+	pub, err := base64.StdEncoding.DecodeString(cert.DevicePublicKey)
+	if err != nil {
+		return err
+	}
+	fp := keys.Compute(pub)
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.deviceCerts[cert.DeviceKeyID] = cert
+	m.deviceCerts[fp] = cert
 	return nil
 }
 

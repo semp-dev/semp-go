@@ -13,12 +13,12 @@ import (
 )
 
 // canonicalDeviceCertificateBytes returns the canonical JSON form of
-// cert with the `signature.value` field elided (the rest of the
-// `signature` object — algorithm and key_id — is covered so that an
-// attacker can't downgrade the signing algorithm or forge a different
-// issuer). The `signature.value` field is the output of the signing
-// operation itself; it's the only piece that must be excluded from
-// the canonical bytes.
+// cert with the `signature.value` field elided. The rest of the
+// `signature` object (algorithm and key_id) is covered so that an
+// attacker cannot downgrade the signing algorithm or forge a
+// different issuer. The `signature.value` field is the output of the
+// signing operation itself; it is the only piece that MUST be
+// excluded from the canonical bytes.
 func canonicalDeviceCertificateBytes(cert *DeviceCertificate) ([]byte, error) {
 	if cert == nil {
 		return nil, errors.New("keys: nil device certificate")
@@ -41,11 +41,12 @@ func canonicalDeviceCertificateBytes(cert *DeviceCertificate) ([]byte, error) {
 // canonical form of cert with signature.value elided, then populates
 // cert.Signature with the algorithm, the issuing device's key ID,
 // and the base64 of the signature bytes. The caller supplies the
-// issuing device's PRIVATE key; the matching public key MUST be the
-// one whose fingerprint is already in cert.IssuingDeviceKeyID.
+// issuing device's PRIVATE key plus the matching key fingerprint
+// (issuerKeyID), which goes into signature.key_id so the verifier
+// can look up the issuing public key.
 //
 // Reference: KEY.md §10.3 (device certificates).
-func SignDeviceCertificate(signer crypto.Signer, issuingPrivKey []byte, cert *DeviceCertificate) error {
+func SignDeviceCertificate(signer crypto.Signer, issuingPrivKey []byte, issuerKeyID Fingerprint, cert *DeviceCertificate) error {
 	if signer == nil {
 		return errors.New("keys: nil signer")
 	}
@@ -55,11 +56,14 @@ func SignDeviceCertificate(signer crypto.Signer, issuingPrivKey []byte, cert *De
 	if len(issuingPrivKey) == 0 {
 		return errors.New("keys: empty issuing private key")
 	}
+	if issuerKeyID == "" {
+		return errors.New("keys: empty issuer key fingerprint")
+	}
 	// Pre-populate the algorithm + key_id so the canonicalized bytes
 	// include them. The Value field is still elided inside
 	// canonicalDeviceCertificateBytes.
 	cert.Signature.Algorithm = SignatureAlgorithmEd25519
-	cert.Signature.KeyID = cert.IssuingDeviceKeyID
+	cert.Signature.KeyID = issuerKeyID
 	msg, err := canonicalDeviceCertificateBytes(cert)
 	if err != nil {
 		return fmt.Errorf("keys: canonical device certificate: %w", err)
@@ -76,9 +80,9 @@ func SignDeviceCertificate(signer crypto.Signer, issuingPrivKey []byte, cert *De
 // issuing device public key. Returns nil on success or an error if
 // the signature is missing, malformed, or cryptographically invalid.
 //
-// This does NOT verify the signature chain (i.e. whether the issuing
-// device is actually authorized for cert.UserID). Use VerifyChain for
-// that — it performs both steps.
+// This does NOT verify the signature chain (whether the issuing
+// device is actually authorized for cert.Account). Use VerifyChain for
+// that combined check.
 func VerifyDeviceCertificate(signer crypto.Signer, cert *DeviceCertificate, issuerPub []byte) error {
 	if signer == nil {
 		return errors.New("keys: nil signer")
@@ -88,10 +92,6 @@ func VerifyDeviceCertificate(signer crypto.Signer, cert *DeviceCertificate, issu
 	}
 	if cert.Signature.Value == "" {
 		return errors.New("keys: device certificate is unsigned")
-	}
-	if cert.Signature.KeyID != cert.IssuingDeviceKeyID {
-		return fmt.Errorf("keys: device certificate signature.key_id %s does not match issuing_device_key_id %s",
-			cert.Signature.KeyID, cert.IssuingDeviceKeyID)
 	}
 	sigBytes, err := base64.StdEncoding.DecodeString(cert.Signature.Value)
 	if err != nil {
@@ -109,10 +109,14 @@ func VerifyDeviceCertificate(signer crypto.Signer, cert *DeviceCertificate, issu
 
 // VerifyChain checks that:
 //
-//  1. The certificate is not expired (if c.Expires is set).
-//  2. The issuing device key is a registered identity key for
-//     c.UserID in the supplied Store, and is not revoked.
-//  3. The certificate's signature is valid under that issuing key.
+//  1. The certificate is structurally well-formed per KEY.md §10.3.3
+//     (Validate).
+//  2. The certificate has not expired (cross-party tolerance applied
+//     per CONFORMANCE.md §9.3.1).
+//  3. The issuing device key (signature.key_id) is a registered
+//     identity key for c.Account in the supplied Store and is not
+//     revoked.
+//  4. The certificate's signature is valid under that issuing key.
 //
 // Reference: KEY.md §10.3.1, CLIENT.md §2.3.
 func (c *DeviceCertificate) VerifyChain(ctx context.Context, suite crypto.Suite, store Store) error {
@@ -125,17 +129,23 @@ func (c *DeviceCertificate) VerifyChain(ctx context.Context, suite crypto.Suite,
 	if store == nil {
 		return errors.New("keys: nil store")
 	}
+	if err := c.Validate(); err != nil {
+		return err
+	}
 	// Cross-party expiry check uses the protocol-default 15-minute
-	// grace per CONFORMANCE.md §9.3.1: the certificate's Expires is a
-	// timestamp produced by another device whose clock may differ.
-	if !c.Expires.IsZero() {
-		if err := clockskew.CheckExpiry(c.Expires, time.Now(), clockskew.Default()); err != nil {
-			return fmt.Errorf("keys: device certificate for %s: %w", c.DeviceKeyID, err)
-		}
+	// grace per CONFORMANCE.md §9.3.1: the certificate's expires_at is
+	// a timestamp produced by another device whose clock may differ.
+	if err := clockskew.CheckExpiry(c.ExpiresAt, time.Now(), clockskew.Default()); err != nil {
+		return fmt.Errorf("keys: device certificate for %s: %w", c.DeviceID, err)
 	}
 
-	// 1. Look up the issuing device's public key.
-	records, err := store.LookupUserKeys(ctx, c.UserID, TypeIdentity)
+	issuerKeyID := c.Signature.KeyID
+	if issuerKeyID == "" {
+		return errors.New("keys: device certificate signature missing key_id")
+	}
+
+	// Look up the issuing device's public key.
+	records, err := store.LookupUserKeys(ctx, c.Account, TypeIdentity)
 	if err != nil {
 		return fmt.Errorf("keys: lookup issuing device key: %w", err)
 	}
@@ -144,7 +154,7 @@ func (c *DeviceCertificate) VerifyChain(ctx context.Context, suite crypto.Suite,
 		if rec == nil {
 			continue
 		}
-		if rec.KeyID != c.IssuingDeviceKeyID {
+		if rec.KeyID != issuerKeyID {
 			continue
 		}
 		if rec.Revocation != nil {
@@ -160,9 +170,9 @@ func (c *DeviceCertificate) VerifyChain(ctx context.Context, suite crypto.Suite,
 	}
 	if issuerPub == nil {
 		return fmt.Errorf("keys: issuing device %s not authorized for %s",
-			c.IssuingDeviceKeyID, c.UserID)
+			issuerKeyID, c.Account)
 	}
 
-	// 2. Verify the certificate signature.
+	// Verify the certificate signature.
 	return VerifyDeviceCertificate(suite.Signer(), c, issuerPub)
 }

@@ -2,6 +2,7 @@ package test
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"io"
 	"log"
@@ -109,25 +110,34 @@ func TestDeviceCertificateScopeEnforcement(t *testing.T) {
 	}
 
 	// Build the certificate: restrict the device to bob only.
+	now := time.Now().UTC()
 	cert := &keys.DeviceCertificate{
-		Type:               "SEMP_DEVICE_CERTIFICATE",
-		Version:            "1.0.0",
-		UserID:             alice,
-		DeviceID:           "01JTESTDELEGATED0000000000001",
-		DeviceKeyID:        deviceFP,
-		IssuingDeviceKeyID: primaryFP,
+		Type:            "SEMP_DEVICE_CERTIFICATE",
+		Version:         "1.0.0",
+		DeviceID:        "01JTESTDELEGATED0000000000001",
+		DevicePublicKey: base64.StdEncoding.EncodeToString(devicePub),
+		Account:         alice,
+		IssuedBy:        "01JTESTPRIMARY00000000000001",
+		IssuedAt:        now,
+		ExpiresAt:       now.Add(30 * 24 * time.Hour),
 		Scope: keys.Scope{
-			Send: keys.SendScope{
-				Mode:  keys.SendModeRestricted,
-				Allow: []string{bob},
+			Send: keys.ScopeMatcher{
+				Mode: keys.MatcherModeRestricted,
+				Allow: []keys.ScopeEntry{
+					{Type: keys.EntityTypeUser, Address: bob},
+				},
+				RateLimits: []keys.RateLimitTier{},
 			},
-			Receive: true,
+			Receive:   keys.ScopeMatcher{Mode: keys.MatcherModeUnrestricted, RateLimits: []keys.RateLimitTier{}, DeliveryStage: 1},
+			Blocklist: keys.ScopeResource{RateLimits: []keys.RateLimitTier{}},
+			Keys:      keys.ScopeResource{RateLimits: []keys.RateLimitTier{}},
+			Devices:   keys.ScopeResource{RateLimits: []keys.RateLimitTier{}},
 		},
-		IssuedAt: time.Now().UTC(),
 	}
-	if err := keys.SignDeviceCertificate(suite.Signer(), primaryPriv, cert); err != nil {
+	if err := keys.SignDeviceCertificate(suite.Signer(), primaryPriv, primaryFP, cert); err != nil {
 		t.Fatalf("SignDeviceCertificate: %v", err)
 	}
+	_ = deviceFP // device fingerprint also stored as identity key for handshake-side lookup
 	if err := store.PutDeviceCertificate(context.Background(), cert); err != nil {
 		t.Fatalf("PutDeviceCertificate: %v", err)
 	}
@@ -244,12 +254,12 @@ func TestDeviceCertificateScopeEnforcement(t *testing.T) {
 		t.Errorf("expected 1 delivered + 1 rejected, got %d + %d", gotDelivered, gotRejected)
 	}
 
-	// --- Case 2: flip the certificate to mode=all. A send to carol
-	// now succeeds.
-	cert.Scope.Send = keys.SendScope{Mode: keys.SendModeAll}
+	// --- Case 2: flip the certificate to mode=unrestricted. A send to
+	// carol now succeeds.
+	cert.Scope.Send = keys.ScopeMatcher{Mode: keys.MatcherModeUnrestricted, RateLimits: []keys.RateLimitTier{}}
 	cert.Signature = keys.PublicationSignature{}
-	if err := keys.SignDeviceCertificate(suite.Signer(), primaryPriv, cert); err != nil {
-		t.Fatalf("re-sign cert (mode=all): %v", err)
+	if err := keys.SignDeviceCertificate(suite.Signer(), primaryPriv, primaryFP, cert); err != nil {
+		t.Fatalf("re-sign cert (mode=unrestricted): %v", err)
 	}
 	if err := store.PutDeviceCertificate(context.Background(), cert); err != nil {
 		t.Fatalf("PutDeviceCertificate: %v", err)
@@ -262,9 +272,9 @@ func TestDeviceCertificateScopeEnforcement(t *testing.T) {
 	}
 
 	// --- Case 3: flip to mode=none. Even bob is rejected.
-	cert.Scope.Send = keys.SendScope{Mode: keys.SendModeNone}
+	cert.Scope.Send = keys.ScopeMatcher{Mode: keys.MatcherModeNone, RateLimits: []keys.RateLimitTier{}}
 	cert.Signature = keys.PublicationSignature{}
-	if err := keys.SignDeviceCertificate(suite.Signer(), primaryPriv, cert); err != nil {
+	if err := keys.SignDeviceCertificate(suite.Signer(), primaryPriv, primaryFP, cert); err != nil {
 		t.Fatalf("re-sign cert (mode=none): %v", err)
 	}
 	if err := store.PutDeviceCertificate(context.Background(), cert); err != nil {
