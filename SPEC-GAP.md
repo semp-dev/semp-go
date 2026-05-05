@@ -292,6 +292,22 @@ Track migration as its own follow-up cluster.
 - `SEMP_DEVICE_DIRECTORY` monotonically versioned, identity-signed under `SEMP-DEVICE-DIRECTORY:`. Lists every active device with pubkey, role, certificate binding.
 - Directory publication at the key endpoint on every enrollment or revocation. Monotonic revision; consumers reject any device-scoped signature from a device not in the current directory.
 
+**Status:** Record types and signing primitives landed in `keys/device.go` and `keys/device_sign.go`:
+
+- `DeviceRegistration` (SEMP_DEVICE) with `DeviceAuthorization` inner block. `SignDeviceAuthorization` produces the authorizing-device signature under `SEMP-DEVICE-AUTHORIZE:` over `device_id || 0x00 || device_public_key || 0x00 || enrolled_at || 0x00 || enroll_nonce` (NUL-separated to close boundary-shift collisions). `SignDeviceRegistration` produces the outer identity signature under `SEMP-DEVICE-REGISTER:`. Validate enforces role/certificate_id consistency, supported authorization methods, and required scalar fields.
+- `DeviceRevocation` with `Reason` enum and `RequiresIdentityRotation()` helper that callers use to drive the §10.5.5 cascade. `SignDeviceRevocation` / `VerifyDeviceRevocation` under `SEMP-DEVICE-REVOCATION:`. Validate enforces the reason / replacement_device_id consistency rule.
+- `DeviceDirectory` with sorted-by-device_id canonicalization so signature output is independent of caller-supplied array order. `SignDeviceDirectory` / `VerifyDeviceDirectory` under `SEMP-DEVICE-DIRECTORY:`. Validate enforces device_id uniqueness, role/certificate_id consistency, and Revision >= 1. The rollback-detect rule (Revision >= cached) is the caller's responsibility because the cached value lives outside the record.
+- `CheckEnrolledAtFresh(enrolled_at, now)` helper applies CONFORMANCE.md §9.3.1 default tolerance to the §10.2.3 15-minute submission-skew bound.
+
+Tests exercise: outer + inner round-trip; outer-field tamper detection; inner authorization stale-nonce rejection and tampered-DeviceID rejection; full_access-with-CertificateID and delegated-without-CertificateID rejections; revocation round-trip; superseded-without-replacement and key_compromise-with-replacement rejections; RequiresIdentityRotation truth table; directory round-trip including reorder-invariance; duplicate-device_id rejection; revision=0 rejection.
+
+**Open follow-ups:**
+
+- Identity-key rotation cascade orchestration on `reason: key_compromise` (KEY.md §10.5.5). RequiresIdentityRotation flags it; the actual atomic-submission flow (revocation + successor + new keys + prior-identity revocation) belongs in a higher-level helper that depends on §3.1 RECOVERY successor records.
+- Home-server publication state: a server-side store that keeps the current directory revision per account, accepts SEMP_DEVICE / SEMP_DEVICE_REVOCATION submissions, and emits new directories. Belongs in delivery/inboxd.
+- Consumer rollback-detect cache: the per-(user_id, revision) state that correspondents and other home servers consult before accepting a fetched directory.
+- Enrollment local-pairing bundle (§10.2.2 step 5): wrapping identity + encryption private keys under K_device_new for transfer to NEW. Belongs in `client/` (semp-reference-client) rather than the library.
+
 ### 4.9 Reputation gossip bucketing ([reputation/observation.go])
 
 `[commit 2427adb]`. Observation metrics published as power-of-two buckets.
