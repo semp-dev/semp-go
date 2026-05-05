@@ -141,6 +141,24 @@ Add these contexts. All go in the single domainsep file.
 - Successor record (`SEMP_SUCCESSOR`) with three signatures (recovery, new_key, domain), all under `SEMP-SUCCESSOR-RECORD:` prefix.
 - Cross-check contributor `device_identity_pubkey` against the device directory (package `keys`).
 
+**Status:** Record types and signing primitives landed in new `recovery/` package:
+
+- `SuccessorRecord` (SEMP_SUCCESSOR) with `PrepareSuccessorSignatures` + `SignSuccessorRecovery` / `SignSuccessorNewKey` / `SignSuccessorDomain` and a single `VerifySuccessorRecord`. All three signatures cover identical canonical bytes (with all three values elided) per §7.3; PrepareSuccessorSignatures populates Algorithm/KeyID on every block before any signing pass so the canonical input is stable.
+- `RecoverySetManifest` (SEMP_RECOVERY_SET_MANIFEST) with `SignManifest` / `VerifyManifest` under SEMP-RECOVERY-MANIFEST:. Validate enforces threshold/total_shares consistency, contributor count, share_index uniqueness, and device_id uniqueness.
+- `RecoveryShareRecord` (SEMP_RECOVERY_SHARE) with `SignShareRecord` / `VerifyShareRecord` under SEMP-RECOVERY-SHARE:.
+- `CheckShareMatchesManifest` cross-checks bundle_id/share_index/device_id/threshold/total_shares per §5.3 step 2.
+
+Tests cover: successor round-trip + tamper detection + wrong-recovery-pubkey rejection; manifest round-trip + duplicate-share_index/device_id rejection + threshold/total_shares mismatch rejection; share record round-trip; CheckShareMatchesManifest happy path + every mismatch axis.
+
+**Open follow-ups:**
+
+- Server-assisted backup bundle (`SEMP_RECOVERY_BUNDLE`) per §2-4: schema, encryption, upload/download endpoints. Larger work; lives downstream of the records.
+- Recovery secret normalization (§3.2) and deterministic recovery key derivation (§3.3): Argon2id with specified parameters, MAY land alongside the bundle work.
+- Shamir splitting / Lagrange reconstruction: arithmetic primitive used by §5.1 and §5.4. Out of scope for the wire-record commit.
+- Restore flow orchestration (§6): combines the records + bundle + Shamir + new-key generation. Lives in `client/`.
+- Cross-check contributor pubkey against the device directory at restore time: needs the consumer cache from §4.8 follow-up to be in place first.
+- Identity-rotation cascade orchestration (the §4.8 follow-up that depends on the SuccessorRecord records this commit just landed).
+
 ### 3.2 `migration/` Provider Migration
 
 `[commit 3862795, b0869f8]`
