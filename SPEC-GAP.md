@@ -240,6 +240,25 @@ Tests cover: request and cancel round-trips; grace-period bounds across seven po
 - Streaming decryption hook.
 - Library currently has inline-attachment hashing in `enclosure/`; this extension is additive.
 
+**Status:** Wire records and crypto primitives landed in new `largeattachment/` package:
+
+- `Item` struct mirrors the §2.2 schema (id, filename, mime_type, plaintext_size, url, ciphertext_hash, aead_algorithm, aead_nonce, extensions). `ExtensionData` is the inner `data` shape with the items array.
+- `ExtensionKey` constant = "semp.dev/large-attachment". AEAD algorithm constants for both supported variants (chacha20-poly1305, xchacha20-poly1305).
+- `DeriveAttachmentKey(kdf, kEnclosure, attachmentID, outputLen)` implements §3.1 HKDF-Expand with info = "semp-attachment:" || attachment_id, using K_enclosure directly as the PRK.
+- `AdditionalData(item)` implements §3.2: canonical JSON of the item with ciphertext_hash, aead_nonce, and extensions zeroed, so AEAD verification rejects swaps of filename or mime_type but tolerates the metadata fields the spec excludes.
+- `CiphertextHash(bytes)` produces the §2.3 "sha256:hex" form; `VerifyCiphertextHash(item, bytes)` is the §6 step 3c receive-side check (constant-time compare under the hood).
+- `ValidateURL` enforces §4.1: HTTPS only, FQDN host (at least one dot) or IPv6 literal in brackets. Bare IPv4 literals rejected; bare hostnames without a dot rejected.
+- `Item.Validate()` enforces all §2.3 required fields, the no-path-separator filename rule, non-negative plaintext_size, and runs ValidateURL.
+
+Tests cover: HKDF determinism + per-attachment-id distinctness; full encrypt/decrypt round-trip with AEAD additional-data binding; metadata-binding behavior (filename and mime_type changes break AAD; ciphertext_hash, aead_nonce, extensions changes are intentionally excluded); ciphertext-hash mismatch detection; URL validation across nine cases (FQDN, IPv6 with and without port, plain HTTP, bare IPv4 with and without port, localhost, empty, non-URL); item.Validate rejects on every required-field axis.
+
+**Open follow-ups:**
+
+- Upload primitive: a helper that takes plaintext bytes, generates id/nonce, derives K_attachment, computes AAD, encrypts, computes ciphertext_hash, and returns a partly-populated Item plus the ciphertext bytes. The HTTPS upload itself stays a caller concern (operator-hosted vs third-party storage is a §4 deployment choice).
+- Download + decrypt primitive: the inverse, given an Item and the fetched ciphertext bytes plus K_enclosure.
+- Integration into `enclosure.Enclosure.Extensions` so callers can read/write the extension entry without manual JSON marshaling.
+- Streaming decryption support per §3.3 (algorithm-specific chunked AEAD modes).
+
 ---
 
 ## 4. Breaking changes within existing packages
