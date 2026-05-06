@@ -162,9 +162,16 @@ Tests cover: successor round-trip + tamper detection + wrong-recovery-pubkey rej
 
 Tests cover: passphrase + recovery-code normalization (NFKC fold, sub-minimum rejection, all-whitespace rejection, unknown-form rejection); DeriveBundleKey determinism + salt-sensitivity; KDF.Validate at every floor; AEAD round-trip + tamper + wrong-key rejection; bad-nonce rejection; DeriveRecoverySignKey determinism; SignBundle/VerifyBundle round-trip + tamper detection + unsigned-bundle rejection; full backup→restore end-to-end flow (passphrase → K_bundle → encrypt + sign; passphrase → K_bundle → decrypt + verify; wrong passphrase → AEAD failure).
 
+**Shamir GF(256) primitive landed** in `recovery/shamir.go`:
+
+- `SplitSecret(secret, threshold, totalShares, randSrc)` returns N shares (1-byte index, len(secret)-byte value) such that any threshold of them reconstruct via Lagrange interpolation. Per-byte polynomial: constant term is the secret byte, higher coefficients are uniform random from `randSrc` (defaults to `crypto/rand.Reader`). Parameter floors enforce the §5.1 bounds (`MinShamirThreshold` 2, `MaxShamirTotalShares` 16, threshold ≤ totalShares).
+- `CombineShares(shares)` reconstructs the secret by Lagrange-interpolating each byte position at x=0 over GF(256). Rejects empty input, zero-index shares, duplicate indices, and length-mismatched share values. Tolerates more-than-threshold shares (Lagrange is exact for any consistent point set).
+- GF(256) arithmetic uses the AES reduction polynomial (`0x11b`) with generator `g = 3`, log/exp tables built once at `init()`. `gf256Mul`, `gf256Inv` are table-driven; `gf256MulRaw` (shift/XOR) seeds the tables.
+
+Tests cover: every (M, N) pair within bounds with a 32-byte K_bundle-sized secret; arbitrary M-subsets reconstruct (not just the first M); fewer than M shares diverge; share indices are 1-based and unique; deterministic output under a fixed RNG; differing RNG seeds produce differing shares (independence); every parameter rejection path on Split (empty secret, M < 2, M > N, N > 16, zero parameters); every Combine rejection path (empty, zero index, duplicate index, mismatched length); 1-byte secret edge case; M = N = 16 maximum-parameter case; over-determined inputs (more than M shares) reconstruct; share order does not affect output.
+
 **Open follow-ups:**
 
-- Shamir splitting / Lagrange reconstruction: arithmetic primitive used by §5.1 and §5.4. Out of scope for the wire-record + bundle commits.
 - Restore flow orchestration (§6): combines the records + bundle + Shamir + new-key generation. Lives in `client/`.
 - Bundle upload/download endpoints (§4): server-side storage + retention + retrieval API. Server-package work.
 - Cross-check contributor pubkey against the device directory at restore time: directory cache landed in §4.8 work; integration into the restore path remains.
