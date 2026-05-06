@@ -34,11 +34,18 @@ type SubmissionResponse struct {
 
 // SubmissionResult is one entry in SubmissionResponse.Results, describing
 // the per-recipient delivery outcome (CLIENT.md §6.2).
+//
+// Receipt is populated by the recipient server when Status is
+// StatusDelivered, per DELIVERY.md §1.1.1.5. Sender-side servers
+// MUST verify Receipt before treating the result as terminal
+// delivered (§1.1.1.6). When Status is anything other than
+// StatusDelivered, Receipt MUST be nil.
 type SubmissionResult struct {
-	Recipient  string              `json:"recipient"`
+	Recipient  string                `json:"recipient"`
 	Status     semp.SubmissionStatus `json:"status"`
-	ReasonCode semp.ReasonCode     `json:"reason_code,omitempty"`
-	Reason     string              `json:"reason,omitempty"`
+	ReasonCode semp.ReasonCode       `json:"reason_code,omitempty"`
+	Reason     string                `json:"reason,omitempty"`
+	Receipt    *DeliveryReceipt      `json:"receipt,omitempty"`
 }
 
 // NewSubmissionResponse builds a fully-populated SubmissionResponse for

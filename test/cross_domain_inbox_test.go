@@ -114,6 +114,19 @@ func TestCrossDomainInbox(t *testing.T) {
 	if results[0].Recipient != bob {
 		t.Errorf("submission recipient = %s, want %s", results[0].Recipient, bob)
 	}
+	// DELIVERY.md §1.1.1: every delivered acknowledgment carries
+	// a verified receipt. The recipient server (B) issued it; the
+	// sender server (A) verified it before passing the result back
+	// to alice's client.
+	if results[0].Receipt == nil {
+		t.Fatal("delivered result missing receipt; A did not verify or B did not issue")
+	}
+	if results[0].Receipt.RecipientDomain != domainB {
+		t.Errorf("receipt recipient_domain = %q, want %q", results[0].Receipt.RecipientDomain, domainB)
+	}
+	if results[0].Receipt.Signature.Value == "" {
+		t.Error("receipt signature.value is empty")
+	}
 
 	// --- B's inbox should now contain exactly one envelope for bob.
 	if got := srvB.inbox.Pending(bob); got != 1 {

@@ -486,16 +486,101 @@ func (s *Server) handleClientSubmission(ctx context.Context, stream MessageStrea
 			continue
 		}
 		// The peer's response carries per-recipient results of its
-		// own. Surface each one back to the client verbatim.
+		// own. For every delivered outcome, DELIVERY.md §1.1.1.6
+		// requires the sender server to verify the signed receipt
+		// against the recipient domain's published signing key
+		// before treating the result as terminal. A delivered
+		// outcome without a verifiable receipt MUST be treated as
+		// a transport failure and retried.
+		//
+		// The receipt covers the envelope as it appeared on the
+		// wire to the recipient, which is the post-rebind
+		// forwardEnv (the forwarder mutates SessionID and re-signs
+		// before sending). Using env here would compute canonical
+		// bytes against the pre-forward state and fail the binding
+		// check. forwardEnv is the right input.
 		for _, peerResult := range peerResp.Results {
-			results = append(results, peerResult)
+			verified := s.verifyDeliveredReceipt(ctx, peerDomain, forwardEnv, peerResult)
+			results = append(results, verified)
 			s.logf("[%s] forwarded envelope %s → %s: status=%s",
-				s.Identity, env.Postmark.ID, peerResult.Recipient, peerResult.Status)
+				s.Identity, env.Postmark.ID, verified.Recipient, verified.Status)
 		}
 	}
 
 	resp := delivery.NewSubmissionResponse(env.Postmark.ID, results)
 	return sendJSON(ctx, stream, resp)
+}
+
+// verifyDeliveredReceipt enforces the DELIVERY.md §1.1.1.6 sender-
+// side obligation: a `delivered` acknowledgment from a peer server
+// MUST carry a verifiable signed receipt over the canonical envelope
+// bytes; otherwise the result MUST be treated as a transport failure
+// and retried.
+//
+// Returns the peerResult unchanged when verification succeeds, or a
+// demoted version with Status=StatusRejected and
+// ReasonCode=ReasonServerUnavailable (recoverable per §2.3) when
+// the receipt is missing, malformed, or unverifiable.
+//
+// peerDomain is the recipient server's domain; verification looks
+// up that domain's signing key from the local keys.Store.
+func (s *Server) verifyDeliveredReceipt(ctx context.Context, peerDomain string, env *envelope.Envelope, peerResult delivery.SubmissionResult) delivery.SubmissionResult {
+	if peerResult.Status != semp.StatusDelivered {
+		// Non-delivered outcomes do not carry receipts; pass
+		// through unchanged.
+		return peerResult
+	}
+	demote := func(reason string) delivery.SubmissionResult {
+		s.logf("[%s] receipt verification failed for %s: %s; demoting to server_unavailable",
+			s.Identity, peerResult.Recipient, reason)
+		return delivery.SubmissionResult{
+			Recipient:  peerResult.Recipient,
+			Status:     semp.StatusRejected,
+			ReasonCode: semp.ReasonServerUnavailable,
+			Reason:     reason,
+		}
+	}
+	if peerResult.Receipt == nil {
+		return demote("delivered acknowledgment missing required receipt (DELIVERY.md §1.1.1.6)")
+	}
+	if peerResult.Receipt.RecipientDomain != peerDomain {
+		return demote(fmt.Sprintf("receipt recipient_domain %q does not match peer %q",
+			peerResult.Receipt.RecipientDomain, peerDomain))
+	}
+	canonicalBytes, err := env.CanonicalBytes()
+	if err != nil {
+		return demote(fmt.Sprintf("canonical envelope bytes: %v", err))
+	}
+	if err := delivery.VerifyEnvelopeBinding(peerResult.Receipt, canonicalBytes); err != nil {
+		return demote(err.Error())
+	}
+	if s.Store == nil {
+		return demote("no keys.Store configured; cannot resolve recipient domain key")
+	}
+	rec, err := s.Store.LookupDomainKey(ctx, peerDomain)
+	if err != nil {
+		return demote(fmt.Sprintf("lookup peer domain key: %v", err))
+	}
+	if rec == nil {
+		return demote("no peer domain key on file")
+	}
+	if string(rec.KeyID) != peerResult.Receipt.Signature.KeyID {
+		// Receipt was signed by a key other than the one we
+		// currently have published for this domain. Could be a
+		// recent rotation, or an attacker. Either way, treat as
+		// recoverable: a retry after refreshing the peer's key
+		// set MAY succeed.
+		return demote(fmt.Sprintf("receipt signature.key_id %q does not match cached peer domain key %q",
+			peerResult.Receipt.Signature.KeyID, rec.KeyID))
+	}
+	pubBytes, err := decodeBase64(rec.PublicKey)
+	if err != nil {
+		return demote(fmt.Sprintf("decode peer domain public key: %v", err))
+	}
+	if err := delivery.VerifyDeliveryReceipt(s.Suite.Signer(), pubBytes, peerResult.Receipt); err != nil {
+		return demote(err.Error())
+	}
+	return peerResult
 }
 
 // handleFederationSubmission is the ModeFederation path. The envelope
@@ -531,17 +616,60 @@ func (s *Server) handleFederationSubmission(ctx context.Context, stream MessageS
 	}
 	// Override the pipeline's generic "recipient is not local" reason
 	// text with the federation-specific "endpoint does not multi-hop"
-	// for clarity in cross-domain logs.
+	// for clarity in cross-domain logs. For every delivered outcome,
+	// issue a SEMP_DELIVERY_RECEIPT inline per DELIVERY.md §1.1.1.5.
 	for i := range pipeResult.Results {
 		if pipeResult.Results[i].Status == semp.StatusRecipientNotFound {
 			pipeResult.Results[i].Reason = "federation endpoint does not multi-hop"
 		} else if pipeResult.Results[i].Status == semp.StatusDelivered {
 			s.logf("[%s] federated delivery %s → %s",
 				s.Identity, env.Postmark.ID, pipeResult.Results[i].Recipient)
+			if receipt, err := s.issueDeliveryReceipt(env); err != nil {
+				s.logf("[%s] issue receipt for %s failed: %v; demoting to silent",
+					s.Identity, env.Postmark.ID, err)
+				pipeResult.Results[i] = delivery.SubmissionResult{
+					Recipient: pipeResult.Results[i].Recipient,
+					Status:    semp.StatusSilent,
+					Reason:    "receipt issuance failed",
+				}
+			} else {
+				pipeResult.Results[i].Receipt = receipt
+			}
 		}
 	}
 	resp := delivery.NewSubmissionResponse(env.Postmark.ID, pipeResult.Results)
 	return sendJSON(ctx, stream, resp)
+}
+
+// issueDeliveryReceipt produces a signed SEMP_DELIVERY_RECEIPT for
+// env per DELIVERY.md §1.1.1.5. Called by the recipient side on
+// every delivered acknowledgment so the sender server can satisfy
+// its §1.1.1.6 verification obligation.
+//
+// Returns an error if the envelope cannot be canonicalized or the
+// recipient server lacks the keys to sign. The caller demotes the
+// per-recipient outcome on error rather than emitting an
+// unverifiable acknowledgment.
+func (s *Server) issueDeliveryReceipt(env *envelope.Envelope) (*delivery.DeliveryReceipt, error) {
+	if s.DomainSignFP == "" || len(s.DomainSignPriv) == 0 {
+		return nil, errors.New("recipient server has no domain signing key configured")
+	}
+	canonicalBytes, err := env.CanonicalBytes()
+	if err != nil {
+		return nil, fmt.Errorf("canonical envelope bytes: %w", err)
+	}
+	receipt := &delivery.DeliveryReceipt{
+		EnvelopeHash: delivery.EnvelopeHash{
+			Algorithm: delivery.EnvelopeHashAlgorithmSHA256,
+			Value:     delivery.ComputeEnvelopeHash(canonicalBytes),
+		},
+		RecipientDomain: s.LocalDomain,
+		AcceptedAt:      time.Now().UTC().Truncate(time.Second),
+	}
+	if err := delivery.SignDeliveryReceipt(s.Suite.Signer(), s.DomainSignPriv, string(s.DomainSignFP), receipt); err != nil {
+		return nil, fmt.Errorf("sign receipt: %w", err)
+	}
+	return receipt, nil
 }
 
 // handleKeys fulfills a SEMP_KEYS request from the peer. Local addresses

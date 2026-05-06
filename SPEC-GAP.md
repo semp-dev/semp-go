@@ -381,9 +381,9 @@ Track migration as its own follow-up cluster.
 
 **Open follow-ups:**
 
-- Sender-server `delivered` flow: verify the receipt before acknowledging (DELIVERY.md §1.1.1.6 obligation). Currently the inboxd happy-path treats a successful peer response as `delivered` without receipt verification.
-- Recipient-server inline issuance: produce a receipt alongside every `delivered` acknowledgment (§1.1.1.5).
-- Receipt-retention pruning: drop receipt copies after client ack per the §1.1.1.6 retention rule.
+- ~~Sender-server `delivered` flow: verify the receipt before acknowledging.~~ Landed: `inboxd.handleClientSubmission` now calls `verifyDeliveredReceipt` for every peer result; missing or malformed receipts are demoted to `StatusRejected` with `ReasonServerUnavailable` so the §2.3 retry path picks up the failure. Receipt is verified against the post-rebind `forwardEnv` (the bytes the recipient actually saw) rather than the pre-forward `env`.
+- ~~Recipient-server inline issuance: produce a receipt alongside every `delivered` acknowledgment.~~ Landed: `inboxd.handleFederationSubmission` now calls `issueDeliveryReceipt` for every delivered outcome and attaches the result to the SubmissionResult. Receipt issuance failure demotes the result to `StatusSilent` rather than emitting an unverifiable acknowledgment. `SubmissionResult.Receipt` field added to the wire schema.
+- Receipt-retention pruning: drop receipt copies after client ack per the §1.1.1.6 retention rule. Today the receipt is included in the SubmissionResponse the sender server returns to the client; once the client's home server passes the receipt through to the client device, the home server SHOULD drop its copy.
 - `evidence` envelope properties: pointer into reputation abuse report (separate spec section, not yet read).
 - Home-server policy-version state: monotonically increasing counter per user, atomic application of operations per §7.2, conflict resolution by `(policy_version, timestamp)` per §7.2, propagation to other devices on next connection.
 
