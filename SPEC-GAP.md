@@ -200,6 +200,24 @@ Tests cover: cooperative and unilateral round-trip; signing-order enforcement (e
 - Local-part reassignment rules after retention expires.
 - Sender-facing behavior: `policy_forbidden` with optional migration notice during retention.
 
+**Status:** Wire records and signing primitives landed in new `closure/` package:
+
+- `Record` (SEMP_ACCOUNT_CLOSURE) with `Step` enum {request, cancel}, GracePeriodSeconds, IssuedBy device id, signature.
+- Grace-period bounds exported per §3.1: `MinGracePeriod` (7d), `MaxGracePeriod` (90d), `RecommendedGracePeriod` (30d). Validate enforces both bounds on request records; cancel records skip the bound check because the request being canceled already validated.
+- `SignRecord` / `VerifyRecord` under `SEMP-ACCOUNT-CLOSURE:` (spec commit 78198a7 added the previously-missing prefix; library mirrors as `crypto.SigCtxAccountClosure`).
+- `Record.FinalizationAt()` returns requested_at + grace_period.
+- `Record.IsFinalizable(now)` reports whether `now` has reached the finalization timestamp; cancel records always return false.
+
+Tests cover: request and cancel round-trips; grace-period bounds across seven points (well below, below by one day, at minimum, recommended, at maximum, above by one day, far above); cancel skips bound validation; structural validation rejects (missing user_id, requested_at, issued_by, unknown step); tamper detection on grace_period_seconds; FinalizationAt math; IsFinalizable before/at/after deadline plus cancel-never-finalizable.
+
+**Open follow-ups:**
+
+- Home-server closure_pending state: persistent record keyed by user_id with finalization timestamp, served to every authenticated client of the account so user-visible §3.3 behavior surfaces uniformly.
+- Atomic finalization effects per §4.2: revoke identity and encryption keys with reason `superseded`, revoke device certificates, terminate sessions, drain outbound queue, delete recovery bundle, mark in-flight migrations canceled, retain block list per operator policy.
+- Ingress handling after finalization (§5): policy_forbidden / silent acknowledgment during retention window.
+- Local-part reassignment policy hooks per §6.
+- Cancellation by recovery-restored device per §3.2: certificate dated after requested_at must be accepted as a full-access cancel signer.
+
 ### 3.4 `transparency/` Key Transparency
 
 `[commit e9400bf]`

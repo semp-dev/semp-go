@@ -91,6 +91,12 @@ const (
 	// SEMP_USER_POLICY update record (DELIVERY.md section 7.1 plus
 	// ENVELOPE.md section 4.3, registered in spec commit 4e7eef7).
 	SigCtxUserPolicy = "SEMP-USER-POLICY:"
+
+	// SigCtxAccountClosure prefixes the full-access-device signature
+	// on a SEMP_ACCOUNT_CLOSURE request or cancel record (CLOSURE.md
+	// section 2.1 plus ENVELOPE.md section 4.3, registered in spec
+	// commit 78198a7).
+	SigCtxAccountClosure = "SEMP-ACCOUNT-CLOSURE:"
 )
 
 // PrefixedMessage prepends a domain-separation context prefix to a message.
