@@ -150,14 +150,25 @@ Add these contexts. All go in the single domainsep file.
 
 Tests cover: successor round-trip + tamper detection + wrong-recovery-pubkey rejection; manifest round-trip + duplicate-share_index/device_id rejection + threshold/total_shares mismatch rejection; share record round-trip; CheckShareMatchesManifest happy path + every mismatch axis.
 
+**Server-assisted bundle (§2-4) landed** in `recovery/bundle.go` + `recovery/bundle_crypto.go`:
+
+- `BackupBundle` (SEMP_BACKUP_BUNDLE) with KDF block, AEAD payload, RecoveryVerifyPK, and outer identity-key signature. `BundlePayload` carries the inner identity key + every encryption key (active, superseded, revoked) + accumulated delivery receipts per §2.3 / §2.3.1.
+- `BundleKDF` exports the §2.5 minima (`MinKDFMemoryKB` 65536, `MinKDFIterations` 2, `MinKDFParallelism` 1, `MinKDFSaltBytes` 16) and recommended defaults (262144 / 3 / 4). `BundleKDF.Validate` rejects sub-minimum parameters at every axis including a non-`argon2id` algorithm or a non-base64 salt.
+- `NormalizeRecoverySecret(form, raw)` implements the §3.2 normalization: NFKC + whitespace trim for passphrases (with `MinPassphraseBytes` = 12 floor), lowercase + single-ASCII-space join for BIP-39 recovery codes.
+- `DeriveBundleKey(secretBytes, kdf)` runs Argon2id with the validated parameters and returns the 32-byte K_bundle.
+- `DeriveRecoverySignKey(bundleKey)` HKDF-Expand's K_bundle under info `SEMP-RECOVERY-SIGN-KEY-v1` and returns the deterministic Ed25519 (recovery_sign_sk, recovery_verify_pk) pair per §3.3. The seed is consumed once and not stored.
+- `EncryptBundlePayload` / `DecryptBundlePayload` use XChaCha20-Poly1305 (24-byte nonce, empty AAD) per §2.5; the caller supplies the nonce so the bundle's `payload_nonce` field is the same value used here.
+- `SignBundle` / `VerifyBundle` apply the user's identity-key signature under `crypto.SigCtxRecoveryBundle` over the canonical bytes with `signature.value` elided, per §2.4 / ENVELOPE.md §4.3.
+
+Tests cover: passphrase + recovery-code normalization (NFKC fold, sub-minimum rejection, all-whitespace rejection, unknown-form rejection); DeriveBundleKey determinism + salt-sensitivity; KDF.Validate at every floor; AEAD round-trip + tamper + wrong-key rejection; bad-nonce rejection; DeriveRecoverySignKey determinism; SignBundle/VerifyBundle round-trip + tamper detection + unsigned-bundle rejection; full backup→restore end-to-end flow (passphrase → K_bundle → encrypt + sign; passphrase → K_bundle → decrypt + verify; wrong passphrase → AEAD failure).
+
 **Open follow-ups:**
 
-- Server-assisted backup bundle (`SEMP_RECOVERY_BUNDLE`) per §2-4: schema, encryption, upload/download endpoints. Larger work; lives downstream of the records.
-- Recovery secret normalization (§3.2) and deterministic recovery key derivation (§3.3): Argon2id with specified parameters, MAY land alongside the bundle work.
-- Shamir splitting / Lagrange reconstruction: arithmetic primitive used by §5.1 and §5.4. Out of scope for the wire-record commit.
+- Shamir splitting / Lagrange reconstruction: arithmetic primitive used by §5.1 and §5.4. Out of scope for the wire-record + bundle commits.
 - Restore flow orchestration (§6): combines the records + bundle + Shamir + new-key generation. Lives in `client/`.
-- Cross-check contributor pubkey against the device directory at restore time: needs the consumer cache from §4.8 follow-up to be in place first.
-- Identity-rotation cascade orchestration (the §4.8 follow-up that depends on the SuccessorRecord records this commit just landed).
+- Bundle upload/download endpoints (§4): server-side storage + retention + retrieval API. Server-package work.
+- Cross-check contributor pubkey against the device directory at restore time: directory cache landed in §4.8 work; integration into the restore path remains.
+- Identity-rotation cascade orchestration helpers landed under `recovery.VerifySuccessorTwoSignatures` for §10.5.5; full client-side cascade driver remains.
 
 ### 3.2 `migration/` Provider Migration
 
