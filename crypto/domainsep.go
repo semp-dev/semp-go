@@ -97,6 +97,12 @@ const (
 	// section 2.1 plus ENVELOPE.md section 4.3, registered in spec
 	// commit 78198a7).
 	SigCtxAccountClosure = "SEMP-ACCOUNT-CLOSURE:"
+
+	// SigCtxTransparencySTH prefixes the domain signing-key signature
+	// over a transparency Signed Tree Head (TRANSPARENCY.md section
+	// 2.3 plus ENVELOPE.md section 4.3, registered in spec commit
+	// 3063cbf).
+	SigCtxTransparencySTH = "SEMP-TRANSPARENCY-STH:"
 )
 
 // PrefixedMessage prepends a domain-separation context prefix to a message.

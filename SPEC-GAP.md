@@ -229,6 +229,24 @@ Tests cover: request and cancel round-trips; grace-period bounds across seven po
 - Equivocation detection via observation gossip.
 - Monitor-role interface (out-of-band watcher).
 
+**Status:** Wire records, RFC 6962 hashing, and proof verification landed in new `transparency/` package:
+
+- Record types: `LogEntry` (§2.2 with event enum {publish, rotate, revoke}, key_type enum {identity, encryption}, supersedes/revoked_at/revoked_reason fields per event), `SignedTreeHead` (§2.3), `InclusionProof` (§3.1), `ConsistencyProof` (§3.2).
+- RFC 6962 primitives: `LeafPrefix`/`InteriorPrefix` byte constants (0x00, 0x01); `HashLeaf(bytes)` → SHA-256(0x00||bytes); `HashInterior(left, right)` → SHA-256(0x01||left||right); `HashLeafFromEntry(LogEntry)` marshals canonically and hashes.
+- Proof verification: `VerifyInclusionProof(p, rootHash)` walks the leaf-index bit pattern per RFC 6962 §2.1.1; `VerifyConsistencyProof(p, firstRoot, secondRoot)` runs the §2.1.2 algorithm including the "first tree's root MAY be a complete subtree of the later tree" branch; both reject path-length mismatches, tampered leaf hashes, and tampered tree sizes.
+- STH lifecycle: `SignSTH` / `VerifySTH` under SEMP-TRANSPARENCY-STH: (spec commit 3063cbf added the previously-missing prefix; library mirrors as `crypto.SigCtxTransparencySTH`). `CheckSTHFresh(s, now)` enforces the §2.3 1-hour freshness bound via `clockskew.CheckExpiry`.
+- Validation: `LogEntry.Validate` + `SignedTreeHead.Validate` enforce required fields plus the §2.2 event-vs-supersedes / event-vs-revoked-fields cross-rules.
+
+Tests cover: inclusion-proof round-trip across nine tree sizes (1, 2, 3, 5, 7, 8, 16, 17, 100, 257) with verification on every leaf; inclusion-proof tamper detection (leaf_hash, leaf_index); consistency-proof round-trip across seven (from, to) pairs including the boundary cases; consistency tamper detection (second root, from_size); equal-size consistency (path empty, equal roots); STH sign/verify round-trip + log_size tamper detection; CheckSTHFresh rejection of a 3-hour-old STH; LogEntry.Validate event/supersedes/revoked-at cross-rules; HashLeafFromEntry determinism.
+
+**Open follow-ups:**
+
+- Server-side log storage: append-only persistence for leaves, ordered by insertion; build the Merkle tree on top so STH and proof generation read from the same source of truth.
+- §2.4 endpoint handlers (GET /sth, /inclusion, /consistency, /entries) plus discovery integration.
+- §4.1 augmented SEMP_KEYS response: clients receiving keys from a transparency-enabled domain MUST receive a current STH and an inclusion proof for the most recent event of each returned key.
+- §5 gossip via observations: the SEMP_TRUST_OBSERVATION extension that lets domains publish each other's STHs as a §7.2 split-world detection mechanism.
+- §6 monitor behavior: an out-of-band watcher that fetches STHs, verifies consistency proofs across the timeline, and surfaces equivocation alarms.
+
 ### 3.5 `extensions/largeattachment/` Large Attachment
 
 `[commit ca908d3]`
