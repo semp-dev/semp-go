@@ -171,6 +171,25 @@ Tests cover: successor round-trip + tamper detection + wrong-recovery-pubkey rej
 - Cooperative vs unilateral mode.
 - Third-party verification per `MIGRATION.md §7.5`.
 
+**Status:** Wire records and signing primitives landed in new `migration/` package:
+
+- `MigrationRecord` (SEMP_MIGRATION) with the §3.2 field set, including `*time.Time` for `forwarding_window_until` (carries explicit null) and `*Signature` for `old_domain_signature` (omitted in unilateral mode).
+- `Mode` enum {cooperative, unilateral} plus exported forwarding-window bounds (`MinForwardingWindow` 30d, `RecommendedForwardingWindow` 180d, `MaxForwardingWindow` 730d).
+- `PrepareSignatures` populates Algorithm/KeyID on every slot before any signing pass so the chained-signature canonical bytes are reproducible. Cooperative mode allocates the 4th slot; unilateral mode leaves it nil.
+- `SignOldIdentity` / `SignNewIdentity` / `SignNewDomain` / `SignOldDomain` are the four sequential passes. Each rejects out-of-order calls (e.g., SignNewIdentity before SignOldIdentity) and cross-checks the slot's KeyID against the passed fingerprint. SignOldDomain rejects unilateral mode.
+- `VerifyMigrationRecord` walks the §3.3 order. The verifier reproduces each pass's signing-time canonical bytes by clearing later slots' values during the canonicalization for an earlier pass: pass N's input has prior slots at final values, pass N's value elided, and later slots at "" (per the §3.3 "Each signature binds the record fields and all prior signatures" rule, later slots had not been signed yet at the moment of pass N).
+- `CheckMigratedAtBound(r, oldKeyCreated, now)` enforces "MUST be at or after old identity key's created" and "MUST NOT be in the future beyond clock-skew tolerance" via `clockskew.Default()`.
+
+Tests cover: cooperative and unilateral round-trip; signing-order enforcement (each pass rejects out-of-order calls); SignOldDomain rejected in unilateral mode; chained-signature tamper detection (mutating an earlier signature's value invalidates later signatures that committed to it); forwarding-window bounds (below min, at min, recommended, at max, above max); CheckMigratedAtBound rejects backdated and future timestamps.
+
+**Open follow-ups:**
+
+- Provider-migration endpoint orchestration: cooperative-flow request/response pair (new provider submits to old's migration endpoint, old verifies all three prior signatures, countersigns) per §4.1.
+- Forwarding mechanism integration: section 5 forwarding by re-enveloping (depends on the §6.6 forwarding primitive already in place).
+- Post-window bounce with `migration_notice` per §5.3.
+- Local-part lockout / reassignment policy per §6.
+- Third-party domain policy hooks per §7 (verification, known-correspondent preservation, reputation carry-over, block-list migration).
+
 ### 3.3 `closure/` Account Closure
 
 `[commit 9a9d1a3]`
