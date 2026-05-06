@@ -216,6 +216,46 @@ func SignSuccessorDomain(signer crypto.Signer, domainPriv []byte, domainKeyID st
 	return nil
 }
 
+// VerifySuccessorTwoSignatures verifies the two device-side
+// signatures (recovery, new_key) on r and accepts an empty
+// domain_signature.value. This is the verifier the home server
+// runs on receipt of a key-compromise rotation cascade per KEY.md
+// §10.5.5: the device produced both sigs, the server has not yet
+// added its own domain_signature, and the receiving end MUST
+// validate the device-side portion before committing.
+//
+// After the home server adds its domain_signature, callers verify
+// the full record via VerifySuccessorRecord.
+func VerifySuccessorTwoSignatures(signer crypto.Signer, r *SuccessorRecord, recoveryVerifyPub, newKeyPub []byte) error {
+	if signer == nil {
+		return errors.New("recovery: nil signer")
+	}
+	if r == nil {
+		return errors.New("recovery: nil successor record")
+	}
+	if err := r.Validate(); err != nil {
+		return err
+	}
+	if r.RecoverySignature.Value == "" || r.NewKeySignature.Value == "" {
+		return errors.New("recovery: successor record missing recovery_signature or new_key_signature")
+	}
+	if r.DomainSignature.Value != "" {
+		return errors.New("recovery: VerifySuccessorTwoSignatures called on a fully-signed record; use VerifySuccessorRecord")
+	}
+	canonicalBytes, err := canonicalBytesElidingThreeSignatures(r)
+	if err != nil {
+		return err
+	}
+	prefixed := crypto.PrefixedMessage(crypto.SigCtxSuccessorRecord, canonicalBytes)
+	if err := verifyOne(signer, "recovery_signature", recoveryVerifyPub, r.RecoverySignature.Value, prefixed); err != nil {
+		return err
+	}
+	if err := verifyOne(signer, "new_key_signature", newKeyPub, r.NewKeySignature.Value, prefixed); err != nil {
+		return err
+	}
+	return nil
+}
+
 // VerifySuccessorRecord checks all three signatures on r against
 // the supplied public keys per RECOVERY.md §7.5. recoveryVerifyPub
 // is the recovery_verify_pk published in the prior key record;
