@@ -30,6 +30,21 @@ type DomainKeyLookup interface {
 	LookupDomainPublicKey(ctx context.Context, domain string) ([]byte, error)
 }
 
+// RecipientPolicyFunc is the optional per-recipient pre-block-list
+// policy hook. It runs against each local recipient address after
+// brief decryption and before block-list / inbox delivery, so a
+// CLOSURE.md §5-style "is this account closed?" gate can return
+// `policy_forbidden` (or a `silent` ack per operator policy)
+// without the envelope ever reaching the inbox.
+//
+// Returning ("", "", "") on a recipient passes the gate. Returning
+// any non-empty acknowledgment short-circuits delivery for that
+// recipient with the supplied (status, reason_code, reason). The
+// supported acknowledgments are AckRejected and AckSilent;
+// AckDelivered is invalid here (the recipient is delivered to via
+// the inbox path, not via this hook).
+type RecipientPolicyFunc func(ctx context.Context, recipient brief.Address) (semp.Acknowledgment, semp.ReasonCode, string)
+
 // DomainPolicyFunc is the optional step-5 hook in DELIVERY.md §2. It is
 // called with the postmark.from_domain and the routing server hostname
 // (when known) so operators can plug in domain- or server-level
@@ -132,6 +147,13 @@ type Pipeline struct {
 	// DomainPolicy is the optional step-5 hook. Nil disables the step
 	// (every envelope passes by default).
 	DomainPolicy DomainPolicyFunc
+
+	// RecipientPolicy is the optional per-recipient gate that runs
+	// before the block-list lookup. Used by CLOSURE.md §5 ingress
+	// (closed accounts return policy_forbidden during the retention
+	// window) and by similar per-account policies. Nil disables the
+	// step.
+	RecipientPolicy RecipientPolicyFunc
 
 	// BlockList is the step-8 lookup. Nil disables the user-level
 	// block check.
@@ -427,6 +449,36 @@ func (p *Pipeline) deliverRecipients(ctx context.Context, env *envelope.Envelope
 				Reason:    "recipient is not local to this pipeline",
 			})
 			continue
+		}
+		// Per-recipient policy gate (CLOSURE.md §5 closed-account
+		// ingress, etc.). Runs before block-list lookup so an
+		// account that is closed entirely never reaches the
+		// recipient-policy layer.
+		if p.RecipientPolicy != nil {
+			if ack, code, reason := p.RecipientPolicy(ctx, addr); ack != "" {
+				switch ack {
+				case semp.AckSilent:
+					results = append(results, SubmissionResult{
+						Recipient: address,
+						Status:    semp.StatusSilent,
+					})
+					p.logf("[delivery] silent (recipient policy): envelope=%s recipient=%s reason=%s",
+						env.Postmark.ID, address, reason)
+					continue
+				case semp.AckRejected:
+					results = append(results, SubmissionResult{
+						Recipient:  address,
+						Status:     semp.StatusRejected,
+						ReasonCode: code,
+						Reason:     reason,
+					})
+					p.logf("[delivery] rejected (recipient policy): envelope=%s recipient=%s code=%s reason=%s",
+						env.Postmark.ID, address, code, reason)
+					continue
+				}
+				// Other acknowledgments are not valid here; fall
+				// through to block-list / inbox.
+			}
 		}
 		// Step 8: per-recipient block-list lookup.
 		if p.BlockList != nil {

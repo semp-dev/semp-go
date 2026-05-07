@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"sort"
 	"strings"
-	"sync"
 	"time"
 )
 
@@ -144,39 +143,68 @@ var orderedStepNames = []string{
 }
 
 // Driver tracks pending closure requests and runs the §4.2 atomic
-// effects when each reaches its FinalizationAt timestamp.
+// effects when each reaches its FinalizationAt timestamp. After
+// finalization the user_id is recorded in the §6.1 retention window
+// for IsAccountClosed queries (used by §5 ingress and §6 reassignment
+// checks).
 //
 // Submit records an accepted request; Cancel removes a pending
 // request (idempotent). Tick walks pending requests and finalizes
 // any whose grace deadline has passed.
 //
 // Driver is concurrency-safe; multiple goroutines may call any
-// method.
+// method. Persistence delegates to a Store; the default in-memory
+// Store covers tests and demos, production deployments plug in a
+// durable backend.
 type Driver struct {
-	mu      sync.Mutex
-	pending map[string]*Record // keyed by user_id
-
+	store   Store
 	effects FinalizationEffects
 	nowFn   func() time.Time
+
+	// retainFinalizedFor is the §6.1 retention window. Defaults to
+	// RecommendedRetention; sub-floor values are clamped up by
+	// PruneFinalized when called.
+	retainFinalizedFor time.Duration
 }
 
 // DriverConfig bundles Driver inputs.
 type DriverConfig struct {
 	Effects FinalizationEffects
-	NowFn   func() time.Time
+
+	// Store persists pending and finalized state. Optional;
+	// defaults to NewInMemoryStore() when nil.
+	Store Store
+
+	// RetainFinalizedFor is the §6.1 retention window applied by
+	// IsAccountClosed and PruneFinalized. Optional; defaults to
+	// RecommendedRetention (365 days). Sub-floor values clamp to
+	// MinRetention (180 days) at use time.
+	RetainFinalizedFor time.Duration
+
+	NowFn func() time.Time
 }
 
-// NewDriver returns a Driver with the supplied effect hooks.
-// NowFn defaults to time.Now().UTC.
+// NewDriver returns a Driver with the supplied configuration.
+// NowFn defaults to time.Now().UTC; Store defaults to a fresh
+// in-memory store; RetainFinalizedFor defaults to RecommendedRetention.
 func NewDriver(cfg DriverConfig) *Driver {
 	now := cfg.NowFn
 	if now == nil {
 		now = func() time.Time { return time.Now().UTC() }
 	}
+	store := cfg.Store
+	if store == nil {
+		store = NewInMemoryStore()
+	}
+	retainFor := cfg.RetainFinalizedFor
+	if retainFor <= 0 {
+		retainFor = RecommendedRetention
+	}
 	return &Driver{
-		pending: make(map[string]*Record),
-		effects: cfg.Effects,
-		nowFn:   now,
+		store:              store,
+		effects:            cfg.Effects,
+		nowFn:              now,
+		retainFinalizedFor: retainFor,
 	}
 }
 
@@ -189,7 +217,7 @@ func NewDriver(cfg DriverConfig) *Driver {
 // Submit does NOT verify r's signature; callers MUST run
 // VerifyRecord against the issuing device's public key before
 // calling.
-func (d *Driver) Submit(_ context.Context, r *Record) error {
+func (d *Driver) Submit(ctx context.Context, r *Record) error {
 	if r == nil {
 		return errors.New("closure: nil record")
 	}
@@ -199,14 +227,7 @@ func (d *Driver) Submit(_ context.Context, r *Record) error {
 	if err := r.Validate(); err != nil {
 		return err
 	}
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	if _, exists := d.pending[r.UserID]; exists {
-		return fmt.Errorf("%w: %s", ErrAlreadyPending, r.UserID)
-	}
-	cp := *r
-	d.pending[r.UserID] = &cp
-	return nil
+	return d.store.PutPending(ctx, r)
 }
 
 // Cancel drops the pending request for userID. Returns (true, nil)
@@ -218,42 +239,42 @@ func (d *Driver) Submit(_ context.Context, r *Record) error {
 // Per §3.2 cancellation is itself a SEMP_ACCOUNT_CLOSURE record
 // with step=cancel. Callers verify that record before invoking
 // Cancel here; the Driver tracks only the userID.
-func (d *Driver) Cancel(_ context.Context, userID string) (bool, error) {
+func (d *Driver) Cancel(ctx context.Context, userID string) (bool, error) {
 	if userID == "" {
 		return false, errors.New("closure: cancel empty user_id")
 	}
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	if _, exists := d.pending[userID]; !exists {
+	existing, err := d.store.GetPending(ctx, userID)
+	if err != nil {
+		return false, fmt.Errorf("closure: cancel get: %w", err)
+	}
+	if existing == nil {
 		return false, nil
 	}
-	delete(d.pending, userID)
+	if err := d.store.DeletePending(ctx, userID); err != nil {
+		return false, fmt.Errorf("closure: cancel delete: %w", err)
+	}
 	return true, nil
 }
 
 // Pending returns a defensive copy of the request currently
-// pending for userID, or nil if none.
+// pending for userID, or nil if none. Reads through the Store; a
+// transient Store error returns nil and is silently swallowed —
+// callers that need the error path use the context-aware
+// PendingCtx variant.
 func (d *Driver) Pending(userID string) *Record {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	r, ok := d.pending[userID]
-	if !ok {
-		return nil
-	}
-	cp := *r
-	return &cp
+	r, _ := d.store.GetPending(context.Background(), userID)
+	return r
 }
 
-// PendingCount returns the number of pending requests, useful for
-// operator monitoring.
-func (d *Driver) PendingCount() int {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	return len(d.pending)
+// PendingCtx is the ctx-aware variant of Pending; returns the
+// Store's error directly.
+func (d *Driver) PendingCtx(ctx context.Context, userID string) (*Record, error) {
+	return d.store.GetPending(ctx, userID)
 }
 
 // Tick processes every pending request whose FinalizationAt has
-// passed. For each it runs the FinalizationEffects in §4.2 order
+// passed. For each it runs the FinalizationEffects in §4.2 order,
+// records the finalization timestamp in the §6.1 retention store,
 // and removes the request from the pending set on completion.
 //
 // Returns the number of users finalized and the first
@@ -263,42 +284,43 @@ func (d *Driver) PendingCount() int {
 // driver individually).
 //
 // Per §4.1, finalization MUST NOT occur before the FinalizationAt
-// timestamp; Tick respects this strictly.
+// timestamp; Tick respects this strictly. Per §4.2 finalization is
+// irreversible once the grace deadline passes — the pending entry
+// is removed and the finalized timestamp recorded regardless of
+// per-step effect errors.
 func (d *Driver) Tick(ctx context.Context) (int, error) {
 	now := d.nowFn()
-
-	// Snapshot due requests under the lock so the run-effects loop
-	// does not hold the mutex during operator-supplied calls.
-	d.mu.Lock()
-	type job struct {
-		userID string
-		record *Record
+	due, err := d.store.DuePending(ctx, now)
+	if err != nil {
+		return 0, fmt.Errorf("closure: due pending: %w", err)
 	}
-	var due []job
-	for uid, r := range d.pending {
-		if !now.Before(r.FinalizationAt()) {
-			cp := *r
-			due = append(due, job{userID: uid, record: &cp})
-		}
-	}
-	d.mu.Unlock()
-	sort.Slice(due, func(i, j int) bool { return due[i].userID < due[j].userID })
 
 	finalized := 0
 	var firstErr *FinalizationErrors
-	for _, j := range due {
+	for _, r := range due {
 		if err := ctx.Err(); err != nil {
 			return finalized, err
 		}
-		errs := d.runEffects(ctx, j.userID)
-		// Remove the pending entry whether or not effects succeeded
-		// — the spec's intent is that finalization is irreversible
-		// once the grace deadline passes. Operator-supplied effect
-		// errors are surfaced via the returned *FinalizationErrors
-		// and the operator's retry / escalation policy applies.
-		d.mu.Lock()
-		delete(d.pending, j.userID)
-		d.mu.Unlock()
+		errs := d.runEffects(ctx, r.UserID)
+		// §4.2: finalization is irreversible once the grace
+		// deadline passes. Record the finalized timestamp + delete
+		// the pending entry whether or not effects succeeded;
+		// operator's retry / escalation handles partial-failure
+		// remediation via the returned *FinalizationErrors.
+		if perr := d.store.PutFinalized(ctx, r.UserID, now); perr != nil && firstErr == nil {
+			// Capture the persistence failure as a step error so the
+			// operator sees it.
+			if errs == nil {
+				errs = &FinalizationErrors{UserID: r.UserID, Steps: map[string]error{}}
+			}
+			errs.Steps["PersistFinalized"] = perr
+		}
+		if derr := d.store.DeletePending(ctx, r.UserID); derr != nil && errs == nil {
+			errs = &FinalizationErrors{
+				UserID: r.UserID,
+				Steps:  map[string]error{"DeletePending": derr},
+			}
+		}
 		finalized++
 		if errs != nil && firstErr == nil {
 			firstErr = errs
@@ -308,6 +330,48 @@ func (d *Driver) Tick(ctx context.Context) (int, error) {
 		return finalized, firstErr
 	}
 	return finalized, nil
+}
+
+// IsAccountClosed reports whether userID is in the §6.1 post-
+// finalization retention window at now. Returns (false, nil) when
+// no finalization is recorded for userID, or when the recorded
+// timestamp is older than the configured retention window.
+//
+// Used by §5 ingress (envelope arriving for a closed account
+// returns policy_forbidden during the retention window) and §6
+// reassignment (the local-part MUST NOT be reassigned during the
+// window).
+func (d *Driver) IsAccountClosed(ctx context.Context, userID string, now time.Time) (bool, error) {
+	if userID == "" {
+		return false, errors.New("closure: empty user_id")
+	}
+	finalizedAt, found, err := d.store.GetFinalized(ctx, userID)
+	if err != nil {
+		return false, fmt.Errorf("closure: get finalized: %w", err)
+	}
+	if !found {
+		return false, nil
+	}
+	retainFor := d.retainFinalizedFor
+	if retainFor < MinRetention {
+		retainFor = MinRetention
+	}
+	return finalizedAt.Add(retainFor).After(now), nil
+}
+
+// PruneFinalized evicts finalized entries older than the
+// configured retention window. Operators call this on a janitor
+// cadence to bound the finalized-state store. retainFor is clamped
+// to MinRetention internally.
+func (d *Driver) PruneFinalized(ctx context.Context) (int, error) {
+	return d.store.PruneFinalized(ctx, d.retainFinalizedFor)
+}
+
+// PendingCount returns the number of pending closure requests.
+// Useful for operator monitoring. Reads through the Store.
+func (d *Driver) PendingCount() int {
+	n, _ := d.store.CountPending(context.Background())
+	return n
 }
 
 // runEffects fires the nine FinalizationEffects hooks in spec
