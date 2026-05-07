@@ -4,7 +4,7 @@ Thanks for your interest in `semp-go`. This document describes how to file issue
 
 ## Code of Conduct
 
-Participation in this project is governed by the [Code of Conduct](CODE_OF_CONDUCT.md). By contributing, you agree to abide by its terms. Report concerns to `conduct@semp.dev`.
+Participation in this project is governed by the [Code of Conduct](CODE_OF_CONDUCT.md). By contributing, you agree to abide by its terms. Report concerns to `hello@semp.dev`.
 
 ## Where the boundary is
 
@@ -87,7 +87,7 @@ Pre-1.0 semver: minor bumps for meaningful additions or signature changes, patch
 
 ## Security disclosures
 
-If you believe you have found a security issue, please email `security@semp.dev` instead of filing a public issue. We will respond within 48 hours.
+If you believe you have found a security issue, please email `hello@semp.dev` instead of filing a public issue. We will respond within 48 hours.
 
 ## License
 

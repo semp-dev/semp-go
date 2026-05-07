@@ -43,4 +43,4 @@ assignees: ''
 - [ ] I have searched existing issues and this is not a duplicate.
 - [ ] The reproduction is minimal (no unrelated code).
 - [ ] I have included version + environment information.
-- [ ] If this is a security issue, I have emailed `security@semp.dev` instead of opening this issue.
+- [ ] If this is a security issue, I have emailed `hello@semp.dev` instead of opening this issue.
