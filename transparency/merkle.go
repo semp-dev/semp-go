@@ -238,6 +238,21 @@ func decodeHashes(items []string, fieldName string) ([][32]byte, error) {
 	return out, nil
 }
 
+// LargestPowerOfTwoLessThan returns the largest power of 2 that
+// is strictly less than n. Used by RFC 6962 path construction
+// (PATH and SUBPROOF) and by computeRootFromInclusion /
+// computeRootsFromConsistency.
+func LargestPowerOfTwoLessThan(n int64) int64 {
+	if n <= 1 {
+		return 0
+	}
+	k := int64(1)
+	for k*2 < n {
+		k *= 2
+	}
+	return k
+}
+
 // EncodeHash returns the base64 form of h, matching the §3 wire
 // representation.
 func EncodeHash(h [32]byte) string {

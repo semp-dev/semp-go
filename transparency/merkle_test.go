@@ -38,7 +38,7 @@ func computeRoot(leaves [][32]byte) [32]byte {
 	if len(leaves) == 1 {
 		return leaves[0]
 	}
-	k := largestPowerOfTwoLessThan(len(leaves))
+	k := transparency.LargestPowerOfTwoLessThan(int64(len(leaves)))
 	left := computeRoot(leaves[:k])
 	right := computeRoot(leaves[k:])
 	return transparency.HashInterior(left, right)
@@ -48,7 +48,7 @@ func computeInclusionPath(leaves [][32]byte, i int64) [][32]byte {
 	if len(leaves) == 1 {
 		return nil
 	}
-	k := int64(largestPowerOfTwoLessThan(len(leaves)))
+	k := transparency.LargestPowerOfTwoLessThan(int64(len(leaves)))
 	if i < k {
 		return append(
 			computeInclusionPath(leaves[:k], i),
@@ -63,37 +63,11 @@ func computeInclusionPath(leaves [][32]byte, i int64) [][32]byte {
 
 func computeConsistencyPath(leaves [][32]byte, m, n int64) [][32]byte {
 	// RFC 6962 SUBPROOF(m, D[n], true). leaves represents D[n], the
-	// later tree. m is the older tree size; n is the later tree
-	// size. The boolean tracks whether the older subtree's root is
-	// known to equal an earlier seed.
-	return subproof(m, leaves[:n], true)
+	// later tree. m is the older tree size; n is the later tree size.
+	// Reuses the package-level subproof helper from log.go.
+	return transparency.Subproof(int(m), leaves[:n], true)
 }
 
-func subproof(m int64, d [][32]byte, b bool) [][32]byte {
-	n := int64(len(d))
-	if m == n {
-		if b {
-			return nil
-		}
-		return [][32]byte{computeRoot(d)}
-	}
-	k := int64(largestPowerOfTwoLessThan(int(n)))
-	if m <= k {
-		return append(subproof(m, d[:k], b), computeRoot(d[k:]))
-	}
-	return append(subproof(m-k, d[k:], false), computeRoot(d[:k]))
-}
-
-func largestPowerOfTwoLessThan(n int) int {
-	if n <= 1 {
-		return 0
-	}
-	k := 1
-	for k*2 < n {
-		k *= 2
-	}
-	return k
-}
 
 func hashesToBase64(hs [][32]byte) []string {
 	out := make([]string, len(hs))
