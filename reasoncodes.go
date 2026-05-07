@@ -57,6 +57,30 @@ const (
 	ReasonRekeyUnsupported ReasonCode = "rekey_unsupported"
 )
 
+// User-policy reason codes (DELIVERY.md §7, ERRORS.md §5). Returned
+// by the home server to the originating device when a SEMP_USER_POLICY
+// update is rejected.
+const (
+	// ReasonPolicyKindUnsupported signals that an operation carries
+	// a kind the home server does not recognize. The whole message
+	// is rejected atomically; unrelated operations in the same
+	// message are not applied. Non-recoverable: do not retry without
+	// removing the unsupported operation.
+	ReasonPolicyKindUnsupported ReasonCode = "policy_kind_unsupported"
+
+	// ReasonPolicyOpInvalid signals that an operation combines a
+	// kind with a verb that is not valid for that kind, for example
+	// add or remove on a singleton-shaped kind. Non-recoverable: do
+	// not retry without correcting the operation.
+	ReasonPolicyOpInvalid ReasonCode = "policy_op_invalid"
+
+	// ReasonPolicyVersionStale signals that the submitted
+	// policy_version is not greater than the current known version.
+	// Recoverable: the client refreshes its view of the current
+	// version and resubmits.
+	ReasonPolicyVersionStale ReasonCode = "policy_version_stale"
+)
+
 // Recoverable reports whether automated retry is appropriate for this reason
 // code without user intervention. The mapping is taken directly from the
 // recoverability columns in ERRORS.md §2 through §4.
@@ -71,7 +95,8 @@ func (c ReasonCode) Recoverable() bool {
 		ReasonRateLimited,
 		ReasonChallenge,
 		ReasonChallengeFailed,
-		ReasonServerAtCapacity:
+		ReasonServerAtCapacity,
+		ReasonPolicyVersionStale:
 		return true
 	default:
 		// Includes ReasonSessionExpired and ReasonRekeyUnsupported, which
