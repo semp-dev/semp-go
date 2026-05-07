@@ -381,7 +381,19 @@ Both sites gained complementary grace-window tests asserting the new tolerance i
 - First base interval of 60s MUST be enforced (no shorter initial delay).
 - Non-recoverable reason codes MUST NOT retry. Unknown reason code defaults to non-recoverable.
 
-**Status:** Helpers landed in commit 6f60102. `RetryConfig` + `SanitizeRetry` + `BaseInterval` + `JitterInterval` + `NextAttempt` + `IsRecoverable` + `EffectiveDeadline` cover the §2.3-§2.4 rules. `QueueState` + `QueueRecordState` + `QueueState.SetTerminal` cover §2.5. `CancelRequest` / `CancelResponse` + `SubmissionStepCancel` / `SubmissionStepCancelResponse` cover §2.7. Server-side scheduler that consumes these to drive an actual queue is the open follow-up.
+**Status:** Helpers landed in commit 6f60102. `RetryConfig` + `SanitizeRetry` + `BaseInterval` + `JitterInterval` + `NextAttempt` + `IsRecoverable` + `EffectiveDeadline` cover the §2.3-§2.4 rules. `QueueState` + `QueueRecordState` + `QueueState.SetTerminal` cover §2.5. `CancelRequest` / `CancelResponse` + `SubmissionStepCancel` / `SubmissionStepCancelResponse` cover §2.7.
+
+**Server-side scheduler landed.** `delivery/scheduler.go` adds:
+
+- `Scheduler` (§4.5 runtime). `Enqueue(envelope_id, recipient, postmark_expires)` inserts a fresh `queued` record with `next_attempt_at = now` and `Deadline = EffectiveDeadline(...)`. `Tick(ctx)` pulls every record whose `NextAttemptAt` has passed, runs the operator-supplied `DeliverFunc`, and reconciles the per-attempt outcome onto the record: delivered → terminal `delivered`, rejected with non-recoverable reason → terminal `rejected`, recoverable rejection / silent / transport failure → schedule retry via `NextAttempt`, deadline reached → terminal `expired`. The scheduler refuses to fabricate reason codes per §2.6 — only the actual returned reason is recorded.
+- `Cancel(envelope_id, recipient)` and `CancelEnvelope(envelope_id)` for §2.7. Idempotent on already-terminal records (returns prior state with a §2.7.4 explanation).
+- `PruneTerminal(retainFor)` evicts terminal records past the retention window. `MinTerminalRetention` (24h) is the §2.5 floor; sub-floor values are clamped up.
+- `EventSink` callback fires once per terminal transition with a `SubmissionEvent` per §6.5 / CLIENT.md §6.5. Non-terminal attempts do NOT emit events.
+- `Tick` is single-flighted: a concurrent caller gets `ErrTickInProgress` rather than running attempts twice for the same record.
+- `Store` interface + `NewInMemoryStore()` reference implementation. Production deployments plug in a durable backend; the in-memory store satisfies the `StoreEnumerator` extension for whole-envelope cancellation.
+- `QueueState.TerminalAt` (json:"-" so the wire shape stays clean) records the terminal-transition time for retention bookkeeping. `SetTerminal` now takes a `now time.Time` argument.
+
+Tests cover: delivered happy path; non-recoverable rejection terminates without retry; recoverable rejection and silent both retry through to delivery; deadline-prior-to-retry transitions to expired; deadline-already-past skips Deliver and goes straight to expired; cancel transitions and is idempotent on already-terminal; cancel-unknown returns `ErrUnknownRecord`; whole-envelope cancellation across multiple recipients; PruneTerminal respects the 24h retention floor including sub-floor clamping; duplicate-Enqueue rejected; no event sink fire on non-terminal. Deterministic via injected `NowFn`; `-race` clean.
 
 ### 4.6 Staged delivery ([delivery/])
 
@@ -393,7 +405,17 @@ Both sites gained complementary grace-window tests asserting the new tolerance i
 - Conservative aggregation: any `suppress` at a stage drops the envelope; otherwise `advance`.
 - Fail-open on stage timeout.
 
-**Status:** Disposition types landed in commit c46398e. `Disposition` (the inner data of the `delivery-disposition` sync kind) plus `DispositionDecision` enum, `DispositionStageOutcome`, `AggregateDispositions` (suppress-wins per §3.2.3, fail-open per §3.2.4), `StagedHeld` / `StagedHeldStage` data structures, and `IsStageComplete` for the §3.2.2 wait-termination rule. Authentication (§3.2.5) and the home-server wait-and-aggregate loop are open follow-ups.
+**Status:** Disposition types landed in commit c46398e. `Disposition` (the inner data of the `delivery-disposition` sync kind) plus `DispositionDecision` enum, `DispositionStageOutcome`, `AggregateDispositions` (suppress-wins per §3.2.3, fail-open per §3.2.4), `StagedHeld` / `StagedHeldStage` data structures, and `IsStageComplete` for the §3.2.2 wait-termination rule.
+
+**Wait-and-aggregate runner landed.** `delivery/staged_runner.go` adds `StagedRunner` driving the §3.2 staged-delivery flow:
+
+- `Hold(envelope_id, stages)` registers the stage partition (output of §3.2.1) and immediately invokes the operator's `StageDeliverFunc` for the lowest stage. Stages with no pending devices are pruned; non-monotonic stage lists are rejected. Duplicate envelope_ids return `ErrEnvelopeAlreadyHeld`.
+- `IngestDisposition(envelope_id, submitter_device_id, d)` records a vote and enforces the §3.2.5 authentication rules: the submitter device_id (the device_id bound to the session that delivered the disposition) MUST match `d.DeviceID`; off-stage / later-stage / unknown-envelope dispositions are rejected. Repeat votes from the same device are silently dropped (the first vote stands; a device cannot retroactively flip suppress to advance).
+- `Tick(ctx)` advances every held envelope whose current stage is complete per `IsStageComplete`. For each: if any stage-N device suppressed, invoke `StageSuppressFunc` and remove the envelope; otherwise advance to the next stage (invoking `StageDeliverFunc` for the next stage's pending set). When the final stage advances, invoke `StageCompleteFunc` and remove. The fail-open-on-timeout rule per §3.2.4 falls out of `IsStageComplete + AggregateDispositions(empty) == advance`.
+- `Snapshot()` returns a deep-copy view; `HeldCount()` for monitoring.
+- Concurrency-safe; all callbacks fire outside the runner's lock so a slow Deliver does not block IngestDisposition or other Tick passes.
+
+Tests cover: Hold delivers stage 1 immediately; full-vote advance moves to stage 2 then completes; suppress wins over advance at the same stage and stage 2 is NOT delivered; fail-open on timeout advances; mismatched submitter / device_id rejected (§3.2.5 auth); off-stage device rejected (§3.2.5 stage membership); unknown-envelope ingest rejected; duplicate disposition is idempotent on the first vote; empty / non-monotonic / duplicate Hold rejected; Snapshot is a deep copy. Deterministic via injected `NowFn`; `-race` clean.
 
 ### 4.7 Signed delivery receipts, evidence, user policy ([delivery/], [reputation/])
 

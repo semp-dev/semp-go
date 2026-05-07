@@ -145,22 +145,33 @@ func TestEffectiveDeadlineMin(t *testing.T) {
 }
 
 func TestQueueStateSetTerminalIdempotent(t *testing.T) {
+	now := time.Date(2026, 5, 7, 12, 0, 0, 0, time.UTC)
 	q := &delivery.QueueState{State: delivery.QueueStateQueued}
-	q.SetTerminal(delivery.QueueStateDelivered)
+	q.SetTerminal(delivery.QueueStateDelivered, now)
 	if q.State != delivery.QueueStateDelivered {
 		t.Errorf("after SetTerminal(delivered): state = %s, want delivered", q.State)
 	}
+	if !q.TerminalAt.Equal(now) {
+		t.Errorf("TerminalAt = %s, want %s", q.TerminalAt, now)
+	}
 	// Try to override delivered with canceled; MUST NOT change.
-	q.SetTerminal(delivery.QueueStateCanceled)
+	later := now.Add(time.Hour)
+	q.SetTerminal(delivery.QueueStateCanceled, later)
 	if q.State != delivery.QueueStateDelivered {
 		t.Errorf("override delivered: state = %s, want still delivered", q.State)
+	}
+	if !q.TerminalAt.Equal(now) {
+		t.Errorf("TerminalAt drifted on override attempt: %s, want %s", q.TerminalAt, now)
 	}
 }
 
 func TestQueueStateSetTerminalRejectsNonTerminal(t *testing.T) {
 	q := &delivery.QueueState{State: delivery.QueueStateQueued}
-	q.SetTerminal(delivery.QueueStateQueued) // not a terminal
+	q.SetTerminal(delivery.QueueStateQueued, time.Now()) // not a terminal
 	if q.State != delivery.QueueStateQueued {
 		t.Errorf("SetTerminal(queued) changed state to %s; expected no-op", q.State)
+	}
+	if !q.TerminalAt.IsZero() {
+		t.Errorf("TerminalAt set on non-terminal transition: %s", q.TerminalAt)
 	}
 }
