@@ -8,7 +8,11 @@
 // party's commitment.
 package migration
 
-import "time"
+import (
+	"time"
+
+	"semp.dev/semp-go/extensions"
+)
 
 // Wire-level constants per MIGRATION.md §3.1.
 const (
@@ -85,4 +89,14 @@ type MigrationRecord struct {
 	NewIdentitySignature Signature  `json:"new_identity_signature"`
 	NewDomainSignature   Signature  `json:"new_domain_signature"`
 	OldDomainSignature   *Signature `json:"old_domain_signature,omitempty"`
+
+	// Extensions carries optional extension entries per
+	// EXTENSIONS.md §2.1 / MIGRATION.md §3.1 / §3.2. Every signature
+	// in the §3.3 chain covers Extensions, so any content captured
+	// here is attested by all four signers — including the old
+	// provider's countersignature when one of those entries is a
+	// delegation the old provider will later honor (the §5.2
+	// forwarding_authorization use case, whose exact key + shape
+	// are deferred to a future revision).
+	Extensions extensions.Map `json:"extensions,omitempty"`
 }
