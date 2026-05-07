@@ -232,10 +232,19 @@ Tests cover: cooperative and unilateral round-trip; signing-order enforcement (e
 
 Tests cover: request and cancel round-trips; grace-period bounds across seven points (well below, below by one day, at minimum, recommended, at maximum, above by one day, far above); cancel skips bound validation; structural validation rejects (missing user_id, requested_at, issued_by, unknown step); tamper detection on grace_period_seconds; FinalizationAt math; IsFinalizable before/at/after deadline plus cancel-never-finalizable.
 
+**Server-side finalization driver landed.** `closure/driver.go` adds:
+
+- `Driver` tracks pending closure requests and runs the §4.2 atomic effects when each reaches its `FinalizationAt` timestamp. `Submit(ctx, r)` records an accepted request (rejects step=cancel and duplicate users via `ErrAlreadyPending`). `Cancel(ctx, userID)` is idempotent (returns `(false, nil)` for unknown users per §3.2 cancellation norms). `Tick(ctx)` walks pending requests, finalizes any whose grace deadline has passed, removes them from the pending set, and aggregates per-step errors into `*FinalizationErrors`.
+- `FinalizationEffects` bundles the nine §4.2 hooks (`RevokeIdentityKey`, `RevokeEncryptionKeys`, `RevokeDeviceCertificates`, `TerminateSessions`, `DrainOutboundQueue`, `DeleteRecoveryBundle`, `CancelInflightMigrations`, `RetainBlockList`, `CeaseServing`). Each hook is `FinalizationEffectFunc func(ctx, userID) error`. Nil hooks are silently skipped — operators that do not implement a particular step (for example, an installation without a recovery bundle store) leave that hook nil. The driver does NOT impose a particular implementation; library types can plug in (e.g., a closure over `recovery.BundleStore.DeleteAll` for §4.2.6) but the operator wires the rest.
+- §4.1 strict ordering: `Tick` rejects finalizing before `FinalizationAt` ("MUST NOT occur before the timestamp under any policy"). Tested.
+- Driver does NOT short-circuit on per-step errors — every non-nil hook runs even if an earlier one fails, and errors aggregate into `*FinalizationErrors.Steps`. The pending entry is removed after the run regardless: §4.2 finalization is irreversible once the grace deadline passes; operator retry / escalation policy applies via the returned error.
+- Concurrency-safe via internal mutex; tested under `-race` with 50 concurrent submitters / cancelers / tickers.
+
+Tests cover: submit tracks request; duplicate Submit rejected with `ErrAlreadyPending`; Submit rejects step=cancel; Tick before deadline is a no-op; Tick at deadline runs every non-nil hook in §4.2 spec order; nil hooks silently skipped; Cancel before deadline prevents finalization; Cancel-unknown is idempotent; effect errors aggregated into `*FinalizationErrors` with per-step keys and the pending entry still removed; multi-user Tick processes in deterministic user_id order; concurrent submit/cancel/tick.
+
 **Open follow-ups:**
 
-- Home-server closure_pending state: persistent record keyed by user_id with finalization timestamp, served to every authenticated client of the account so user-visible §3.3 behavior surfaces uniformly.
-- Atomic finalization effects per §4.2: revoke identity and encryption keys with reason `superseded`, revoke device certificates, terminate sessions, drain outbound queue, delete recovery bundle, mark in-flight migrations canceled, retain block list per operator policy.
+- Home-server closure_pending state: persistent record keyed by user_id with finalization timestamp, served to every authenticated client of the account so user-visible §3.3 behavior surfaces uniformly. (The Driver holds the pending set in memory; persistence is the operator's storage layer.)
 - Ingress handling after finalization (§5): policy_forbidden / silent acknowledgment during retention window.
 - Local-part reassignment policy hooks per §6.
 - Cancellation by recovery-restored device per §3.2: certificate dated after requested_at must be accepted as a full-access cancel signer.
