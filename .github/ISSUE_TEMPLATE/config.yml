@@ -1,0 +1,14 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security disclosure
+    url: mailto:security@semp.dev
+    about: Report a vulnerability privately. Do NOT open a public issue for security concerns.
+  - name: Code of Conduct concern
+    url: mailto:conduct@semp.dev
+    about: Report a Code of Conduct violation privately.
+  - name: Spec change (wire format, normative behavior)
+    url: https://github.com/semp-dev/semp-spec/issues/new/choose
+    about: Wire-format and normative-behavior changes belong on the spec repo first.
+  - name: Question / discussion
+    url: https://github.com/semp-dev/semp-go/discussions
+    about: For general questions and design discussion, please use Discussions.
