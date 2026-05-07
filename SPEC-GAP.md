@@ -2,20 +2,50 @@
 
 Consolidated catch-up list for bringing `semp-go` current with the SEMP specification at `semp-dev/semp-spec`.
 
-## Baseline
+## Status summary
 
-- **Library last spec-sync commit:** `3c13837` (2026-04-13, "Security audit: sanitize error messages, fix session race").
-- **Corresponding spec commit (approximate):** `3208899` (2026-04-13, "Add hybrid PQ wrapping, AAD binding, and signature domain separation").
-- **Spec HEAD at gap-list time:** `3a9811d` (2026-04-23, "Specify OPTIONAL client-side send-time obfuscation").
-- **Commits behind:** 41 spec commits.
+The catch-up has effectively closed: every wire-breaking item, every new optional-module package, and every server-side state machine is implemented. What remains breaks into three categories.
 
-The library's README claim of "spec-complete reference implementation" is accurate for its own 2026-04-13 cutoff and no longer holds.
+**Genuinely open in the library:**
+
+- *(none at the time of writing)* — the items below are either out of library scope or spec-deferred.
+
+**Out of library scope (semp-reference-client):**
+
+- §3.1 Restore-flow orchestration (combines records + bundle + Shamir + new-key generation)
+- §3.1 Full client-side cascade driver (`recovery.VerifySuccessorTwoSignatures` + `keys.CompromiseRotation` primitives are in the library; the client driver that orchestrates them is not)
+- §3.3 Cancellation by recovery-restored device per §3.2 (touches client-side restore)
+- §4.8 Enrollment local-pairing bundle per §10.2.2 step 5
+- All client-side legacy / MIME / upgrade-signal items per §5
+
+**Spec-deferred (no library work today):**
+
+- §3.2 §5.2 delegated forwarding mechanism — spec explicitly defers to a future revision; the active-client forward path is already covered by §6.6 in `enclosure/`
+- §3.2 `forwarding_authorization` extension key + schema — spec extensions slot landed in `MigrationRecord.Extensions`; specific key + payload shape deferred
+- §3.5 streaming AEAD per §3.3 — chunked AEAD modes deferred to a future extension
+
+**Operator-supplied (not gaps in the library):**
+
+- Durable persistence backends behind every Store / Registry / Counter interface — the library ships in-memory references for every one of them
+- TLS certificates, monitoring, deployment infrastructure
+- Operator policy values (retention windows, rate-limit tiers, allow / deny lists)
+
+The `Open follow-ups` lists below within each section are kept as historical record. Items marked `~~struck through~~` have landed; remaining bullets are the items captured under the three categories above.
+
+---
 
 ## How to read this document
 
-Each item names the authoritative spec commit that introduced it and the library area that needs change. Items are grouped by impact. Within each group the order is rough suggested implementation sequence. Wire-breaking items come first; additive extensions and new optional modules come later.
+Each item names the authoritative spec commit that introduced it and the library area it touches. Items are grouped by impact. Within each group the order is rough suggested implementation sequence. Wire-breaking items come first; additive extensions and new optional modules come later.
 
 `[commit]` references the `semp-spec` commit. `[path]` references the `semp-go` file or package.
+
+## Baseline (historical)
+
+- **Library catch-up baseline:** `3c13837` (2026-04-13, "Security audit: sanitize error messages, fix session race").
+- **Corresponding spec commit (approximate):** `3208899` (2026-04-13, "Add hybrid PQ wrapping, AAD binding, and signature domain separation").
+- **Spec HEAD at the time the gap-list was started:** `3a9811d` (2026-04-23, "Specify OPTIONAL client-side send-time obfuscation").
+- **Commits caught up:** all 41 of the original gap-list, plus subsequent spec changes through `4941913` (MIGRATION §3.1 extensions slot).
 
 ---
 

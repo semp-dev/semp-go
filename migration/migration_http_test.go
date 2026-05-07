@@ -125,7 +125,10 @@ func TestMigrationHTTPSubmitDuplicateLockedOut(t *testing.T) {
 
 	second := h.buildSubmissionRecord(t)
 	body2, _ := json.Marshal(second)
-	resp2, _ := http.Post(h.server.URL+"/migration", "application/json", bytes.NewReader(body2))
+	resp2, err := http.Post(h.server.URL+"/migration", "application/json", bytes.NewReader(body2))
+	if err != nil {
+		t.Fatalf("POST: %v", err)
+	}
 	defer resp2.Body.Close()
 	if resp2.StatusCode != http.StatusConflict {
 		t.Errorf("duplicate status = %d, want 409", resp2.StatusCode)
@@ -142,7 +145,10 @@ func TestMigrationHTTPSubmitUnknownIdentityKey(t *testing.T) {
 	r := h.buildSubmissionRecord(t)
 	r.OldIdentityKeyID = "ghost"
 	body, _ := json.Marshal(r)
-	resp, _ := http.Post(h.server.URL+"/migration", "application/json", bytes.NewReader(body))
+	resp, err := http.Post(h.server.URL+"/migration", "application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("POST: %v", err)
+	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusForbidden {
 		t.Errorf("status = %d, want 403", resp.StatusCode)
@@ -172,7 +178,10 @@ func TestMigrationHTTPSubmitUnilateralRejected(t *testing.T) {
 		t.Fatalf("BuildSubmission unilateral: %v", err)
 	}
 	body, _ := json.Marshal(r)
-	resp, _ := http.Post(h.server.URL+"/migration", "application/json", bytes.NewReader(body))
+	resp, err := http.Post(h.server.URL+"/migration", "application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("POST: %v", err)
+	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusForbidden {
 		t.Errorf("unilateral status = %d, want 403", resp.StatusCode)
@@ -188,7 +197,8 @@ func TestMigrationHTTPGetByOldAddress(t *testing.T) {
 	resp, _ := http.Post(h.server.URL+"/migration", "application/json", bytes.NewReader(body))
 	resp.Body.Close()
 
-	resp2, _ := http.Get(h.server.URL + "/migration/alice%40old.example")
+	resp2, err := http.Get(h.server.URL + "/migration/alice%40old.example")
+	if err != nil { t.Fatalf("HTTP: %v", err) }
 	defer resp2.Body.Close()
 	if resp2.StatusCode != http.StatusOK {
 		t.Fatalf("GET status = %d, want 200", resp2.StatusCode)
@@ -211,7 +221,8 @@ func TestMigrationHTTPGetByRecordID(t *testing.T) {
 	resp, _ := http.Post(h.server.URL+"/migration", "application/json", bytes.NewReader(body))
 	resp.Body.Close()
 
-	resp2, _ := http.Get(h.server.URL + "/migration/by-id/" + r.RecordID)
+	resp2, err := http.Get(h.server.URL + "/migration/by-id/" + r.RecordID)
+	if err != nil { t.Fatalf("HTTP: %v", err) }
 	defer resp2.Body.Close()
 	if resp2.StatusCode != http.StatusOK {
 		t.Fatalf("GET status = %d, want 200", resp2.StatusCode)
@@ -222,7 +233,8 @@ func TestMigrationHTTPGetByRecordID(t *testing.T) {
 // or record_id.
 func TestMigrationHTTPGetUnknown(t *testing.T) {
 	h := newMigrationHTTPHarness(t)
-	resp, _ := http.Get(h.server.URL + "/migration/ghost%40nowhere.example")
+	resp, err := http.Get(h.server.URL + "/migration/ghost%40nowhere.example")
+	if err != nil { t.Fatalf("HTTP: %v", err) }
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusNotFound {
 		t.Errorf("status = %d, want 404", resp.StatusCode)
@@ -249,7 +261,8 @@ func TestPublicationStoreSentinelError(t *testing.T) {
 	}
 	server := httptest.NewServer(handler)
 	defer server.Close()
-	resp, _ := http.Get(server.URL + "/migration/alice%40old.example")
+	resp, err := http.Get(server.URL + "/migration/alice%40old.example")
+	if err != nil { t.Fatalf("HTTP: %v", err) }
 	defer resp.Body.Close()
 	// GetByOldAddress returns disk-full → 500.
 	if resp.StatusCode != http.StatusInternalServerError {

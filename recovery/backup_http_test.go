@@ -94,8 +94,11 @@ func TestBackupHTTPUploadHappyPath(t *testing.T) {
 func TestBackupHTTPUploadRequiresAuth(t *testing.T) {
 	h := newHTTPHarness(t, authFails())
 	body, _ := json.Marshal(bundleForUser("alice@example.com", "bundle-1", nil))
-	resp, _ := http.Post(h.server.URL+"/backup/alice%40example.com",
+	resp, err := http.Post(h.server.URL+"/backup/alice%40example.com",
 		"application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("POST: %v", err)
+	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusUnauthorized {
 		t.Errorf("status = %d, want 401", resp.StatusCode)
@@ -107,8 +110,11 @@ func TestBackupHTTPUploadRequiresAuth(t *testing.T) {
 func TestBackupHTTPUploadUserIDMismatch(t *testing.T) {
 	h := newHTTPHarness(t)
 	body, _ := json.Marshal(bundleForUser("bob@example.com", "bundle-1", nil))
-	resp, _ := http.Post(h.server.URL+"/backup/alice%40example.com",
+	resp, err := http.Post(h.server.URL+"/backup/alice%40example.com",
 		"application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("POST: %v", err)
+	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusForbidden {
 		t.Errorf("status = %d, want 403", resp.StatusCode)
@@ -121,7 +127,8 @@ func TestBackupHTTPDownloadHappyPath(t *testing.T) {
 	h := newHTTPHarness(t)
 	_ = h.store.PutCurrent(context.Background(), "alice@example.com",
 		bundleForUser("alice@example.com", "bundle-1", nil), time.Now().UTC())
-	resp, _ := http.Get(h.server.URL + "/backup/alice%40example.com")
+	resp, err := http.Get(h.server.URL + "/backup/alice%40example.com")
+	if err != nil { t.Fatalf("HTTP: %v", err) }
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status = %d, want 200", resp.StatusCode)
@@ -146,7 +153,8 @@ func TestBackupHTTPDownloadHistoryReturnsAll(t *testing.T) {
 	_ = h.store.PutCurrent(context.Background(), "alice@example.com",
 		bundleForUser("alice@example.com", "bundle-2", &id1), now.Add(time.Hour))
 
-	resp, _ := http.Get(h.server.URL + "/backup/alice%40example.com?history=true")
+	resp, err := http.Get(h.server.URL + "/backup/alice%40example.com?history=true")
+	if err != nil { t.Fatalf("HTTP: %v", err) }
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status = %d, want 200", resp.StatusCode)
@@ -166,7 +174,8 @@ func TestBackupHTTPDownloadHistoryReturnsAll(t *testing.T) {
 // user, preserving §4.3 existence-indistinguishability.
 func TestBackupHTTPDownloadNotFound(t *testing.T) {
 	h := newHTTPHarness(t)
-	resp, _ := http.Get(h.server.URL + "/backup/ghost%40example.com")
+	resp, err := http.Get(h.server.URL + "/backup/ghost%40example.com")
+	if err != nil { t.Fatalf("HTTP: %v", err) }
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusNotFound {
 		t.Errorf("status = %d, want 404", resp.StatusCode)
@@ -179,7 +188,10 @@ func TestBackupHTTPDeleteRequiresAuth(t *testing.T) {
 	h := newHTTPHarness(t, authFails())
 	req, _ := http.NewRequest(http.MethodDelete,
 		h.server.URL+"/backup/alice%40example.com", nil)
-	resp, _ := http.DefaultClient.Do(req)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("Do: %v", err)
+	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusUnauthorized {
 		t.Errorf("status = %d, want 401", resp.StatusCode)
@@ -193,12 +205,16 @@ func TestBackupHTTPDeleteWipesAll(t *testing.T) {
 		bundleForUser("alice@example.com", "bundle-1", nil), time.Now().UTC())
 	req, _ := http.NewRequest(http.MethodDelete,
 		h.server.URL+"/backup/alice%40example.com", nil)
-	resp, _ := http.DefaultClient.Do(req)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("Do: %v", err)
+	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusNoContent {
 		t.Errorf("status = %d, want 204", resp.StatusCode)
 	}
-	resp2, _ := http.Get(h.server.URL + "/backup/alice%40example.com")
+	resp2, err := http.Get(h.server.URL + "/backup/alice%40example.com")
+	if err != nil { t.Fatalf("HTTP: %v", err) }
 	defer resp2.Body.Close()
 	if resp2.StatusCode != http.StatusNotFound {
 		t.Errorf("post-delete GET status = %d, want 404", resp2.StatusCode)
@@ -221,14 +237,16 @@ func TestBackupHTTPRateLimit(t *testing.T) {
 	server := httptest.NewServer(handler)
 	defer server.Close()
 	for i := 0; i < 2; i++ {
-		resp, _ := http.Get(server.URL + "/backup/alice%40example.com")
+		resp, err := http.Get(server.URL + "/backup/alice%40example.com")
+		if err != nil { t.Fatalf("HTTP: %v", err) }
 		resp.Body.Close()
 		if resp.StatusCode != http.StatusOK {
 			t.Errorf("request %d status = %d, want 200", i+1, resp.StatusCode)
 		}
 	}
 	// Third hit exceeds the cap.
-	resp, _ := http.Get(server.URL + "/backup/alice%40example.com")
+	resp, err := http.Get(server.URL + "/backup/alice%40example.com")
+	if err != nil { t.Fatalf("HTTP: %v", err) }
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusTooManyRequests {
 		t.Errorf("rate-limited status = %d, want 429", resp.StatusCode)
@@ -244,7 +262,10 @@ func TestBackupHTTPMethodNotAllowed(t *testing.T) {
 	h := newHTTPHarness(t)
 	req, _ := http.NewRequest(http.MethodPut,
 		h.server.URL+"/backup/alice%40example.com", nil)
-	resp, _ := http.DefaultClient.Do(req)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("Do: %v", err)
+	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusMethodNotAllowed {
 		t.Errorf("status = %d, want 405", resp.StatusCode)
@@ -260,8 +281,11 @@ func TestBackupHTTPSupersedesMismatch(t *testing.T) {
 	h := newHTTPHarness(t)
 	bad := "ghost"
 	body, _ := json.Marshal(bundleForUser("alice@example.com", "bundle-1", &bad))
-	resp, _ := http.Post(h.server.URL+"/backup/alice%40example.com",
+	resp, err := http.Post(h.server.URL+"/backup/alice%40example.com",
 		"application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("POST: %v", err)
+	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusConflict {
 		t.Errorf("status = %d, want 409", resp.StatusCode)

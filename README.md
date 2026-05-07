@@ -19,11 +19,17 @@ Key properties:
 
 ## Status
 
-**Catch-up in progress.** The library tracks SEMP spec 0.2.0-draft as the target. A spec catch-up against commit 3208899 (the last baseline before the library diverged from the spec) is landing cluster by cluster per [SPEC-GAP.md](SPEC-GAP.md). Reason codes, domain-separation prefixes, handshake tightening, envelope padding, recipient-count obfuscation, address canonicalization, first-contact PoW scaffolding, enclosure sender signature, reputation bucketing, clock-skew tolerance, and send-time obfuscation have landed. Larger areas (session resumption, multi-device registration and directory, new optional modules for recovery/migration/closure/transparency, Tor-isolated discovery) remain queued. The library is suitable for non-production experimentation; production deployments SHOULD wait until the catch-up is complete.
+**Tracking SEMP spec 0.2.0-draft.** The library implements the full CLIENT + SERVER + CRYPTO scope of the spec, with reference in-memory implementations of every persistence interface and operator-runnable demo binaries. What's left is genuinely outside the library's scope:
+
+- **Client-side flows** that belong in `semp-reference-client`: restore-flow orchestration, full identity-rotation cascade driver, enrollment local-pairing.
+- **Spec-deferred** items: §3.2 §5.2 delegated forwarding mechanism, §3.5 streaming AEAD modes (both deferred to future spec revisions).
+- **Operator integration**: durable storage backends behind the provided `Store` / `BundleStore` / `LockoutRegistry` / `RateLimitCounter` / `BlockListLookup` interfaces — the library ships in-memory reference impls for every one of them.
+
+The library is appropriate for non-critical production deployments today. Operators MUST plug durable backends into the storage interfaces; the in-memory references are demo-grade. See [SPEC-GAP.md](SPEC-GAP.md) for the per-cluster status.
 
 | Metric | Value |
 |---|---|
-| Test packages | 24, all passing |
+| Test packages | 25, all passing under `-race` |
 | Fuzz targets | 9 (envelope, canonical, brief, h2 SSE, handshake PoW) |
 | External deps | 3 (`cloudflare/circl`, `coder/websocket`, `quic-go/quic-go`) |
 | Go version | 1.25+ |
@@ -171,12 +177,19 @@ for _, b64 := range resp.Envelopes {
 | `transport/quic` | TRANSPORT.md §4.3 | QUIC / HTTP/3 binding via `quic-go` |
 | `discovery` | DISCOVERY.md | DNS SRV/TXT discovery, well-known URI fetch, partition resolution (alpha/hash/lookup), signed responses, caching |
 | `reputation` | REPUTATION.md | Observation store + scoring, signed trust gossip publication + fetch, PoW challenge issuance + ledger, abuse report handler with disclosure authorization, domain age interface |
-| `delivery` | DELIVERY.md | 9-step delivery pipeline, block list with scope/precedence, block list sync signing, recipient status visibility, internal route types |
-| `delivery/inboxd` | — | Post-handshake server loop: envelope submission (client + federation), SEMP_FETCH, SEMP_KEYS, SEMP_REKEY dispatch |
+| `delivery` | DELIVERY.md | 9-step delivery pipeline, block list with scope/precedence, signed delivery receipts + envelope-binding, user-policy state machine, retry / cancellation / queue state, staged-delivery runner, scheduler, recipient policy hook |
+| `delivery/inboxd` | — | Post-handshake server loop: envelope submission (client + federation), SEMP_FETCH, SEMP_KEYS, SEMP_REKEY dispatch, receipt issuance + verification on the federation forward path |
+| `closure` | CLOSURE.md | `SEMP_ACCOUNT_CLOSURE` request/cancel records, finalization driver running the §4.2 nine atomic effects, closure persistence Store, recipient-policy adapter for §5 ingress |
+| `migration` | MIGRATION.md | `SEMP_MIGRATION` four-signature chained record, cooperative `BuildSubmission` + `AcceptSubmission` endpoint flow, `LockoutRegistry`, §5.3 migration_notice rejection, third-party policy hooks, HTTP handler, in-memory `PublicationStore` |
+| `recovery` | RECOVERY.md | `SEMP_BACKUP_BUNDLE` schema + Argon2id KDF + XChaCha20-Poly1305 payload + HKDF recovery sign-key, Shamir GF(256) split + Lagrange reconstruction, successor record + Shamir manifest + share record signing, `BundleStore`, contributor-pubkey directory cross-check, HTTP backup handler with rate-limiter |
+| `transparency` | TRANSPARENCY.md | `SEMP_TRANSPARENCY_LEAF` log entries, `SignedTreeHead` issuance + verification, RFC 6962 inclusion + consistency proof generation and verification, append-only `Log` state machine, monitor/append HTTP handler |
+| `largeattachment` | ATTACHMENTS.md | `semp.dev/large-attachment` extension types, HKDF-derived per-item keys, AEAD encrypt/decrypt round-trip, ciphertext-hash verification, ULID id generator, ciphertext `Store` interface, enclosure-extension read/write helpers |
 | `extensions` | EXTENSIONS.md | Extension entry/map types, key validation (namespace rules), per-layer size limits, default registry from §9 candidate list |
+| `clockskew` | CONFORMANCE.md §9.3 | Tiered clock-skew tolerance helpers (`Default`, `Strict`) shared across handshake, delivery, session, keys |
 | `internal/canonical` | ENVELOPE.md §4.3 | Canonical JSON serializer used by every signature and MAC computation |
 | `cmd/semp-server` | — | Reference server binary (demo — uses seed-derived keys and in-memory inbox) |
 | `cmd/semp-cli` | — | Reference client CLI: `handshake`, `send`, `receive` subcommands |
+| `cmd/semp-log-server` | — | Reference transparency log server binary; exposes append + monitor endpoints over the `transparency.Log` |
 | `test` | VECTORS.md | Integration tests: envelope round-trip, handshake (baseline + PQ), federation, cross-domain delivery, multi-device, device certs, rekey, PoW challenge |
 
 ## What You Provide for Production
@@ -257,6 +270,15 @@ These binaries use deterministic seed-derived keys (`internal/demoseed`) and an 
 | `github.com/coder/websocket` | v1.8.14 | `transport/ws` — WebSocket binding |
 | `github.com/quic-go/quic-go` | v0.59.0 | `transport/quic` — QUIC / HTTP/3 binding |
 | `golang.org/x/crypto` | v0.50.0 | `crypto` — ChaCha20-Poly1305, X25519, HKDF |
+
+## Versioning
+
+The library's tags track the SEMP spec version it implements. Pre-1.0 tags signal "the spec itself is still draft" rather than "the library is incomplete":
+
+- `v0.x` — tracks SEMP spec `0.x`-draft. Wire-format and API stability are best-effort across minor versions; breaking changes are rare but possible when the spec changes.
+- `v1.0.0` will ship after the SEMP spec reaches `1.0.0`.
+
+`go get semp.dev/semp-go@latest` resolves to the most recent tag. Pin a specific version (`semp.dev/semp-go@v0.2.0`) for reproducibility.
 
 ## License
 

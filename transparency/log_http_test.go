@@ -61,7 +61,10 @@ func TestLogHTTPAppendUnauthenticated(t *testing.T) {
 	srv, _, _ := newHandlerHarness(t)
 	defer srv.Close()
 	body, _ := json.Marshal(mustEntry(0))
-	resp, _ := http.Post(srv.URL+"/v1/log/entries", "application/json", bytes.NewReader(body))
+	resp, err := http.Post(srv.URL+"/v1/log/entries", "application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("POST: %v", err)
+	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusUnauthorized {
 		t.Errorf("status = %d, want 401", resp.StatusCode)
@@ -75,7 +78,10 @@ func TestLogHTTPAppendAuthenticated(t *testing.T) {
 	body, _ := json.Marshal(mustEntry(0))
 	req, _ := http.NewRequest(http.MethodPost, srv.URL+"/v1/log/entries", bytes.NewReader(body))
 	req.Header.Set("X-Token", "ok")
-	resp, _ := http.DefaultClient.Do(req)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("Do: %v", err)
+	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusCreated {
 		t.Fatalf("status = %d, want 201", resp.StatusCode)
@@ -98,7 +104,8 @@ func TestLogHTTPSTH(t *testing.T) {
 	for i := 0; i < 3; i++ {
 		_, _ = tlog.Append(nil, mustEntry(i))
 	}
-	resp, _ := http.Get(srv.URL + "/v1/log/sth")
+	resp, err := http.Get(srv.URL + "/v1/log/sth")
+	if err != nil { t.Fatalf("HTTP: %v", err) }
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status = %d, want 200", resp.StatusCode)
@@ -122,7 +129,8 @@ func TestLogHTTPInclusionProof(t *testing.T) {
 	for i := 0; i < 7; i++ {
 		_, _ = tlog.Append(nil, mustEntry(i))
 	}
-	resp, _ := http.Get(srv.URL + "/v1/log/proof/inclusion?leaf=3&size=7")
+	resp, err := http.Get(srv.URL + "/v1/log/proof/inclusion?leaf=3&size=7")
+	if err != nil { t.Fatalf("HTTP: %v", err) }
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status = %d, want 200", resp.StatusCode)
@@ -132,7 +140,8 @@ func TestLogHTTPInclusionProof(t *testing.T) {
 		t.Fatalf("decode: %v", err)
 	}
 	// Independently fetch an STH and verify the proof.
-	resp2, _ := http.Get(srv.URL + "/v1/log/sth")
+	resp2, err := http.Get(srv.URL + "/v1/log/sth")
+	if err != nil { t.Fatalf("HTTP: %v", err) }
 	defer resp2.Body.Close()
 	var sth transparency.SignedTreeHead
 	_ = json.NewDecoder(resp2.Body).Decode(&sth)
@@ -160,7 +169,8 @@ func TestLogHTTPConsistencyProof(t *testing.T) {
 
 	url := fmt.Sprintf("%s/v1/log/proof/consistency?from=%d&to=%d",
 		srv.URL, earlySTH.LogSize, laterSTH.LogSize)
-	resp, _ := http.Get(url)
+	resp, err := http.Get(url)
+	if err != nil { t.Fatalf("HTTP: %v", err) }
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status = %d, want 200", resp.StatusCode)
@@ -183,7 +193,8 @@ func TestLogHTTPEntry(t *testing.T) {
 	srv, tlog, _ := newHandlerHarness(t)
 	defer srv.Close()
 	_, _ = tlog.Append(nil, mustEntry(0))
-	resp, _ := http.Get(srv.URL + "/v1/log/entries/0")
+	resp, err := http.Get(srv.URL + "/v1/log/entries/0")
+	if err != nil { t.Fatalf("HTTP: %v", err) }
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status = %d, want 200", resp.StatusCode)
@@ -195,7 +206,8 @@ func TestLogHTTPEntry(t *testing.T) {
 	}
 
 	// Out-of-range returns 404.
-	resp2, _ := http.Get(srv.URL + "/v1/log/entries/99")
+	resp2, err := http.Get(srv.URL + "/v1/log/entries/99")
+	if err != nil { t.Fatalf("HTTP: %v", err) }
 	defer resp2.Body.Close()
 	if resp2.StatusCode != http.StatusNotFound {
 		t.Errorf("OOB status = %d, want 404", resp2.StatusCode)
@@ -208,7 +220,8 @@ func TestLogHTTPInclusionProofBadIndex(t *testing.T) {
 	defer srv.Close()
 	_, _ = tlog.Append(nil, mustEntry(0))
 
-	resp, _ := http.Get(srv.URL + "/v1/log/proof/inclusion?leaf=5&size=1")
+	resp, err := http.Get(srv.URL + "/v1/log/proof/inclusion?leaf=5&size=1")
+	if err != nil { t.Fatalf("HTTP: %v", err) }
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Errorf("status = %d, want 400", resp.StatusCode)
