@@ -91,12 +91,37 @@ func (s *Session) SetKeys(k *crypto.SessionKeys) {
 }
 
 // Active reports whether the session is currently usable for sending
-// envelopes (State == StateActive and now < ExpiresAt).
+// envelopes (State == StateActive and now < ExpiresAt). This is the
+// strict, sender-side check per CONFORMANCE.md §9.3.1's "senders
+// MUST NOT rely on grace windows": a sender treats the session as
+// expired the moment its clock crosses ExpiresAt.
+//
+// Receivers that want the SHOULD/MAY grace window (accept envelopes
+// for up to 15 minutes past ExpiresAt to absorb peer-clock skew)
+// use ActiveWithGrace.
 func (s *Session) Active(now time.Time) bool {
 	if s == nil || s.State != StateActive {
 		return false
 	}
 	return now.Before(s.ExpiresAt)
+}
+
+// ActiveWithGrace is the receiver-side variant of Active: the
+// session is treated as still active when now is at or before
+// ExpiresAt + grace. Per §4.4 / CONFORMANCE.md §9.3.1, receivers
+// MAY accept envelopes under a session for up to clockskew.Default
+// (15 minutes) past ExpiresAt to absorb peer-clock skew, while
+// senders treat the session as expired immediately.
+//
+// A negative grace is treated as zero (the strict Active semantics).
+func (s *Session) ActiveWithGrace(now time.Time, grace time.Duration) bool {
+	if s == nil || s.State != StateActive {
+		return false
+	}
+	if grace < 0 {
+		grace = 0
+	}
+	return !now.After(s.ExpiresAt.Add(grace))
 }
 
 // Erase zeroes the session key material and transitions the session to
@@ -171,14 +196,29 @@ const TransitionWindow = 5 * time.Second
 //
 // Returns (ok, reasonCode, reason). The reasonCode is one of
 // "session_expired", "rate_limited", or empty on success.
+//
+// CanRekey applies the strict, sender-side expiry check (no grace).
+// Receivers that want the §4.4 grace window use CanRekeyWithGrace.
 func (s *Session) CanRekey(now time.Time) (bool, string, string) {
+	return s.CanRekeyWithGrace(now, 0)
+}
+
+// CanRekeyWithGrace is the tolerance-aware variant of CanRekey.
+// grace is the §4.4 / CONFORMANCE.md §9.3.1 receiver-side window:
+// a session is permitted to rekey for up to grace past ExpiresAt
+// to absorb peer-clock skew. Senders pass 0 (strict); receivers
+// pass clockskew.Default().Grace (15 minutes).
+func (s *Session) CanRekeyWithGrace(now time.Time, grace time.Duration) (bool, string, string) {
 	if s == nil {
 		return false, "session_expired", "nil session"
 	}
 	if s.State != StateActive {
 		return false, "session_expired", "session not active"
 	}
-	if !now.Before(s.ExpiresAt) {
+	if grace < 0 {
+		grace = 0
+	}
+	if now.After(s.ExpiresAt.Add(grace)) {
 		return false, "session_expired", "session TTL elapsed"
 	}
 	if s.RekeyCount >= MaxRekeysPerSession {
@@ -243,14 +283,42 @@ func (s *Session) PreviousEnvMAC(now time.Time) []byte {
 // transition-window previous ID at the given wall-clock time. Used by
 // inbound envelope processing during the brief transition window after
 // a rekey (SESSION.md §3.4).
+//
+// AcceptsID applies the strict transition-window check (no grace).
+// The TransitionWindow is already a deliberately short 5-second
+// budget tied to a local rekey decision, so adding a peer-clock
+// grace would balloon it beyond design intent. Receivers that want
+// peer-clock-skew tolerance for the PRIOR id specifically use
+// AcceptsIDWithGrace.
 func (s *Session) AcceptsID(sessionID string, now time.Time) bool {
+	return s.AcceptsIDWithGrace(sessionID, now, 0)
+}
+
+// AcceptsIDWithGrace is the tolerance-aware variant of AcceptsID.
+// grace extends the post-rekey transition window's tail by up to
+// the supplied amount so a slow-clock peer can still address the
+// PRIOR id for a short period after the strict TransitionWindow
+// has elapsed.
+//
+// The grace applies ONLY to PreviousIDExpiresAt; the current id
+// match returns true unconditionally. A negative grace is treated
+// as zero.
+//
+// Most callers do NOT want this variant — the TransitionWindow is
+// already a peer-aware budget tied to the rekey roundtrip. The
+// helper exists for receivers that want to absorb peer-clock skew
+// at the session-id boundary specifically (rare in practice).
+func (s *Session) AcceptsIDWithGrace(sessionID string, now time.Time, grace time.Duration) bool {
 	if s == nil {
 		return false
 	}
 	if s.ID == sessionID {
 		return true
 	}
-	if s.PreviousID == sessionID && now.Before(s.PreviousIDExpiresAt) {
+	if grace < 0 {
+		grace = 0
+	}
+	if s.PreviousID == sessionID && !now.After(s.PreviousIDExpiresAt.Add(grace)) {
 		return true
 	}
 	return false

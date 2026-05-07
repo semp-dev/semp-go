@@ -170,10 +170,14 @@ Tests cover: passphrase + recovery-code normalization (NFKC fold, sub-minimum re
 
 Tests cover: every (M, N) pair within bounds with a 32-byte K_bundle-sized secret; arbitrary M-subsets reconstruct (not just the first M); fewer than M shares diverge; share indices are 1-based and unique; deterministic output under a fixed RNG; differing RNG seeds produce differing shares (independence); every parameter rejection path on Split (empty secret, M < 2, M > N, N > 16, zero parameters); every Combine rejection path (empty, zero index, duplicate index, mismatched length); 1-byte secret edge case; M = N = 16 maximum-parameter case; over-determined inputs (more than M shares) reconstruct; share order does not affect output.
 
+**Bundle storage layer landed.** `recovery/bundle_store.go` adds a `BundleStore` interface (PutCurrent / GetCurrent / History / DeleteAll / PruneSuperseded) for §4 server-side bundle storage plus `NewInMemoryBundleStore()` reference implementation. PutCurrent enforces the §4.2 step 3 supersedes-pointer rule (uploaded bundle's `supersedes` MUST match prior current's `bundle_id`, or both empty for the first upload); mismatch returns `ErrSupersedesMismatch`. PruneSuperseded enforces the §4.4 30-day floor (`MinSupersededRetention`); sub-floor retention values are clamped up. History returns current first, then superseded newest-first. The store treats `encrypted_payload` as opaque — the server MUST NOT decrypt per §4.2. Sentinel errors (`ErrBundleNotFound`, `ErrSupersedesMismatch`) for `errors.Is` matching. `NewInMemoryBundleStoreWithClock(nowFn)` constructor lets tests inject a deterministic clock for retention pruning.
+
+The HTTP transport layer (POST/GET/DELETE per §4.1) is operator integration; the library provides the storage primitive and the §4.2/§4.4 retention semantics.
+
 **Open follow-ups:**
 
 - Restore flow orchestration (§6): combines the records + bundle + Shamir + new-key generation. Lives in `client/`.
-- Bundle upload/download endpoints (§4): server-side storage + retention + retrieval API. Server-package work.
+- HTTP transport layer for §4.1 endpoints (POST/GET/DELETE wiring + per-IP rate limiting + ?history=true query parameter): server-package integration over the storage layer above.
 - ~~Cross-check contributor pubkey against the device directory at restore time.~~ Landed: `recovery.CrossCheckManifestContributors(manifest, directory)` walks every contributor and verifies `device_id` is listed in `directory` with a matching `device_public_key` per §5.2's "MUST cross-check each contributor against the directory revision active at issued_at" rule. Returns a typed `*ManifestCrossCheckError` carrying the offending contributor's `share_index`, `device_id`, and a `CrossCheckReason` (`missing_device` | `pubkey_mismatch` | `algorithm_mismatch`) so a restore client can surface per-contributor diagnostics. The function takes a small `DirectoryView` interface to avoid an import cycle with `keys`; `(*keys.DeviceDirectory).AsDirectoryView()` is the adapter callers use to plug in a real device directory.
 - Identity-rotation cascade orchestration helpers landed under `recovery.VerifySuccessorTwoSignatures` for §10.5.5; full client-side cascade driver remains.
 
@@ -290,12 +294,25 @@ Tests cover: HKDF determinism + per-attachment-id distinctness; full encrypt/dec
 
 **Storage backend abstraction landed.** `largeattachment/store.go` adds a `Store` interface (Put / Get / Stat / Delete) for ciphertext-blob persistence plus `NewInMemoryStore()` reference implementation. Implementations MUST treat ciphertext as opaque (the bytes are AEAD-encrypted under a per-attachment key the storage server cannot derive); the in-memory reference enforces put-once semantics, optional declared-size verification (`ErrCiphertextSizeMismatch`), and idempotent delete. Sentinel errors (`ErrAttachmentNotFound`, `ErrAttachmentExists`, `ErrCiphertextSizeMismatch`) let callers branch via `errors.Is`. The Store decouples wire-level metadata (Item) from the operator's chosen backend (S3, IPFS, local disk, custom CDN) so the same §3.2 round-trip applies regardless.
 
+**Upload + download primitives + enclosure integration landed.** `largeattachment/upload.go`:
+
+- `Encrypt(EncryptInput)` implements §5: generates ULID-shaped attachment_id (Crockford base32), derives K_attachment via HKDF-Expand under `K_enclosure`, picks a fresh nonce per the suite's AEAD, builds the partly-populated Item, computes AAD per §3.2, AEAD-seals the plaintext, computes `ciphertext_hash`, and returns the fully-populated `Item` + the ciphertext bytes the caller uploads to `Item.URL`.
+- `Decrypt(suite, kEnclosure, item, ciphertext)` implements §6: derives K_attachment, verifies `ciphertext_hash` against the supplied bytes (ErrCiphertextHashMismatch on §7.2 integrity failure before any AEAD work), reconstructs AAD, AEAD-opens, returns plaintext.
+- Per-suite AEAD selection per §3.2: baseline suite uses `chacha20-poly1305` (12-byte nonce); PQ suite uses `xchacha20-poly1305` (24-byte nonce, wrapped via `chacha20poly1305.NewX` since the library's `crypto.AEAD` interface defaults to ChaCha20-Poly1305 for both suites — the wider attachment AEAD is package-local).
+- `EncryptInput` carries optional `ID` / `AEADNonce` / `Extensions` so tests can drive deterministic output; production callers leave them zero and the helpers generate fresh values.
+
+`largeattachment/enclosure.go` adds `extensions.Map` read/write helpers:
+
+- `ReadFromExtensions(m)` returns the items in the `semp.dev/large-attachment` entry, tolerating both the typed `ExtensionData` shape (sender side) and the wire-decoded generic-map shape (receiver side).
+- `SetOnExtensions(m, items...)` and `AppendToExtensions(m, items...)` install / merge items; Append rejects duplicate ids.
+- `RemoveFromExtensions(m)` deletes the entry; `FindByID(m, id)` lookup.
+- All write paths run `Item.Validate()` before mutating so a malformed item never lands in the entry.
+
+Tests: §5/§6 round-trip with both baseline + PQ suites; ID is 26-char Crockford base32; deterministic output under caller-supplied id/nonce; ciphertext-tamper rejected (hash check + AEAD-open paths); AAD-tamper (filename / mime_type) breaks AEAD authentication; wrong-K_enclosure fails open; non-HTTPS URL rejected up front; suite-vs-item algorithm mismatch caught before AEAD work; extension-map round-trip including JSON wire-decode shape; merge preserving existing items; duplicate-id rejection.
+
 **Open follow-ups:**
 
-- Upload primitive: a helper that takes plaintext bytes, generates id/nonce, derives K_attachment, computes AAD, encrypts, computes ciphertext_hash, and returns a partly-populated Item plus the ciphertext bytes. The HTTPS upload itself stays a caller concern (operator-hosted vs third-party storage is a §4 deployment choice).
-- Download + decrypt primitive: the inverse, given an Item and the fetched ciphertext bytes plus K_enclosure.
-- Integration into `enclosure.Enclosure.Extensions` so callers can read/write the extension entry without manual JSON marshaling.
-- Streaming decryption support per §3.3 (algorithm-specific chunked AEAD modes).
+- Streaming decryption support per §3.3 (algorithm-specific chunked AEAD modes). Spec explicitly defers this to extensions; not in the base spec scope, so the base library does not implement it. A future extension can supply chunked AEAD by registering a new `aead_algorithm` value.
 
 ---
 
@@ -363,9 +380,18 @@ Library's `devicecert.go` was written 2026-04-10, before the spec's `4c14bf5` an
 
 Both sites gained complementary grace-window tests asserting the new tolerance is applied (5 minutes past expiry → still live).
 
+**Receiver-side session tolerance variants landed.** `session/session.go` adds tolerance-aware variants alongside the existing strict methods:
+
+- `Session.ActiveWithGrace(now, grace)` — receiver-side variant of `Active`. Senders MUST use `Active` (strict, no grace) per CONFORMANCE.md §9.3.1; receivers MAY use `ActiveWithGrace(now, clockskew.Default().Grace)` to absorb up to 15 minutes of peer-clock skew before considering the session expired.
+- `Session.CanRekeyWithGrace(now, grace)` — receiver-side variant of `CanRekey`.
+- `Session.AcceptsIDWithGrace(sessionID, now, grace)` — receiver-side variant of `AcceptsID`. The grace applies only to the post-rekey transition-window's tail (PreviousIDExpiresAt), not to the current id which always matches.
+- The strict variants now delegate to the WithGrace variants with `grace=0`, so behavior is unchanged for existing callers.
+
+Tests cover: strict variants reject past-expiry; receiver variants accept within the grace window; receiver variants reject past the grace window; negative grace degrades to strict semantics.
+
 **Sites audited and intentionally NOT migrated** (peer-clock skew does not apply):
 
-- `session/session.go` `Active` / `CanRekey` / `AcceptsID` / `PreviousEnvMAC` — read `now` against a session lifetime that both endpoints know exactly (negotiated at handshake). Adding a grace would silently extend session lifetime past negotiation; CONFORMANCE.md §9.3.1 also forbids senders relying on grace, so the right shape is per-call-site tolerance, not a uniform method-level grace. Out of scope for the sweep.
+- `session/session.go` `PreviousEnvMAC` — local transition-window memory pruning, not a peer-tolerance site.
 - `session/ticket.go` consumed-ticket cache (`PruneConsumed`, `isConsumed`) — local memory pruning of the in-memory cache; not a peer-issued timestamp.
 - `delivery/disposition.go:166` `IsStageComplete` — the deadline argument is locally computed (`startTime + timeout`); the staged-wait timer is a local-state machine, not a peer-tolerance site.
 - `handshake/pow.go:106` solver-loop deadline — local solver timer.
