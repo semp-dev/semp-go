@@ -149,6 +149,52 @@ type DeviceDirectory struct {
 	Signature PublicationSignature   `json:"signature"`
 }
 
+// directoryViewAdapter wraps a *DeviceDirectory so it satisfies
+// the recovery package's DirectoryView interface for §5.2
+// contributor cross-check. The recovery package cannot import keys
+// (a cycle through CompromiseRotation), so the adapter lives here
+// and is exposed via DeviceDirectory.AsDirectoryView.
+type directoryViewAdapter struct {
+	dir *DeviceDirectory
+}
+
+// UserID returns the directory's user_id.
+func (a directoryViewAdapter) UserID() string {
+	if a.dir == nil {
+		return ""
+	}
+	return a.dir.UserID
+}
+
+// FindDevice returns the directory entry for deviceID.
+func (a directoryViewAdapter) FindDevice(deviceID string) (algorithm string, publicKey string, found bool) {
+	if a.dir == nil {
+		return "", "", false
+	}
+	for i := range a.dir.Devices {
+		if a.dir.Devices[i].DeviceID == deviceID {
+			return a.dir.Devices[i].DeviceIdentityPubkeyAlgorithm,
+				a.dir.Devices[i].DevicePublicKey,
+				true
+		}
+	}
+	return "", "", false
+}
+
+// AsDirectoryView returns d as a value satisfying the recovery
+// package's DirectoryView interface. Used by recovery.
+// CrossCheckManifestContributors to validate Shamir share-set
+// manifests against the device directory per RECOVERY.md §5.2.
+//
+// The returned value is a small adapter; callers MAY pass nil
+// directories, in which case FindDevice always returns false.
+func (d *DeviceDirectory) AsDirectoryView() interface {
+	UserID() string
+	FindDevice(deviceID string) (string, string, bool)
+} {
+	return directoryViewAdapter{dir: d}
+}
+
 // Wire-level type discriminator constants used in the JSON `type`
 // fields above.
 const (
