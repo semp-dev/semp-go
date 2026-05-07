@@ -79,7 +79,7 @@ func TestStatelessTicketSingleUse(t *testing.T) {
 }
 
 // TestStatelessTicketExpiry confirms Open rejects tickets whose
-// expires_at has passed.
+// expires_at has passed beyond the §4.4 grace window.
 func TestStatelessTicketExpiry(t *testing.T) {
 	issuer := newTestIssuer(t)
 	ticket, err := issuer.Issue(context.Background(), "alice@example.com",
@@ -91,6 +91,26 @@ func TestStatelessTicketExpiry(t *testing.T) {
 	_, _, _, err = issuer.Open(context.Background(), ticket, future)
 	if err != session.ErrTicketExpired {
 		t.Errorf("Open past expiry: got %v, want ErrTicketExpired", err)
+	}
+}
+
+// TestStatelessTicketGraceWindow confirms a ticket whose expires_at
+// is within the §4.4 Default 15-minute grace window is still
+// accepted. The ticket was issued by the server on its own clock;
+// CONFORMANCE.md §9.3.1 lets verifiers grace up to 15 minutes of
+// peer-clock skew before treating the timestamp as expired.
+func TestStatelessTicketGraceWindow(t *testing.T) {
+	issuer := newTestIssuer(t)
+	expiresAt := time.Now().UTC().Add(time.Hour)
+	ticket, err := issuer.Issue(context.Background(), "alice@example.com",
+		bytes.Repeat([]byte{0xAB}, 32), expiresAt)
+	if err != nil {
+		t.Fatalf("Issue: %v", err)
+	}
+	// 5 minutes past expiry — well inside the 15-min Default grace.
+	withinGrace := expiresAt.Add(5 * time.Minute)
+	if _, _, _, err := issuer.Open(context.Background(), ticket, withinGrace); err != nil {
+		t.Errorf("Open inside grace window: %v", err)
 	}
 }
 

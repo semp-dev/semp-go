@@ -121,8 +121,8 @@ func TestBlockListMatchPrecedenceServerBeatsDomain(t *testing.T) {
 	}
 }
 
-// TestBlockListMatchExpired confirms entries past their ExpiresAt are
-// ignored.
+// TestBlockListMatchExpired confirms entries past their ExpiresAt
+// AND past the §4.4 grace window are ignored.
 func TestBlockListMatchExpired(t *testing.T) {
 	past := time.Now().UTC().Add(-time.Hour)
 	entry := userEntry("alice@example.com", semp.AckRejected)
@@ -130,6 +130,23 @@ func TestBlockListMatchExpired(t *testing.T) {
 	list := &delivery.BlockList{Entries: []delivery.BlockEntry{entry}}
 	if got := list.Match("alice@example.com", "example.com", "", false); got != nil {
 		t.Errorf("expired entry should not match, got %+v", got)
+	}
+}
+
+// TestBlockListMatchGraceWindow confirms an entry whose ExpiresAt
+// is within the §4.4 Default 15-minute grace window is still
+// enforced. Block-list entries are signed by the user on a device
+// whose clock may differ from the home server's clock; the grace
+// keeps the block live for the brief skew window so a sender does
+// not slip through during clock disagreement.
+func TestBlockListMatchGraceWindow(t *testing.T) {
+	// 5 minutes past expiry — well inside the 15-min Default grace.
+	withinGrace := time.Now().UTC().Add(-5 * time.Minute)
+	entry := userEntry("alice@example.com", semp.AckRejected)
+	entry.ExpiresAt = &withinGrace
+	list := &delivery.BlockList{Entries: []delivery.BlockEntry{entry}}
+	if got := list.Match("alice@example.com", "example.com", "", false); got == nil {
+		t.Error("entry within §4.4 grace window should still match")
 	}
 }
 

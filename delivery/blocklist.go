@@ -6,6 +6,7 @@ import (
 	"time"
 
 	semp "semp.dev/semp-go"
+	"semp.dev/semp-go/clockskew"
 )
 
 // EntityType identifies what kind of entity a block entry targets.
@@ -116,7 +117,15 @@ func (l *BlockList) Match(senderAddress, senderDomain, senderServer string, isGr
 
 	for i := range l.Entries {
 		e := &l.Entries[i]
-		if e.ExpiresAt != nil && !e.ExpiresAt.IsZero() && !now.Before(*e.ExpiresAt) {
+		// Block-list entries are signed by the user on a device whose
+		// clock may differ from this server's clock by up to the §4.4
+		// tolerance. Apply the Default grace so a user-signed expiry
+		// observed up to 15 minutes in the past still keeps the
+		// block live on the receiver side; CONFORMANCE.md §9.3.1
+		// explicitly contemplates this skew. Past zero/expired entries
+		// outside the grace are skipped.
+		if e.ExpiresAt != nil && !e.ExpiresAt.IsZero() &&
+			clockskew.CheckExpiry(*e.ExpiresAt, now, clockskew.Default()) != nil {
 			continue
 		}
 		if !scopeApplies(e.Scope, isGroup) {

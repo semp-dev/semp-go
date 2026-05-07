@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"semp.dev/semp-go/clockskew"
 	"semp.dev/semp-go/crypto"
 )
 
@@ -190,7 +191,13 @@ func (s *StatelessTicketIssuer) Open(_ context.Context, ticket []byte, now time.
 	if p.ExpiresAt.IsZero() {
 		return "", nil, time.Time{}, ErrTicketUnknown
 	}
-	if now.After(p.ExpiresAt) {
+	// The ticket was issued by the server (possibly a peer server in a
+	// federation handshake) on its own clock. CONFORMANCE.md §9.3.1
+	// requires uniform tolerance on every "valid until T" timestamp;
+	// applying the Default grace lets a freshly-presented ticket
+	// survive up to 15 minutes of clock skew before the verifier
+	// rejects it as expired.
+	if clockskew.CheckExpiry(p.ExpiresAt, now, clockskew.Default()) != nil {
 		return "", nil, time.Time{}, ErrTicketExpired
 	}
 	resumption, err := base64.StdEncoding.DecodeString(p.Resumption)

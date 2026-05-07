@@ -352,13 +352,25 @@ Library's `devicecert.go` was written 2026-04-10, before the spec's `4c14bf5` an
 - Senders MUST NOT rely on grace windows.
 - Applies to `postmark.expires`, challenge `expires`, session `expires_at`, block list sync `timestamp`, queue state, backup bundle `created_at`, migration `migrated_at`, forwarder attestations, delegated cert lifetimes.
 
-**Integration status (post-commit 659185e).** The `clockskew` package landed with `Default()` / `Strict()` tolerances and `CheckFutureTimestamp` / `CheckExpiry` helpers. `delivery/pipeline.go` migrated to `clockskew.CheckExpiry(..., Strict())` for `postmark.expires`. Open work that this cluster does NOT yet cover:
+**Integration status (post-commit 659185e).** The `clockskew` package landed with `Default()` / `Strict()` tolerances and `CheckFutureTimestamp` / `CheckExpiry` helpers. `delivery/pipeline.go` migrated to `clockskew.CheckExpiry(..., Strict())` for `postmark.expires`.
 
-- **Migrate other validation sites to clockskew.** Today the following still use ad-hoc `time.Until` / `time.After` checks rather than the package: `handshake/client.go` PoW `req.Expires` floor check (line 208), receipt-side checks on session `ExpiresAt` in `handshake/server.go` and `handshake/federation.go`, `session/expirylog.go`, and any future observation / block-list / migration timestamp validators. Each site should switch to `clockskew.CheckFutureTimestamp` (for "produced at T" fields) or `clockskew.CheckExpiry` (for "valid until T" fields) so the tolerance posture is uniform.
+**Sweep across remaining peer-timestamp validators (commit `<this>`).** Two sites migrated to `clockskew.CheckExpiry(..., Default())`:
+
+- `delivery/blocklist.go:119` — block-list entry expiry filter. Block entries are signed by the user on a device whose clock may differ from the home server's clock; the Default 15-minute grace keeps a freshly-expired block live during peer-clock disagreement so a sender does not slip through.
+- `session/ticket.go:193` — stateless-ticket `Open` path. Tickets are issued by the server (possibly a peer server in a federation handshake) on its own clock; the Default grace lets a freshly-presented ticket survive up to 15 minutes of skew before the verifier rejects it as expired.
+
+Both sites gained complementary grace-window tests asserting the new tolerance is applied (5 minutes past expiry → still live).
+
+**Sites audited and intentionally NOT migrated** (peer-clock skew does not apply):
+
+- `session/session.go` `Active` / `CanRekey` / `AcceptsID` / `PreviousEnvMAC` — read `now` against a session lifetime that both endpoints know exactly (negotiated at handshake). Adding a grace would silently extend session lifetime past negotiation; CONFORMANCE.md §9.3.1 also forbids senders relying on grace, so the right shape is per-call-site tolerance, not a uniform method-level grace. Out of scope for the sweep.
+- `session/ticket.go` consumed-ticket cache (`PruneConsumed`, `isConsumed`) — local memory pruning of the in-memory cache; not a peer-issued timestamp.
+- `delivery/disposition.go:166` `IsStageComplete` — the deadline argument is locally computed (`startTime + timeout`); the staged-wait timer is a local-state machine, not a peer-tolerance site.
+- `handshake/pow.go:106` solver-loop deadline — local solver timer.
+- `delivery/inboxd/forwarder.go:612` — sleep duration; not a validation.
+- `handshake/client.go:223` PoW `req.Expires` floor-vs-difficulty check — not an expiry validation, this checks whether the challenge has enough time-budget for its declared difficulty. The line below at 219 already uses `clockskew.CheckExpiry` for the actual expiry validity.
 
 - ~~**Enforce sender-side headroom in Compose.**~~ Landed: `Compose` now rejects `Postmark.Expires` values closer than `MinSenderExpiryHeadroom` (15 minutes) per CONFORMANCE.md §9.3.1. Tests that intentionally compose already-expired envelopes (for pipeline-rejection tests) opt out via `ComposeInput.SkipExpiryHeadroomCheck = true`.
-
-Track migration as its own follow-up cluster.
 
 ### 4.5 Queuing, retry, and cancellation ([delivery/submission.go])
 
