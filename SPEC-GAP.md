@@ -204,13 +204,34 @@ The HTTP transport layer (POST/GET/DELETE per §4.1) is operator integration; th
 
 Tests cover: cooperative and unilateral round-trip; signing-order enforcement (each pass rejects out-of-order calls); SignOldDomain rejected in unilateral mode; chained-signature tamper detection (mutating an earlier signature's value invalidates later signatures that committed to it); forwarding-window bounds (below min, at min, recommended, at max, above max); CheckMigratedAtBound rejects backdated and future timestamps.
 
-**Open follow-ups:**
+**Endpoint orchestration + lockout + post-window bounce + third-party policy hooks landed.**
 
-- Provider-migration endpoint orchestration: cooperative-flow request/response pair (new provider submits to old's migration endpoint, old verifies all three prior signatures, countersigns) per §4.1.
-- Forwarding mechanism integration: section 5 forwarding by re-enveloping (depends on the §6.6 forwarding primitive already in place).
-- Post-window bounce with `migration_notice` per §5.3.
-- Local-part lockout / reassignment policy per §6.
-- Third-party domain policy hooks per §7 (verification, known-correspondent preservation, reputation carry-over, block-list migration).
+`migration/orchestrate.go`:
+
+- `BuildSubmission(SubmitInput)` implements §4.1 steps 3-7 on the new provider side. Produces a 3-sig record (old_identity + new_identity + new_domain) with the old_domain slot pre-allocated. Per §4.2's chained-signature rule, the old domain's KeyID MUST be populated up front so the canonical bytes are stable across the four signing passes — `SubmitInput.OldDomainKeyID` carries this; the new provider obtains it from the old provider's discovery configuration before submitting.
+- `AcceptSubmission(ctx, AcceptInput)` implements §4.1 step 8 + §4.2 obligations on the old provider side. Verifies the three submitted signatures, runs the §3.4 `migrated_at` bound check via `CheckMigratedAtBound`, applies the operator's `ForwardingPolicy` for windows beyond the spec range, registers the §6.1 lockout reservation BEFORE countersigning so a duplicate concurrent submission for the same old address fails with `ErrLocalPartLockedOut`, then countersigns with the old domain key. Rejects unilateral records (the old provider is not a participant in unilateral migration). Returns the 4-sig record ready for publication.
+- `ErrForwardingWindowRefused` sentinel for operator-supplied policy refusals.
+
+`migration/lockout.go`:
+
+- `LockoutRegistry` interface (`Reserve` / `IsLockedOut` / `Release` / `PruneExpired`) + `NewInMemoryLockoutRegistry()` reference impl.
+- `Reserve` returns `ErrLocalPartLockedOut` on collision with an unexpired entry; expired entries are silently overwritten (the §6.2 "after the window the local-part MAY be reassigned" rule realized lazily).
+- `IsLockedOut` returns the establishing migration record id and the until-timestamp so the operator's HTTP layer can surface them in the §6.1 rejection.
+- `PruneExpired` for janitor sweeps.
+
+`migration/migration_notice.go`:
+
+- `MigrationNotice` is the §5.3 body field; `BuildMigrationNotice(record, urlPattern)` constructs it from a published migration record (substituting `<record_id>` placeholder in the URL pattern when present).
+- `MigrationNoticeRejection` + `NewMigrationNoticeRejection` produce the §5.3 envelope-rejection wire shape (type=SEMP_ENVELOPE, step=rejected, reason_code=policy_forbidden, reason="Recipient has migrated.").
+
+`migration/thirdparty.go`:
+
+- `VerifyThirdParty(ThirdPartyVerifyInput)` implements §7.1 steps 2-5 verification. Cooperative records use the existing 4-sig `VerifyMigrationRecord`; unilateral records walk the three present signatures via the per-pass verifier (no old domain).
+- `ThirdPartyPolicy` bundles the three §7 hooks (`UpdateKnownCorrespondents` §7.2, `CarryReputation` §7.3, `MigrateBlockListEntries` §7.4) as `ThirdPartyHook func(ctx, record) error`. `ApplyThirdPartyPolicy` runs each non-nil hook in spec order; nil hooks silently skipped; per-hook errors aggregated into `*ThirdPartyPolicyErrors.Steps` with no short-circuit (every hook still runs).
+
+§5 forwarding integration: the spec defers the delegated server-side re-enveloping mechanism to "a future revision" (§5.2), and the client-initiated forward path is already covered by the §6.6 forwarding primitive in `enclosure/`. No new library code needed; operators wire `enclosure.SignForwarderAttestation` when forwarding via a still-active client. Spec-deferred portion explicitly out of scope.
+
+Tests cover: BuildSubmission cooperative + unilateral; window bounds rejection (zero / below min / above max); AcceptSubmission round-trip with full 4-sig VerifyMigrationRecord; AcceptSubmission rejects unilateral records; AcceptSubmission rejects bad old_identity_pub; ForwardingPolicy gate fires; duplicate-submission produces `ErrLocalPartLockedOut`; LockoutRegistry Reserve/Release/Prune lifecycle; MigrationNotice URL pattern substitution + default reason; VerifyThirdParty cooperative + unilateral; ApplyThirdPartyPolicy spec order, nil-skip, error aggregation. All under `-race`.
 
 ### 3.3 `closure/` Account Closure
 
