@@ -331,6 +331,103 @@ func (r *StagedRunner) Tick(ctx context.Context) (int, error) {
 	return len(toRun), firstErr
 }
 
+// Reevaluate recomputes a held envelope's stage partition per
+// DELIVERY.md §3.2.6, in response to a delegated device's
+// certificate being updated or revoked while the envelope is in
+// flight. newStages is the freshly-computed partition (typically
+// the output of PartitionStages over the current directory + cert
+// state).
+//
+// The reevaluation rules per §3.2.6:
+//
+//   - A device whose receive policy no longer permits the envelope
+//     MUST be dropped from the current stage's pending set. Any
+//     disposition that device already submitted at the prior
+//     current stage is preserved (a vote already cast still
+//     counts).
+//   - A device whose delivery_stage has changed MUST be moved to
+//     the new stage's pending set.
+//   - If no devices remain at the current stage after re-evaluation,
+//     the envelope advances to the next stage immediately on the
+//     next Tick.
+//
+// Reevaluate does not advance the envelope itself; the next Tick
+// observes the updated stage list and advances per IsStageComplete.
+//
+// Returns ErrEnvelopeNotHeld if the envelope is not currently in
+// the runner's held set.
+func (r *StagedRunner) Reevaluate(envelopeID string, newStages []StagedHeldStage) error {
+	if envelopeID == "" {
+		return errors.New("delivery: reevaluate empty envelope_id")
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	rec, ok := r.held[envelopeID]
+	if !ok {
+		return ErrEnvelopeNotHeld
+	}
+	if len(rec.Stages) == 0 {
+		return nil
+	}
+	currentStage := rec.Stages[0].Stage
+
+	// Build the new partition's per-stage device sets.
+	newByStage := make(map[int]map[string]struct{}, len(newStages))
+	stageOrder := make([]int, 0, len(newStages))
+	for _, st := range newStages {
+		set := make(map[string]struct{}, len(st.PendingDeviceIDs))
+		for _, id := range st.PendingDeviceIDs {
+			set[id] = struct{}{}
+		}
+		newByStage[st.Stage] = set
+		stageOrder = append(stageOrder, st.Stage)
+	}
+	sort.Ints(stageOrder)
+
+	// Carry forward dispositions already collected at the current
+	// stage; per §3.2.6 a vote that has already been cast still
+	// counts even if the device has since had its cert updated.
+	priorDispositions := rec.Stages[0].Dispositions
+
+	// Reconstruct the stages from currentStage forward. Stages
+	// strictly below currentStage have already been processed and
+	// are not part of the held entry.
+	var rebuilt []StagedHeldStage
+	for _, s := range stageOrder {
+		if s < currentStage {
+			continue
+		}
+		ids := make([]string, 0, len(newByStage[s]))
+		for id := range newByStage[s] {
+			ids = append(ids, id)
+		}
+		sort.Strings(ids)
+		rebuilt = append(rebuilt, StagedHeldStage{
+			Stage:            s,
+			PendingDeviceIDs: ids,
+		})
+	}
+
+	// Re-attach prior dispositions to whichever stage matches the
+	// pre-reevaluation current stage. Dispositions whose device_id
+	// no longer appears in any stage's pending set are preserved
+	// in the entry's current-stage Dispositions slice (the vote
+	// counted; we don't retroactively erase it).
+	if len(rebuilt) > 0 && rebuilt[0].Stage == currentStage {
+		rebuilt[0].Dispositions = priorDispositions
+	}
+
+	rec.Stages = rebuilt
+	// Reset deadline so the new stage gets a fresh wait window.
+	rec.Deadline = r.nowFn().Add(r.timeout)
+	return nil
+}
+
+// ErrEnvelopeNotHeld is returned by Reevaluate when an envelope_id
+// is not in the runner's held set (already advanced, suppressed,
+// or never held).
+var ErrEnvelopeNotHeld = errors.New("delivery: envelope is not held")
+
 // HeldCount returns the number of envelopes currently held.
 // Useful for operator monitoring and for tests.
 func (r *StagedRunner) HeldCount() int {
