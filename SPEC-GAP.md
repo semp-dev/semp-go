@@ -8,7 +8,14 @@ The catch-up has effectively closed: every wire-breaking item, every new optiona
 
 **Genuinely open in the library:**
 
-- *(none at the time of writing)* — the items below are either out of library scope or spec-deferred.
+The Phase 1 JSON test-vectors runner ([`test/vectors_runner_test.go`]) surfaces four real drift items where semp-go's behavior disagrees with the published vectors. Each is currently `t.Skip`'d in the runner with a pointer back to this section so the suite stays green; landing the fix here flips the corresponding skip.
+
+- **VR-1** Canonical envelope strips empty `extensions` maps. `envelope.Postmark.Extensions` and `seal.Seal.Extensions` carry `json:"extensions,omitempty"`, so an empty map disappears from `Envelope.CanonicalBytes()`. Spec `ENVELOPE.md` §4.3 lists the canonical elisions explicitly (`seal.signature` / `seal.session_mac` blanked, `hop_count` and `padding` omitted) and says nothing about empty extension maps. The cross-language vector at `vectors/v1.0.0/envelope-canonical.json#envelope-canonical-minimal` keeps `extensions:{}` in the canonical output. Fix: drop `omitempty` from these fields (or fork the encoding for canonical bytes vs wire). Affected files: [`envelope/postmark.go`], [`seal/seal.go`].
+- **VR-2** Canonical envelope emits `first_contact_token: null`. `seal.Seal.FirstContactToken *FirstContactToken` carries `json:"first_contact_token"` with no `omitempty`, so the canonical bytes include a literal null when the field is unset. The vectors omit the field entirely when absent. Fix: add `,omitempty` so unset → omitted. Affected file: [`seal/seal.go`].
+- **VR-3** Rekey HKDF info labels. `crypto.DeriveRekeyKeys` uses `SEMP-v1-rekey-enc-c2s`, etc.; the spec (`VECTORS.md` §2.2) reuses the initial-handshake `SEMP-v1-session-*` labels and relies on the salt change for cross-context separation. Fix: update `Info{Rekey,Session}*` constants and the rekey derivation to share the session labels. Affected file: [`crypto/kdf.go`].
+- **VR-4** Required-extension rejection scope. `extensions.Validate` only rejects required-but-unregistered extensions in the `semp.dev/` namespace; vendor and `x-` keys are accepted. The spec (`EXTENSIONS.md` §3) says any required extension a recipient does not understand MUST be rejected, regardless of namespace. Fix: drop the `NamespacePrefixCore` guard so required-and-unknown rejects for any namespace. Affected file: [`extensions/limits.go`].
+
+Each item is independently shippable; none is wire-breaking on its own except VR-1 + VR-2 (both change canonical envelope bytes, which changes signature inputs, so they MUST land together to avoid a transient state where signed envelopes verify with one side and not the other).
 
 **Out of library scope (semp-reference-client):**
 
