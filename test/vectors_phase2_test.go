@@ -25,6 +25,8 @@ import (
 	"testing"
 	"time"
 
+	"golang.org/x/crypto/chacha20poly1305"
+
 	"semp.dev/semp-go/crypto"
 	"semp.dev/semp-go/envelope"
 	"semp.dev/semp-go/handshake"
@@ -1507,6 +1509,199 @@ func runShamirRoundTrip(t *testing.T, entry vectorEntry) {
 			t.Errorf("sub-threshold combine recovers got %v, want %v",
 				gotSub, wantSub)
 		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// large-attachment: AEAD round-trip (4 vectors)
+//
+//	K_attachment = HKDF-Expand(PRK=K_enclosure,
+//	    info='semp-attachment:'||attachment_id, L=32)
+//	AAD          = canonical(item with ciphertext_hash="" aead_nonce=""
+//	                        extensions={})
+//	baseline     = ChaCha20-Poly1305 (12-byte nonce)
+//	PQ           = XChaCha20-Poly1305 (24-byte nonce)
+//	ciphertext_hash = "sha256:" + hex(SHA-256(aead_ct))
+//
+// The runner uses internal/canonical for the AAD rather than
+// largeattachment.AdditionalData, which uses plain json.Marshal
+// (struct-order, NOT alphabetical canonical). semp-go's encrypt and
+// decrypt use the same AAD function so round-trips work locally,
+// but the bytes are NOT cross-implementation-interop-compatible.
+// Tracked as a separate gap.
+
+func attachmentAAD(t *testing.T, item map[string]any) []byte {
+	t.Helper()
+	clone := deepCopyMap(item)
+	clone["ciphertext_hash"] = ""
+	clone["aead_nonce"] = ""
+	clone["extensions"] = map[string]any{}
+	bytes, err := canonical.Marshal(clone)
+	if err != nil {
+		t.Fatalf("canonical AAD: %v", err)
+	}
+	return bytes
+}
+
+func deriveAttachmentKey(kEnclosure []byte, attachmentID string) []byte {
+	kdf := crypto.NewKDFHKDFSHA512()
+	info := append([]byte("semp-attachment:"), attachmentID...)
+	return kdf.Expand(kEnclosure, info, 32)
+}
+
+func handleLargeAttachment(t *testing.T, entry vectorEntry) {
+	switch entry.ID {
+	case "large-attachment-baseline-valid", "large-attachment-pq-valid":
+		runLargeAttachmentValid(t, entry)
+	case "large-attachment-tampered-metadata":
+		runLargeAttachmentTamperedMetadata(t, entry)
+	case "large-attachment-tampered-ciphertext":
+		runLargeAttachmentTamperedCiphertext(t, entry)
+	default:
+		t.Skipf("large-attachment %q: no handler", entry.ID)
+	}
+}
+
+func runLargeAttachmentValid(t *testing.T, entry vectorEntry) {
+	t.Helper()
+	kEnc := decodeHexF(t, jget(t, entry.Inputs, "K_enclosure_hex"), "K_enclosure_hex")
+	attachmentID := jget(t, entry.Inputs, "attachment_id")
+	plaintext := decodeHexF(t, jget(t, entry.Inputs, "plaintext_hex"), "plaintext_hex")
+	nonce := decodeHexF(t, jget(t, entry.Inputs, "aead_nonce_hex"), "aead_nonce_hex")
+
+	var template map[string]any
+	if err := json.Unmarshal(jgetRaw(t, entry.Inputs, "item_pre_encrypt_template"), &template); err != nil {
+		t.Fatalf("template: %v", err)
+	}
+	kAttachment := deriveAttachmentKey(kEnc, attachmentID)
+	aad := attachmentAAD(t, template)
+
+	algo, _ := template["aead_algorithm"].(string)
+	ct, err := aeadSeal(algo, kAttachment, nonce, plaintext, aad)
+	if err != nil {
+		t.Fatalf("AEAD seal: %v", err)
+	}
+	wantCT := decodeHexF(t, jget(t, entry.Expected, "ciphertext_at_url_hex"), "ciphertext_at_url_hex")
+	if !bytesEq(ct, wantCT) {
+		t.Errorf("ciphertext mismatch:\n  got  %x\n  want %x", ct, wantCT)
+	}
+
+	// Round-trip: AEAD-open the ciphertext with the same AAD, recover plaintext.
+	pt, err := aeadOpen(algo, kAttachment, nonce, ct, aad)
+	if err != nil {
+		t.Fatalf("AEAD open: %v", err)
+	}
+	if !bytesEq(pt, plaintext) {
+		t.Errorf("round-trip: recovered plaintext mismatch")
+	}
+	wantRoundTrip := jgetBool(t, entry.Expected, "round_trip_recovers_plaintext")
+	if !wantRoundTrip {
+		t.Error("vector says round-trip should NOT recover; runner says it does")
+	}
+
+	// ciphertext_hash sanity check against item_final_json.
+	var final map[string]any
+	if err := json.Unmarshal(jgetRaw(t, entry.Expected, "item_final_json"), &final); err != nil {
+		t.Fatalf("item_final unmarshal: %v", err)
+	}
+	expectHash := fmt.Sprintf("sha256:%x", sha256.Sum256(ct))
+	gotHash, _ := final["ciphertext_hash"].(string)
+	if gotHash != expectHash {
+		t.Errorf("ciphertext_hash mismatch:\n  got  %s\n  want %s",
+			gotHash, expectHash)
+	}
+}
+
+func runLargeAttachmentTamperedMetadata(t *testing.T, entry vectorEntry) {
+	t.Helper()
+	// Take the valid output, change a bound field (filename) in the
+	// item, recompute AAD, and assert AEAD decrypt fails because the
+	// AAD now differs from the AAD used at encryption time.
+	kAttachment := decodeHexF(t, jget(t, entry.Inputs, "K_attachment_hex"), "K_attachment_hex")
+	nonce := decodeHexF(t, jget(t, entry.Inputs, "aead_nonce_hex"), "aead_nonce_hex")
+	ct := decodeHexF(t, jget(t, entry.Inputs, "ciphertext_at_url_hex"), "ciphertext_at_url_hex")
+	var tamperedItem map[string]any
+	if err := json.Unmarshal(jgetRaw(t, entry.Inputs, "tampered_item_json"), &tamperedItem); err != nil {
+		t.Fatalf("tampered_item_json: %v", err)
+	}
+	// Determine algorithm from item.
+	algo, _ := tamperedItem["aead_algorithm"].(string)
+	tamperedAAD := attachmentAAD(t, tamperedItem)
+	_, err := aeadOpen(algo, kAttachment, nonce, ct, tamperedAAD)
+	gotDecrypts := err == nil
+	wantDecrypts := jgetBool(t, entry.Expected, "decryption_succeeds")
+	if gotDecrypts != wantDecrypts {
+		t.Errorf("decryption_succeeds got %v, want %v", gotDecrypts, wantDecrypts)
+	}
+}
+
+func runLargeAttachmentTamperedCiphertext(t *testing.T, entry vectorEntry) {
+	t.Helper()
+	kAttachment := decodeHexF(t, jget(t, entry.Inputs, "K_attachment_hex"), "K_attachment_hex")
+	nonce := decodeHexF(t, jget(t, entry.Inputs, "aead_nonce_hex"), "aead_nonce_hex")
+	tamperedCT := decodeHexF(t, jget(t, entry.Inputs, "tampered_ciphertext_hex"),
+		"tampered_ciphertext_hex")
+	var item map[string]any
+	if err := json.Unmarshal(jgetRaw(t, entry.Inputs, "item_json"), &item); err != nil {
+		t.Fatalf("item_json: %v", err)
+	}
+	// Hash mismatch: SHA-256(tampered_ct) != item.ciphertext_hash.
+	expectHash := fmt.Sprintf("sha256:%x", sha256.Sum256(tamperedCT))
+	itemHash, _ := item["ciphertext_hash"].(string)
+	hashMatches := expectHash == itemHash
+	wantHashMatches := jgetBool(t, entry.Expected, "ciphertext_hash_matches")
+	if hashMatches != wantHashMatches {
+		t.Errorf("ciphertext_hash_matches got %v, want %v", hashMatches, wantHashMatches)
+	}
+	// AEAD decrypt also fails (Poly1305 tag mismatch on tampered ct).
+	algo, _ := item["aead_algorithm"].(string)
+	aad := attachmentAAD(t, item)
+	_, err := aeadOpen(algo, kAttachment, nonce, tamperedCT, aad)
+	aeadOK := err == nil
+	wantAEAD := jgetBool(t, entry.Expected, "aead_decryption_succeeds")
+	if aeadOK != wantAEAD {
+		t.Errorf("aead_decryption_succeeds got %v, want %v", aeadOK, wantAEAD)
+	}
+}
+
+// aeadSeal / aeadOpen dispatch on the algorithm string. Both the
+// baseline (chacha20-poly1305) and PQ (xchacha20-poly1305) AEADs are
+// directly available via golang.org/x/crypto.
+func aeadSeal(algo string, key, nonce, plaintext, aad []byte) ([]byte, error) {
+	switch algo {
+	case "chacha20-poly1305":
+		c, err := chacha20poly1305.New(key)
+		if err != nil {
+			return nil, err
+		}
+		return c.Seal(nil, nonce, plaintext, aad), nil
+	case "xchacha20-poly1305":
+		c, err := chacha20poly1305.NewX(key)
+		if err != nil {
+			return nil, err
+		}
+		return c.Seal(nil, nonce, plaintext, aad), nil
+	default:
+		return nil, fmt.Errorf("unknown AEAD algorithm %q", algo)
+	}
+}
+
+func aeadOpen(algo string, key, nonce, ciphertext, aad []byte) ([]byte, error) {
+	switch algo {
+	case "chacha20-poly1305":
+		c, err := chacha20poly1305.New(key)
+		if err != nil {
+			return nil, err
+		}
+		return c.Open(nil, nonce, ciphertext, aad)
+	case "xchacha20-poly1305":
+		c, err := chacha20poly1305.NewX(key)
+		if err != nil {
+			return nil, err
+		}
+		return c.Open(nil, nonce, ciphertext, aad)
+	default:
+		return nil, fmt.Errorf("unknown AEAD algorithm %q", algo)
 	}
 }
 

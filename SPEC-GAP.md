@@ -14,8 +14,9 @@ The Phase 1 JSON test-vectors runner ([`test/vectors_runner_test.go`]) surfaces 
 - ~~**VR-2** Canonical envelope emits `first_contact_token: null`.~~ Landed. `seal.Seal.FirstContactToken` now carries `omitempty` and disappears from canonical bytes when nil.
 - ~~**VR-3** Rekey HKDF info labels.~~ Landed. The `InfoRekey*` constants are now type-aliases of the corresponding `InfoSession*` constants per `VECTORS.md` §2.2; rekey relies on salt-based separation only.
 - ~~**VR-4** Required-extension rejection scope.~~ Landed. `extensions.Validate` now rejects any required-but-unregistered extension regardless of namespace per `EXTENSIONS.md` §3.
+- **VR-5** Large-attachment AEAD AAD uses Go-struct field order, not canonical alphabetical. `largeattachment.AdditionalData` calls plain `json.Marshal(clone)` on the `Item` struct, which produces keys in the order declared on the struct (`id`, `filename`, `mime_type`, `plaintext_size`, `url`, `ciphertext_hash`, `aead_algorithm`, `aead_nonce`, `extensions`). `ATTACHMENTS.md` §3.2 says the AAD is the canonical JSON of the item with `ciphertext_hash`, `aead_nonce`, and `extensions` blanked, and `ENVELOPE.md` §4.3 defines canonical as keys-sorted-alphabetically. Round-trips within semp-go succeed because both encrypt and decrypt use the same struct-order AAD, but a semp-go-encrypted attachment cannot be decrypted by a spec-conforming implementation (and vice versa). Fix: route `AdditionalData` through `internal/canonical.Marshal` so the alphabetical key ordering is enforced. Affected file: [`largeattachment/crypto.go`].
 
-All four Phase 1 vector-runner findings (VR-1 through VR-4) are closed. Categories that were `t.Skip`'d in `test/vectors_runner_test.go` are now exercised directly.
+Phase 1 closed all four VR-1..VR-4 findings; VR-5 surfaced during Wave 2D of the Phase 2 runner work and is the next surgical fix.
 
 **Out of library scope (semp-reference-client):**
 
