@@ -89,6 +89,17 @@ var dispatch = map[string]handler{
 	"rejection-codes":    handleRejectionCodes,
 	"extension-entries":  handleExtensionEntries,
 	"clock-tolerance":    handleClockTolerance,
+
+	// Wave 2A: single-signature documents (Layer 5 + signed handshake).
+	"account-closure":       runSignedDocHandler(pickAccountClosure),
+	"configuration-update":  runSignedDocHandler(pickConfigurationUpdate),
+	"user-policy":           runSignedDocHandler(pickUserPolicy),
+	"discovery-signed":      runSignedDocHandler(pickDiscoverySigned),
+	"handshake-messages":    handleHandshakeMessages,
+	"handshake-messages-pq": handleHandshakeMessagesPQ,
+	"session-resumption":    handleSessionResumption,
+	"recovery-shamir":       handleRecoveryShamir,
+	"first-contact-token":   handleFirstContactToken,
 }
 
 // TestVectors is the entry point. It walks every *.json file in the
