@@ -2,6 +2,7 @@ package test
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -200,9 +201,19 @@ func TestSEMPKeysCrossDomainFetch(t *testing.T) {
 	}
 }
 
-// TestSEMPKeysNotFound confirms that a lookup for an unknown user on an
-// unknown domain returns StatusNotFound (not StatusError) when the
-// server has no forwarder and no local record.
+// TestSEMPKeysNotFound covers two not-found outcomes for SEMP_KEYS:
+//
+//   - A local user that does not exist returns StatusNotFound directly
+//     from the server's own store.
+//   - A user on an unknown remote domain, when the server has no
+//     Resolver configured, returns StatusError with a reason mentioning
+//     the missing Resolver. (Pre-v0.4.2 the server short-circuited on
+//     `Peers.Lookup` and returned StatusNotFound here; that hid the
+//     "no Resolver" misconfiguration. The current behavior surfaces it
+//     as a clean error per the inboxd contract.) The
+//     unknown-remote-with-Resolver path is exercised by
+//     TestForwarderFailsWithoutResolverOrEndpoint and the cross-domain
+//     forwarder tests.
 func TestSEMPKeysNotFound(t *testing.T) {
 	const (
 		seed   = "test-keys-notfound"
@@ -250,14 +261,26 @@ func TestSEMPKeysNotFound(t *testing.T) {
 		t.Errorf("expected local not_found, got %+v", resp.Results)
 	}
 
-	// Unknown remote domain (server has no forwarder for it) →
-	// StatusNotFound as well.
+	// Unknown remote domain on a server with no Resolver configured.
+	// inboxd cannot prove the domain is genuinely not_found vs simply
+	// unreachable, so it surfaces a StatusError with a reason that
+	// mentions the missing Resolver. A deployment that wants the
+	// not_found verdict for unknown domains MUST configure a Resolver
+	// (see TestForwarderFailsWithoutResolverOrEndpoint and the
+	// cross-domain forwarder tests for the with-Resolver paths).
 	req2 := keys.NewRequest("test-notfound-remote", []string{"ghost@unknown.example"})
 	resp2, err := fetcher.FetchKeys(hsCtx, req2)
 	if err != nil {
 		t.Fatalf("FetchKeys: %v", err)
 	}
-	if len(resp2.Results) != 1 || resp2.Results[0].Status != keys.StatusNotFound {
-		t.Errorf("expected remote not_found, got %+v", resp2.Results)
+	if len(resp2.Results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(resp2.Results))
+	}
+	got := resp2.Results[0]
+	if got.Status != keys.StatusError {
+		t.Errorf("status = %s, want %s", got.Status, keys.StatusError)
+	}
+	if !strings.Contains(strings.ToLower(got.ErrorReason), "resolver") {
+		t.Errorf("reason %q should mention the missing Resolver", got.ErrorReason)
 	}
 }

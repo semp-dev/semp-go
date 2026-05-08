@@ -254,14 +254,19 @@ func TestDefaultFederationEndpointFunc(t *testing.T) {
 		t.Errorf("endpoint = %q, want wss://semp.example.com/v1/federate", ep)
 	}
 
-	// No Configuration, but Server set: should fall back to h2.
+	// No Configuration, but Server set: should fall back to the
+	// federation-suffixed h2 endpoint. The /federate suffix landed in
+	// v0.4.1 so a peer without an advertised Configuration is still
+	// reachable on the canonical federation path. A peer that wants
+	// requests on bare /v1/h2 must publish a Configuration that pins
+	// the endpoint explicitly.
 	bare := &discovery.Result{Address: "example.com", Status: semp.DiscoverySEMP, Server: "semp.example.com"}
 	ep, err = inboxd.DefaultFederationEndpointFunc(bare)
 	if err != nil {
 		t.Fatalf("DefaultFederationEndpointFunc with Server: %v", err)
 	}
-	if ep != "https://semp.example.com/v1/h2" {
-		t.Errorf("endpoint = %q, want https://semp.example.com/v1/h2", ep)
+	if ep != "https://semp.example.com/v1/h2/federate" {
+		t.Errorf("endpoint = %q, want https://semp.example.com/v1/h2/federate", ep)
 	}
 
 	// No Configuration and no Server: should error.
