@@ -100,6 +100,17 @@ var dispatch = map[string]handler{
 	"session-resumption":    handleSessionResumption,
 	"recovery-shamir":       handleRecoveryShamir,
 	"first-contact-token":   handleFirstContactToken,
+
+	// Wave 2B: decision-table shape validators.
+	"delivery-status":     handleDeliveryStatus,
+	"device-certificates": handleDeviceCertificates,
+	"key-revocation":      handleKeyRevocation,
+	"recipient-status":    handleRecipientStatus,
+	"session-lifecycle":   handleSessionLifecycle,
+
+	// Wave 2C: cross-reference + must-reject schema.
+	"must-reject-index":           handleMustRejectIndex,
+	"negative-envelope-rejection": handleNegativeEnvelopeRejection,
 }
 
 // TestVectors is the entry point. It walks every *.json file in the

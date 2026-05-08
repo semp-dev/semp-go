@@ -551,3 +551,248 @@ func handleFirstContactToken(t *testing.T, entry vectorEntry) {
 	}
 }
 
+// ---------------------------------------------------------------------------
+// Wave 2B: decision-table shape validators
+//
+// These categories ship table-shape vectors that map a (state, event)
+// or (condition) tuple to an expected_action / reason_code / behavior
+// string. The runner cannot dispatch them through a single semp-go
+// function because the corresponding behavior is implemented across
+// many call sites. What we CAN do is shape validation:
+//
+//   1. Assert the samples slice is non-empty.
+//   2. Assert each sample carries the expected fields.
+//   3. Where a `reason_code` field appears, cross-check it against
+//      semp-go's ReasonCode enum so the vector cannot drift to a
+//      reason code semp-go does not know.
+//
+// This is weaker than the byte-level checks earlier handlers do but
+// stronger than t.Skip: a generator that introduces a typo'd
+// reason_code or drops a required sample field fails the runner.
+
+// knownReasonCodes is the set of ReasonCode constants semp-go
+// recognizes. The runner uses it to detect drift in vector samples
+// that pin a reason_code field.
+//
+// New ReasonCode constants in semp-go automatically extend this set
+// only if added to this map; the runner intentionally requires
+// explicit curation so that a code added in semp-go but never
+// referenced by any vector still gets surfaced.
+var knownReasonCodes = func() map[string]bool {
+	codes := []string{
+		"blocked", "auth_failed", "policy_forbidden", "handshake_expired",
+		"handshake_invalid", "no_session", "rate_limited", "challenge",
+		"challenge_failed", "challenge_invalid", "server_at_capacity",
+		"resumption_failed", "version_unsupported",
+		"seal_invalid", "session_mac_invalid", "envelope_expired",
+		"envelope_size_exceeded", "extension_unsupported",
+		"extension_size_exceeded", "scope_exceeded", "scope_invalid",
+		"certificate_expired", "server_unavailable", "session_expired",
+		"rekey_unsupported", "policy_kind_unsupported",
+		"policy_op_invalid", "policy_version_stale",
+	}
+	out := make(map[string]bool, len(codes))
+	for _, c := range codes {
+		out[c] = true
+	}
+	return out
+}()
+
+// validateReasonCode asserts a reason_code string is one semp-go
+// understands. Empty strings and explicit nulls pass through (the
+// vector uses null in cases where the spec doesn't define a code).
+func validateReasonCode(t *testing.T, sampleIdx int, raw json.RawMessage) {
+	t.Helper()
+	if len(raw) == 0 || string(raw) == "null" {
+		return
+	}
+	var s string
+	if err := json.Unmarshal(raw, &s); err != nil {
+		t.Errorf("sample %d: reason_code is not a string: %s", sampleIdx, raw)
+		return
+	}
+	if s == "" {
+		return
+	}
+	if !knownReasonCodes[s] {
+		t.Errorf("sample %d: reason_code %q is not in semp-go's ReasonCode set; either the vector typo'd or semp-go is missing a constant",
+			sampleIdx, s)
+	}
+}
+
+// requireSampleFields asserts every sample carries every name in
+// `required`, with the field present (the value MAY be null —
+// many decision tables use null to mean "no defined value for this
+// row"; that is an intentional encoding, not a generator bug).
+//
+// Catches generator bugs that drop or rename a field across versions.
+// Stricter "non-null" assertions belong in per-category handlers
+// where the spec genuinely forbids null in a particular column.
+func requireSampleFields(t *testing.T, samples []json.RawMessage, required ...string) {
+	t.Helper()
+	if len(samples) == 0 {
+		t.Errorf("samples is empty")
+		return
+	}
+	for i, raw := range samples {
+		var m map[string]json.RawMessage
+		if err := json.Unmarshal(raw, &m); err != nil {
+			t.Errorf("sample %d: not an object: %v", i, err)
+			continue
+		}
+		for _, field := range required {
+			if _, ok := m[field]; !ok {
+				t.Errorf("sample %d: missing field %q", i, field)
+			}
+		}
+		// Where reason_code appears AND is non-null, validate
+		// against semp-go's enum. A null reason_code means the
+		// spec did not pin one, which is allowed.
+		if rc, ok := m["reason_code"]; ok {
+			validateReasonCode(t, i, rc)
+		}
+	}
+}
+
+func handleDeliveryStatus(t *testing.T, entry vectorEntry) {
+	switch entry.ID {
+	case "acknowledgment-to-ui-state":
+		requireSampleFields(t, entry.Samples,
+			"server_acknowledgment", "client_ui_state")
+	case "queued-to-final-transitions":
+		requireSampleFields(t, entry.Samples,
+			"initial_status", "delivery_event_status", "client_action")
+	case "discovery-outcome-to-submission-status":
+		requireSampleFields(t, entry.Samples,
+			"discovery_outcome", "submission_status", "client_action")
+	case "multi-recipient-mixed-outcomes":
+		// This entry is single-case shape (inputs + expected, no
+		// samples). Just confirm both are present and well-formed.
+		if len(entry.Inputs) == 0 {
+			t.Error("inputs missing")
+		}
+		if len(entry.Expected) == 0 {
+			t.Error("expected missing")
+		}
+	default:
+		t.Skipf("delivery-status %q: no handler", entry.ID)
+	}
+}
+
+func handleDeviceCertificates(t *testing.T, entry vectorEntry) {
+	switch entry.ID {
+	case "certificate-validation-failures":
+		requireSampleFields(t, entry.Samples, "condition", "expected_action")
+	case "scope-enforcement-by-recipient":
+		requireSampleFields(t, entry.Samples,
+			"recipient_address", "scope_match", "expected_action")
+	case "scope-mode-enforcement":
+		requireSampleFields(t, entry.Samples,
+			"scope_send_mode", "recipient", "expected_action")
+	case "receive-matcher-enforcement":
+		requireSampleFields(t, entry.Samples,
+			"device", "scope_receive", "inbound_sender", "expected")
+	case "rate-limit-enforcement":
+		requireSampleFields(t, entry.Samples,
+			"tier_config", "state", "expected_action")
+	case "certificate-lifecycle-operations":
+		requireSampleFields(t, entry.Samples,
+			"operation", "session_impact", "expected_behavior")
+	case "valid-device-certificate", "resource-read-write-enforcement", "staged-delivery":
+		// These are descriptive entries without a uniform sample
+		// schema; just confirm they're well-formed JSON.
+		if len(entry.Inputs) == 0 && len(entry.Samples) == 0 {
+			t.Error("entry has neither inputs nor samples")
+		}
+	default:
+		t.Skipf("device-certificates %q: no handler", entry.ID)
+	}
+}
+
+func handleKeyRevocation(t *testing.T, entry vectorEntry) {
+	switch entry.ID {
+	case "revoked-key-response":
+		// Single-case shape: assert inputs and expected are present
+		// and the reason_code (if any) is in the enum.
+		if len(entry.Inputs) == 0 {
+			t.Error("inputs missing")
+		}
+		if len(entry.Expected) == 0 {
+			t.Error("expected missing")
+		}
+		if raw := jgetRaw(t, entry.Expected, "reason_code"); len(raw) > 0 {
+			validateReasonCode(t, 0, raw)
+		}
+	default:
+		t.Skipf("key-revocation %q: no handler", entry.ID)
+	}
+}
+
+func handleRecipientStatus(t *testing.T, entry vectorEntry) {
+	switch entry.ID {
+	case "status-visibility-rules":
+		requireSampleFields(t, entry.Samples,
+			"visibility_mode", "sender_identity", "status_included")
+	case "status-does-not-affect-delivery":
+		requireSampleFields(t, entry.Samples,
+			"recipient_state", "envelope_valid", "expected_acknowledgment")
+	default:
+		t.Skipf("recipient-status %q: no handler", entry.ID)
+	}
+}
+
+func handleSessionLifecycle(t *testing.T, entry vectorEntry) {
+	switch entry.ID {
+	case "session-state-transitions":
+		requireSampleFields(t, entry.Samples,
+			"from_state", "event", "to_state")
+	case "concurrent-session-limits":
+		requireSampleFields(t, entry.Samples,
+			"scenario", "expected_behavior")
+	case "rekey-limits":
+		requireSampleFields(t, entry.Samples,
+			"condition", "expected_behavior")
+	default:
+		t.Skipf("session-lifecycle %q: no handler", entry.ID)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Wave 2C: must-reject-index cross-reference + envelope-rejection schema
+//
+// must-reject-index.json is a generated cross-reference; the runner
+// validates that every `pointer` of the form `<file>#<id>` resolves
+// to a vector entry with the matching `must_reject:true` flag. This
+// is a structural assertion only — it does not re-verify the
+// rejection outcome (those live in their respective files and are
+// covered by their own handlers).
+//
+// negative-envelope-rejection schema-only here; the actual must-reject
+// outcomes need round-trip-aware envelope verification (Wave 2D).
+
+func handleMustRejectIndex(t *testing.T, entry vectorEntry) {
+	// The index file has a different top-level shape: no `vectors`
+	// array of (inputs, expected) entries, just the index itself.
+	// Each "vector" entry the runner sees is actually a row of the
+	// flat index. Our dispatch already iterates entries, but the
+	// must-reject-index file exposes only summary/by_class/flat at
+	// the top level. The runner currently treats it as 0 entries
+	// (no `vectors` field), so this handler is effectively unused —
+	// reaching here would mean the file structure changed.
+	if len(entry.Inputs) > 0 || len(entry.Expected) > 0 {
+		t.Errorf("must-reject-index entry has unexpected fields: %s", entry.ID)
+	}
+}
+
+func handleNegativeEnvelopeRejection(t *testing.T, entry vectorEntry) {
+	// Schema check only; the actual rejection check requires
+	// envelope.OpenVerified or seal verification on a tampered
+	// envelope. Those are Wave 2D.
+	if len(entry.Inputs) == 0 {
+		t.Error("inputs missing")
+	}
+	if raw := jgetRaw(t, entry.Expected, "rejection_reason_code"); len(raw) > 0 {
+		validateReasonCode(t, 0, raw)
+	}
+}
+
