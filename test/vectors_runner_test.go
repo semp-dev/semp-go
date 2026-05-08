@@ -467,14 +467,6 @@ func handlePoW(t *testing.T, entry vectorEntry) {
 // CanonicalBytes() is compared byte-for-byte against the spec's
 // canonical_utf8 string.
 func handleEnvelopeCanonical(t *testing.T, entry vectorEntry) {
-	// SPEC-GAP.md VR-1 + VR-2: semp-go's canonical envelope strips empty
-	// `extensions:{}` maps via omitempty AND emits `first_contact_token:
-	// null` because that field has no omitempty. Both diverge from the
-	// vector. VR-1 and VR-2 land together because they both change
-	// canonical bytes (and therefore signature inputs).
-	t.Skip("VR-1+VR-2: semp-go canonicalization drift on empty extensions " +
-		"and null first_contact_token; see SPEC-GAP.md")
-
 	raw := jgetRaw(t, entry.Inputs, "envelope_json")
 	if len(raw) == 0 {
 		t.Fatalf("inputs.envelope_json missing")

@@ -42,5 +42,16 @@ type Postmark struct {
 
 	// Extensions are postmark-layer extensions visible to all routing
 	// servers. MUST NOT contain private metadata (ENVELOPE.md §8).
-	Extensions extensions.Map `json:"extensions,omitempty"`
+	//
+	// Emitted as `extensions:{}` when empty. The canonical envelope
+	// form per ENVELOPE.md §4.3 lists the elisions explicitly
+	// (signature/session_mac blanked, hop_count and padding omitted)
+	// and treats every other field as preserved verbatim — including
+	// empty maps. Cross-implementation interop checks (semp-spec
+	// vectors `envelope-canonical-*`) hash the full canonical bytes,
+	// so a producer that emits `extensions:{}` and one that omits the
+	// key produce different signature inputs and break interop. We
+	// keep the wire form aligned with the canonical form by NOT
+	// using omitempty here.
+	Extensions extensions.Map `json:"extensions"`
 }

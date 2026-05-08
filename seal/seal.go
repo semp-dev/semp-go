@@ -40,10 +40,21 @@ type Seal struct {
 	// first-contact rejection (HANDSHAKE.md section 2.2a.4,
 	// DELIVERY.md section 6.4). Nil when the recipient's policy does
 	// not require a token or when no prior rejection has been solved.
-	FirstContactToken *FirstContactToken `json:"first_contact_token"`
+	//
+	// Omitted from JSON when nil so the canonical envelope form does
+	// not include a literal `null` for unset tokens; cross-language
+	// vectors (`envelope-canonical-*`) expect the field to be absent
+	// rather than null.
+	FirstContactToken *FirstContactToken `json:"first_contact_token,omitempty"`
 
 	// Extensions are seal-layer extensions, visible to all routing servers.
-	Extensions extensions.Map `json:"extensions,omitempty"`
+	//
+	// Emitted as `extensions:{}` when empty. See the matching note on
+	// envelope.Postmark.Extensions: the canonical envelope form per
+	// ENVELOPE.md §4.3 preserves empty maps, so omitempty here would
+	// break interop with implementations that emit the empty object
+	// verbatim.
+	Extensions extensions.Map `json:"extensions"`
 }
 
 // FirstContactToken is a solved proof-of-work challenge presented by a
