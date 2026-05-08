@@ -25,6 +25,7 @@ import (
 	"testing"
 	"time"
 
+	"semp.dev/semp-go/crypto"
 	"semp.dev/semp-go/envelope"
 	"semp.dev/semp-go/handshake"
 	"semp.dev/semp-go/internal/canonical"
@@ -286,16 +287,16 @@ func pickDiscoverySigned(t *testing.T, entry vectorEntry) signedDocSpec {
 func handleHandshakeMessages(t *testing.T, entry vectorEntry) {
 	switch entry.ID {
 	case "handshake-init-canonical", "handshake-confirm-canonical":
-		// Canonical-only verification: take the message_pre_sign_json
-		// (which has no outer signature), canonicalize, compare to
-		// the pinned canonical_utf8 intermediate.
-		preSign := jgetRaw(t, entry.Inputs, "message_pre_sign_json")
-		if len(preSign) == 0 {
-			t.Skip("missing message_pre_sign_json")
+		// Canonical-only verification: take message_json (no outer
+		// signature on these steps), canonicalize, compare to the
+		// pinned canonical_utf8 intermediate.
+		raw := jgetRaw(t, entry.Inputs, "message_json")
+		if len(raw) == 0 {
+			t.Skip("missing message_json")
 		}
 		var doc map[string]any
-		if err := json.Unmarshal(preSign, &doc); err != nil {
-			t.Fatalf("pre-sign unmarshal: %v", err)
+		if err := json.Unmarshal(raw, &doc); err != nil {
+			t.Fatalf("message_json unmarshal: %v", err)
 		}
 		got, err := canonical.Marshal(doc)
 		if err != nil {
@@ -303,8 +304,6 @@ func handleHandshakeMessages(t *testing.T, entry vectorEntry) {
 		}
 		want := jget(t, entry.Intermediates, "canonical_utf8")
 		if want == "" {
-			// Some entries don't pin the canonical bytes; nothing
-			// further to check here.
 			return
 		}
 		if string(got) != want {
@@ -379,13 +378,13 @@ func handleSessionResumption(t *testing.T, entry vectorEntry) {
 			t.Errorf("Ed25519 verify failed (%s)", entry.SpecReference)
 		}
 	case "resume-request-canonical":
-		preSign := jgetRaw(t, entry.Inputs, "request_pre_sign_json")
-		if len(preSign) == 0 {
-			t.Skip("missing request_pre_sign_json")
+		raw := jgetRaw(t, entry.Inputs, "message_json")
+		if len(raw) == 0 {
+			t.Skip("missing message_json")
 		}
 		var doc map[string]any
-		if err := json.Unmarshal(preSign, &doc); err != nil {
-			t.Fatalf("pre-sign unmarshal: %v", err)
+		if err := json.Unmarshal(raw, &doc); err != nil {
+			t.Fatalf("message_json unmarshal: %v", err)
 		}
 		got, err := canonical.Marshal(doc)
 		if err != nil {
@@ -400,7 +399,41 @@ func handleSessionResumption(t *testing.T, entry vectorEntry) {
 				string(got), want)
 		}
 	case "resume-key-derivation":
-		t.Skip("resume-key-derivation: Wave 2D (KDF round-trip)")
+		// HKDF-SHA-512 with the resumed-session salt+IKM
+		// construction (HANDSHAKE.md §2.8.3, SESSION.md §2.7).
+		// The vector pins:
+		//   ephemeral_shared_secret_hex (from rekey ECDH)
+		//   K_resumption_hex            (retained from prior session)
+		//   client_nonce_hex / server_nonce_hex
+		// IKM = ephemeral_shared_secret || K_resumption.
+		// Salt = client_nonce || server_nonce.
+		// Then DeriveResumedSessionKeys derives the five keys.
+		ephSS := decodeHexF(t, jget(t, entry.Inputs, "ephemeral_shared_secret_hex"),
+			"ephemeral_shared_secret_hex")
+		kRes := decodeHexF(t, jget(t, entry.Inputs, "K_resumption_hex"), "K_resumption_hex")
+		cNonce := decodeHexF(t, jget(t, entry.Inputs, "client_nonce_hex"), "client_nonce_hex")
+		sNonce := decodeHexF(t, jget(t, entry.Inputs, "server_nonce_hex"), "server_nonce_hex")
+
+		kdf := crypto.NewKDFHKDFSHA512()
+		keys, err := crypto.DeriveResumedSessionKeys(kdf, ephSS, kRes, cNonce, sNonce)
+		if err != nil {
+			t.Fatalf("DeriveResumedSessionKeys: %v", err)
+		}
+		// PRK is HKDF-Extract(salt, ikm).
+		ikm := append(append([]byte{}, ephSS...), kRes...)
+		salt := append(append([]byte{}, cNonce...), sNonce...)
+		prk := kdf.Extract(salt, ikm)
+
+		expectedPRK := decodeHexF(t, jget(t, entry.Expected, "prk_resume_hex"), "prk_resume_hex")
+		if !bytesEq(prk, expectedPRK) {
+			t.Errorf("resumed PRK mismatch:\n  got  %x\n  want %x", prk, expectedPRK)
+		}
+		expectedKeys := jgetRaw(t, entry.Expected, "keys")
+		checkSessionKey(t, "K_enc_c2s", keys.EncC2S, expectedKeys)
+		checkSessionKey(t, "K_enc_s2c", keys.EncS2C, expectedKeys)
+		checkSessionKey(t, "K_mac_c2s", keys.MACC2S, expectedKeys)
+		checkSessionKey(t, "K_mac_s2c", keys.MACS2C, expectedKeys)
+		checkSessionKey(t, "K_env_mac", keys.EnvMAC, expectedKeys)
 	default:
 		t.Skipf("session-resumption %q: no handler", entry.ID)
 	}
@@ -470,7 +503,7 @@ func handleRecoveryShamir(t *testing.T, entry vectorEntry) {
 			}
 		}
 	case "shamir-split-and-combine":
-		t.Skip("shamir-split-and-combine: Wave 2D (GF(256) interpolation)")
+		runShamirRoundTrip(t, entry)
 	default:
 		t.Skipf("recovery-shamir %q: no handler", entry.ID)
 	}
@@ -1314,6 +1347,167 @@ func verifyConsistencyProofRFC6962(n1, n2 int, oldRoot, newRoot []byte, path [][
 		lastNode >>= 1
 	}
 	return lastNode == 0 && bytesEq(oldHash, oldRoot) && bytesEq(newHash, newRoot)
+}
+
+// ---------------------------------------------------------------------------
+// Shamir GF(256) split + Lagrange combine (RECOVERY.md §5.1, §5.4)
+//
+// Field: GF(256) with the AES irreducible polynomial 0x11b.
+// Polynomial per byte: f(x) = secret + c1*x + c2*x^2 + ... + c_{M-1}*x^{M-1}.
+// Share i: (i, f(i)) for i = 1..N. Reconstruction is Lagrange
+// interpolation at x = 0.
+
+func gf256Mul(a, b byte) byte {
+	var p byte
+	for i := 0; i < 8; i++ {
+		if b&1 != 0 {
+			p ^= a
+		}
+		hi := a & 0x80
+		a <<= 1
+		if hi != 0 {
+			a ^= 0x1B // low byte of 0x11B
+		}
+		b >>= 1
+	}
+	return p
+}
+
+func gf256Pow(base byte, exp int) byte {
+	result := byte(1)
+	for exp > 0 {
+		if exp&1 == 1 {
+			result = gf256Mul(result, base)
+		}
+		base = gf256Mul(base, base)
+		exp >>= 1
+	}
+	return result
+}
+
+func gf256Inv(a byte) byte {
+	// Fermat: a^(2^8 - 2) = a^-1 in GF(2^8).
+	if a == 0 {
+		panic("gf256Inv(0)")
+	}
+	return gf256Pow(a, 254)
+}
+
+func shamirSplit(secret []byte, threshold, total int, coeffSeed []byte) [][]byte {
+	coeffsPerByte := threshold - 1
+	shares := make([][]byte, total)
+	for i := range shares {
+		shares[i] = make([]byte, len(secret))
+	}
+	cursor := 0
+	for byteIdx, sb := range secret {
+		coeffs := make([]byte, coeffsPerByte)
+		copy(coeffs, coeffSeed[cursor:cursor+coeffsPerByte])
+		cursor += coeffsPerByte
+		for shareIdx := 1; shareIdx <= total; shareIdx++ {
+			y := sb
+			xPower := byte(1)
+			for _, c := range coeffs {
+				xPower = gf256Mul(xPower, byte(shareIdx))
+				y ^= gf256Mul(c, xPower)
+			}
+			shares[shareIdx-1][byteIdx] = y
+		}
+	}
+	return shares
+}
+
+func shamirCombine(shareIdxs []int, shareBytes [][]byte) []byte {
+	if len(shareIdxs) == 0 {
+		return nil
+	}
+	secretLen := len(shareBytes[0])
+	out := make([]byte, secretLen)
+	for byteIdx := 0; byteIdx < secretLen; byteIdx++ {
+		var result byte
+		for i, xi := range shareIdxs {
+			yi := shareBytes[i][byteIdx]
+			num := byte(1)
+			den := byte(1)
+			for j, xj := range shareIdxs {
+				if i == j {
+					continue
+				}
+				num = gf256Mul(num, byte(xj))
+				den = gf256Mul(den, byte(xi)^byte(xj))
+			}
+			basis := gf256Mul(num, gf256Inv(den))
+			result ^= gf256Mul(yi, basis)
+		}
+		out[byteIdx] = result
+	}
+	return out
+}
+
+func runShamirRoundTrip(t *testing.T, entry vectorEntry) {
+	t.Helper()
+	secret := decodeHexF(t, jget(t, entry.Inputs, "K_bundle_hex"), "K_bundle_hex")
+	threshold := jgetInt(t, entry.Inputs, "threshold")
+	total := jgetInt(t, entry.Inputs, "total_shares")
+	coeffSeed := decodeHexF(t, jget(t, entry.Inputs, "coefficient_seed_hex"),
+		"coefficient_seed_hex")
+
+	shares := shamirSplit(secret, threshold, total, coeffSeed)
+
+	// Cross-check against pinned shares_hex if present.
+	if raw := jgetRaw(t, entry.Intermediates, "shares_hex"); len(raw) > 0 {
+		var hexes []string
+		if err := json.Unmarshal(raw, &hexes); err == nil {
+			for i, h := range hexes {
+				want := decodeHexF(t, h, fmt.Sprintf("shares_hex[%d]", i))
+				if !bytesEq(shares[i], want) {
+					t.Errorf("share %d mismatch:\n  got  %x\n  want %x",
+						i+1, shares[i], want)
+				}
+			}
+		}
+	}
+
+	// Threshold combine should recover.
+	var subset []int
+	if raw := jgetRaw(t, entry.Inputs, "share_index_subset_for_combine"); len(raw) > 0 {
+		_ = json.Unmarshal(raw, &subset)
+	}
+	if len(subset) == 0 {
+		// default to indexes 1..threshold
+		for i := 1; i <= threshold; i++ {
+			subset = append(subset, i)
+		}
+	}
+	subBytes := make([][]byte, len(subset))
+	for i, idx := range subset {
+		subBytes[i] = shares[idx-1]
+	}
+	recovered := shamirCombine(subset, subBytes)
+	wantRecover := jgetBool(t, entry.Expected, "threshold_combine_recovers_K_bundle")
+	gotRecover := bytesEq(recovered, secret)
+	if gotRecover != wantRecover {
+		t.Errorf("threshold combine recovers got %v, want %v",
+			gotRecover, wantRecover)
+	}
+
+	// Sub-threshold should NOT recover.
+	if threshold > 1 {
+		subSize := threshold - 1
+		shortIdxs := make([]int, subSize)
+		shortBytes := make([][]byte, subSize)
+		for i := 0; i < subSize; i++ {
+			shortIdxs[i] = i + 1
+			shortBytes[i] = shares[i]
+		}
+		sub := shamirCombine(shortIdxs, shortBytes)
+		wantSub := jgetBool(t, entry.Expected, "subthreshold_combine_recovers_K_bundle")
+		gotSub := bytesEq(sub, secret)
+		if gotSub != wantSub {
+			t.Errorf("sub-threshold combine recovers got %v, want %v",
+				gotSub, wantSub)
+		}
+	}
 }
 
 func sha256Inner(left, right []byte) []byte {
