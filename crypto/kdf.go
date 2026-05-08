@@ -31,14 +31,26 @@ const (
 	InfoSessionResumption = "SEMP-v1-session-resumption"
 )
 
-// Rekey HKDF info labels. Distinct from the initial session labels to
-// prevent cross-context key confusion per SESSION.md §3.3.
+// Rekey HKDF info labels.
+//
+// Per VECTORS.md §2.2 and SESSION.md §3.3, rekey derivation reuses the
+// same per-key SEMP-v1-session-* labels as the initial handshake. The
+// cross-context separation between an initial-handshake derivation and
+// a rekey derivation comes from the salt change (rekey_nonce ||
+// responder_nonce vs client_nonce || server_nonce), NOT from the
+// expand labels. The "SEMP-v1-rekey" context name in SESSION.md §3.3
+// is conceptual, not a literal HKDF info label.
+//
+// These aliases exist so that callers reading rekey-derivation code
+// can reach for `InfoRekeyEncC2S` and get the same string the spec
+// requires; the underlying value is intentionally identical to
+// `InfoSessionEncC2S`.
 const (
-	InfoRekeyEncC2S = "SEMP-v1-rekey-enc-c2s"
-	InfoRekeyEncS2C = "SEMP-v1-rekey-enc-s2c"
-	InfoRekeyMACC2S = "SEMP-v1-rekey-mac-c2s"
-	InfoRekeyMACS2C = "SEMP-v1-rekey-mac-s2c"
-	InfoRekeyEnvMAC = "SEMP-v1-rekey-env-mac"
+	InfoRekeyEncC2S = InfoSessionEncC2S
+	InfoRekeyEncS2C = InfoSessionEncS2C
+	InfoRekeyMACC2S = InfoSessionMACC2S
+	InfoRekeyMACS2C = InfoSessionMACS2C
+	InfoRekeyEnvMAC = InfoSessionEnvMAC
 )
 
 // SessionContext is the constant info string used by callers that want a
@@ -214,9 +226,13 @@ func DeriveResumedSessionKeys(kdf KDF, ephemeralSharedSecret, resumptionSecret, 
 	}, nil
 }
 
-// DeriveRekeyKeys derives a fresh SessionKeys for a rekey exchange. It
-// uses distinct info labels (SEMP-v1-rekey-*) from the initial session
-// derivation (SEMP-v1-session-*) to prevent cross-context key confusion.
+// DeriveRekeyKeys derives a fresh SessionKeys for a rekey exchange.
+// Per SESSION.md §3.3 and VECTORS.md §2.2, the rekey derivation reuses
+// the same per-key SEMP-v1-session-* expand labels as the initial
+// handshake; the cross-context separation comes from the salt change
+// (rekey_nonce || responder_nonce vs client_nonce || server_nonce),
+// not from the expand labels. The InfoRekey* aliases used below
+// resolve to the session labels by definition.
 // The salt is rekey_nonce || responder_nonce.
 //
 // Reference: SESSION.md §3.3.

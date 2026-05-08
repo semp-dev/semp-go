@@ -323,12 +323,6 @@ func bytesEq(a, b []byte) bool { return bytesEqual(a, b) }
 // `hkdf-rekey` (mid-session rekey) share the same shape — they only
 // differ in salt construction, which the input documents.
 func handleHKDF(t *testing.T, entry vectorEntry) {
-	// SPEC-GAP.md VR-3: semp-go's DeriveRekeyKeys uses SEMP-v1-rekey-*
-	// info labels but VECTORS.md §2.2 reuses the SEMP-v1-session-*
-	// labels. Skip the rekey vector until VR-3 lands.
-	if entry.ID == "hkdf-rekey" {
-		t.Skip("VR-3: semp-go rekey labels diverge from spec; see SPEC-GAP.md")
-	}
 	ikm := decodeHexF(t, jget(t, entry.Inputs, "ikm_hex"), "ikm_hex")
 
 	// Salt is one of (client_nonce_hex || server_nonce_hex) or
