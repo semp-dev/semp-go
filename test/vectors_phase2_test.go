@@ -32,6 +32,8 @@ import (
 	"semp.dev/semp-go/envelope"
 	"semp.dev/semp-go/handshake"
 	"semp.dev/semp-go/internal/canonical"
+	"semp.dev/semp-go/keys"
+	"semp.dev/semp-go/seal"
 )
 
 // signedDocSpec describes how to verify one signed document. The
@@ -1353,6 +1355,238 @@ func verifyConsistencyProofRFC6962(n1, n2 int, oldRoot, newRoot []byte, path [][
 }
 
 // ---------------------------------------------------------------------------
+// envelope-roundtrip: full envelope flow (verify-only, baseline)
+//
+// Receive-side check on a pinned envelope:
+//   1. seal.signature verifies under sender_domain_signing_pub.
+//   2. seal.session_mac verifies under K_env_mac.
+//   3. Unwrap recipient_client's brief recipient -> K_brief.
+//      AEAD-decrypt envelope.brief with K_brief and pinned nonce ->
+//      original brief plaintext.
+//   4. Unwrap recipient_client's enclosure recipient -> K_enclosure.
+//      AEAD-decrypt envelope.enclosure -> signed enclosure JSON.
+//   5. Verify sender_signature on the decrypted enclosure under
+//      sender_identity_pub.
+//
+// PQ variant requires deterministic kyber keygen from seed; deferred
+// like seal-roundtrip PQ.
+
+func handleEnvelopeRoundtrip(t *testing.T, entry vectorEntry) {
+	switch entry.ID {
+	case "envelope-roundtrip-baseline-single-recipient":
+		runEnvelopeRoundtripBaseline(t, entry)
+	case "envelope-roundtrip-pq-single-recipient":
+		t.Skip("envelope-roundtrip PQ: needs deterministic kyber keygen; deferred")
+	default:
+		t.Skipf("envelope-roundtrip %q: no handler", entry.ID)
+	}
+}
+
+func runEnvelopeRoundtripBaseline(t *testing.T, entry vectorEntry) {
+	t.Helper()
+	envRaw := jgetRaw(t, entry.Expected, "envelope_json")
+	if len(envRaw) == 0 {
+		t.Fatal("missing expected.envelope_json")
+	}
+	var env envelope.Envelope
+	if err := json.Unmarshal(envRaw, &env); err != nil {
+		t.Fatalf("envelope unmarshal: %v", err)
+	}
+	canonicalEnv, err := env.CanonicalBytes()
+	if err != nil {
+		t.Fatalf("CanonicalBytes: %v", err)
+	}
+
+	// Step 1: seal.signature.
+	senderPub := decodeHexF(t, jget(t, entry.Inputs, "sender_domain_signing_pub_hex"),
+		"sender_domain_signing_pub_hex")
+	sealSig, err := base64.StdEncoding.DecodeString(env.Seal.Signature)
+	if err != nil {
+		t.Fatalf("decode seal.signature: %v", err)
+	}
+	signingInput := append([]byte("SEMP-ENVELOPE:"), canonicalEnv...)
+	step1 := ed25519.Verify(ed25519.PublicKey(senderPub), signingInput, sealSig)
+	wantStep1 := jgetBool(t, entry.Expected, "seal_signature_verifies")
+	if step1 != wantStep1 {
+		t.Errorf("seal_signature_verifies got %v, want %v", step1, wantStep1)
+	}
+
+	// Step 2: session_mac.
+	kEnvMac := decodeHexF(t, jget(t, entry.Inputs, "K_env_mac_hex"), "K_env_mac_hex")
+	wantMAC := computeHMAC(kEnvMac, canonicalEnv)
+	gotMAC, err := base64.StdEncoding.DecodeString(env.Seal.SessionMAC)
+	if err != nil {
+		t.Fatalf("decode session_mac: %v", err)
+	}
+	step2 := bytesEq(wantMAC, gotMAC)
+	wantStep2 := jgetBool(t, entry.Expected, "session_mac_verifies")
+	if step2 != wantStep2 {
+		t.Errorf("session_mac_verifies got %v, want %v", step2, wantStep2)
+	}
+
+	// Step 3: brief AEAD round-trip via recipient_client unwrap.
+	w := seal.NewWrapper(crypto.SuiteBaseline)
+	clientPriv := decodeHexF(t, jget(t, entry.Inputs, "recipient_client_priv_hex"),
+		"recipient_client_priv_hex")
+	clientPub := decodeHexF(t, jget(t, entry.Inputs, "recipient_client_pub_hex"),
+		"recipient_client_pub_hex")
+	clientFP := jget(t, entry.Inputs, "recipient_client_key_id")
+	briefWrapped, ok := env.Seal.BriefRecipients[keys.Fingerprint(clientFP)]
+	if !ok {
+		t.Fatal("recipient_client not in brief_recipients")
+	}
+	kBrief, err := w.Unwrap(clientPriv, clientPub, briefWrapped)
+	if err != nil {
+		t.Fatalf("brief unwrap: %v", err)
+	}
+	briefNonce := decodeHexF(t, jget(t, entry.Inputs, "brief_aead_nonce_hex"),
+		"brief_aead_nonce_hex")
+	// envelope.brief = base64(nonce || aead_ct) per ENVELOPE.md §7.1.1.
+	// The first 12 bytes are the nonce; the rest is the AEAD ciphertext.
+	briefBlob, err := base64.StdEncoding.DecodeString(env.Brief)
+	if err != nil {
+		t.Fatalf("decode brief: %v", err)
+	}
+	if len(briefBlob) < 12 {
+		t.Fatalf("brief blob too short: %d bytes", len(briefBlob))
+	}
+	briefCT := briefBlob[12:]
+	if !bytesEq(briefBlob[:12], briefNonce) {
+		t.Errorf("brief blob nonce prefix mismatch")
+	}
+	postmarkID := jget(t, entry.Inputs, "postmark_id")
+	briefPT, err := aeadOpen("chacha20-poly1305", kBrief, briefNonce, briefCT, []byte(postmarkID))
+	if err != nil {
+		t.Fatalf("brief AEAD open: %v", err)
+	}
+	// Compare decrypted brief plaintext to inputs.brief_pre_encrypt_json.
+	// Both are JSON; canonicalize and compare to make field-order
+	// differences harmless.
+	wantBriefRaw := jgetRaw(t, entry.Inputs, "brief_pre_encrypt_json")
+	if !jsonContentEqual(briefPT, wantBriefRaw) {
+		t.Errorf("brief round-trip mismatch:\n  got  %s\n  want %s",
+			string(briefPT), string(wantBriefRaw))
+	}
+	wantStep3 := jgetBool(t, entry.Expected, "round_trip_recovers_brief")
+	if !wantStep3 {
+		t.Error("vector says brief round-trip should fail; runner says it passes")
+	}
+
+	// Step 4: enclosure AEAD round-trip.
+	enclWrapped, ok := env.Seal.EnclosureRecipients[keys.Fingerprint(clientFP)]
+	if !ok {
+		t.Fatal("recipient_client not in enclosure_recipients")
+	}
+	kEncl, err := w.Unwrap(clientPriv, clientPub, enclWrapped)
+	if err != nil {
+		t.Fatalf("enclosure unwrap: %v", err)
+	}
+	enclNonce := decodeHexF(t, jget(t, entry.Inputs, "enclosure_aead_nonce_hex"),
+		"enclosure_aead_nonce_hex")
+	enclBlob, err := base64.StdEncoding.DecodeString(env.Enclosure)
+	if err != nil {
+		t.Fatalf("decode enclosure: %v", err)
+	}
+	if len(enclBlob) < 12 {
+		t.Fatalf("enclosure blob too short: %d bytes", len(enclBlob))
+	}
+	enclCT := enclBlob[12:]
+	if !bytesEq(enclBlob[:12], enclNonce) {
+		t.Errorf("enclosure blob nonce prefix mismatch")
+	}
+	enclPT, err := aeadOpen("chacha20-poly1305", kEncl, enclNonce, enclCT, []byte(postmarkID))
+	if err != nil {
+		t.Fatalf("enclosure AEAD open: %v", err)
+	}
+	wantStep4 := jgetBool(t, entry.Expected, "round_trip_recovers_enclosure")
+	if !wantStep4 {
+		t.Error("vector says enclosure round-trip should fail; runner says it passes")
+	}
+
+	// Step 5: sender_signature verifies on the decrypted enclosure.
+	var enclosure map[string]any
+	if err := json.Unmarshal(enclPT, &enclosure); err != nil {
+		t.Fatalf("decrypted enclosure unmarshal: %v", err)
+	}
+	identityPub := pubKeyFromInputs(t, entry, "sender_identity_pub_hex")
+	spec := signedDocSpec{
+		SignedJSON:    deepCopyMap(enclosure),
+		SignaturePath: "sender_signature.value",
+		PublicKey:     identityPub,
+		Prefix:        "SEMP-ENCLOSURE-SENDER:",
+	}
+	_, _, sigOK := verifySingleSignedDoc(t, spec)
+	wantStep5 := jgetBool(t, entry.Expected, "sender_signature_verifies")
+	if sigOK != wantStep5 {
+		t.Errorf("sender_signature_verifies got %v, want %v", sigOK, wantStep5)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// seal-roundtrip: HPKE-Base wrap (verify-only)
+//
+// Each vector pins the wrapped bytes plus all the recipient's keying
+// material. We exercise the receive-side path: feed wrapped_b64 to
+// the corresponding Unwrap and assert K is recovered byte-for-byte.
+// The send-side (Wrap) path requires a deterministic ephemeral input
+// that the production seal.Wrapper does not expose; cross-language
+// byte-level wrap-side checks are deferred until a deterministic
+// test-only Wrap variant lands.
+
+func handleSealRoundtrip(t *testing.T, entry vectorEntry) {
+	suite := jget(t, entry.Inputs, "suite")
+	wrappedB64 := jget(t, entry.Expected, "wrapped_b64")
+	if wrappedB64 == "" {
+		t.Fatal("missing expected.wrapped_b64")
+	}
+	wantK := decodeHexF(t, jget(t, entry.Inputs, "symmetric_key_hex"), "symmetric_key_hex")
+
+	switch suite {
+	case "x25519-chacha20-poly1305":
+		recipPriv := decodeHexF(t, jget(t, entry.Inputs, "recipient_private_key_hex"),
+			"recipient_private_key_hex")
+		recipPub := decodeHexF(t, jget(t, entry.Inputs, "recipient_public_key_hex"),
+			"recipient_public_key_hex")
+		w := seal.NewWrapper(crypto.SuiteBaseline)
+		got, err := w.Unwrap(recipPriv, recipPub, wrappedB64)
+		if err != nil {
+			t.Fatalf("Unwrap: %v", err)
+		}
+		if !bytesEq(got, wantK) {
+			t.Errorf("baseline unwrap recovered K mismatch:\n  got  %x\n  want %x",
+				got, wantK)
+		}
+		if entry.ID == "seal-wrap-baseline-ephemeral-changes-output" {
+			// Sanity check: the vector pins differs_from_case_1
+			// to demonstrate that two different ephemerals
+			// produce two different wrapped strings. The runner
+			// does not need to recompute case 1 here; the assertion
+			// is implicit in the per-vector wrapped_b64 pin.
+			if !jgetBool(t, entry.Expected, "differs_from_case_1") {
+				t.Error("vector says output should differ from case 1")
+			}
+		}
+	case "pq-kyber768-x25519":
+		// PQ unwrap requires reconstructing the recipient's hybrid
+		// private key from the pinned kyber keygen seeds (d, z), and
+		// semp-go's crypto.KEM doesn't currently expose a
+		// deterministic kyber keygen from seed (production keygen
+		// reads rand.Reader). Wiring the deterministic path requires
+		// either a test-only export from crypto/kem_hybrid.go or
+		// dropping to circl's lower-level kyber768 directly. Both
+		// are out of scope for this Phase 2 wave.
+		t.Skip("seal-roundtrip PQ: needs deterministic kyber keygen from seed; deferred")
+	default:
+		t.Skipf("seal-roundtrip suite %q: no handler", suite)
+	}
+
+	wantRoundTrip := jgetBool(t, entry.Expected, "round_trip_recovers_K")
+	if !wantRoundTrip {
+		t.Error("vector says round-trip should NOT recover; runner says it does")
+	}
+}
+
+// ---------------------------------------------------------------------------
 // account-recovery: Argon2id + XChaCha20-Poly1305 + Ed25519 (RECOVERY.md §2)
 //
 // Uses semp-go's recovery package primitives directly so the runner
@@ -1455,6 +1689,23 @@ func mapsEqual(a, b any) bool {
 		return false
 	}
 	if err := json.Unmarshal(rb, &bb); err != nil {
+		return false
+	}
+	ca, _ := json.Marshal(aa)
+	cb, _ := json.Marshal(bb)
+	return bytesEq(ca, cb)
+}
+
+// jsonContentEqual unmarshals both inputs as JSON and compares their
+// canonicalized re-serialization. Use when you have two byte slices
+// that you know are both JSON encodings of the same conceptual value
+// but might differ in whitespace or field order.
+func jsonContentEqual(a, b []byte) bool {
+	var aa, bb any
+	if err := json.Unmarshal(a, &aa); err != nil {
+		return false
+	}
+	if err := json.Unmarshal(b, &bb); err != nil {
 		return false
 	}
 	ca, _ := json.Marshal(aa)
