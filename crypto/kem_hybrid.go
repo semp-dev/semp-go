@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/cloudflare/circl/kem/kyber/kyber768"
+	"github.com/cloudflare/circl/kem/mlkem/mlkem768"
 	"golang.org/x/crypto/curve25519"
 )
 
@@ -14,18 +14,18 @@ import (
 // about the underlying library's package layout.
 const (
 	// Kyber768PublicKeySize is the wire size of a Kyber768 public key.
-	Kyber768PublicKeySize = kyber768.PublicKeySize // 1184
+	Kyber768PublicKeySize = mlkem768.PublicKeySize // 1184
 
 	// Kyber768PrivateKeySize is the wire size of a Kyber768 private key.
-	Kyber768PrivateKeySize = kyber768.PrivateKeySize // 2400
+	Kyber768PrivateKeySize = mlkem768.PrivateKeySize // 2400
 
 	// Kyber768CiphertextSize is the wire size of a Kyber768 encapsulated
 	// ciphertext.
-	Kyber768CiphertextSize = kyber768.CiphertextSize // 1088
+	Kyber768CiphertextSize = mlkem768.CiphertextSize // 1088
 
 	// Kyber768SharedKeySize is the wire size of a Kyber768 shared key.
 	// Matches X25519SharedKeySize and the SEMP HKDF input width.
-	Kyber768SharedKeySize = kyber768.SharedKeySize // 32
+	Kyber768SharedKeySize = mlkem768.SharedKeySize // 32
 )
 
 // HybridPublicKeySize is the wire size of a concatenated X25519 || Kyber768
@@ -93,44 +93,119 @@ type kemHybridKyber768X25519 struct{}
 // use.
 func NewKEMHybridKyber768X25519() KEM { return kemHybridKyber768X25519{} }
 
-// GenerateKeyPair returns a fresh (x25519Pub || kyberPub, x25519Priv ||
-// kyberPriv) keypair. The initiator calls this once during handshake
+// DeriveKyber768KeyPair derives a Kyber768 keypair deterministically
+// from FIPS 203 internal (d, z) seed material, where d (32 bytes) is
+// the CPA-PKE key-generation seed and z (32 bytes) is the FO-transform
+// random. circl's kyber768 expects a single 64-byte seed = d || z;
+// this wrapper accepts the spec's (d, z) split form.
+//
+// USE CASES are intentionally narrow: cross-language test vectors and
+// determinism audits. Production keygen MUST use the entropy-driven
+// GenerateKeyPair / NewKEMHybridKyber768X25519().GenerateKeyPair() path
+// — a deterministic keygen that leaks d or z reduces to "the
+// adversary has the private key".
+//
+// Returns the packed public-key bytes (Kyber768PublicKeySize) and
+// the packed private-key bytes (Kyber768PrivateKeySize) the wider
+// hybrid serialization format expects. Pairs with
+// HybridPrivateKeyFromKyberAndX25519 to assemble a hybrid private
+// key for Decapsulate.
+//
+// Panics on wrong seed lengths. The function is in this package
+// rather than an internal/test_only subpackage because the runner
+// lives outside the crypto module's directory tree; a doc-only
+// boundary is the next-best surfacing.
+func DeriveKyber768KeyPair(d, z []byte) (publicKey, privateKey []byte) {
+	if len(d) != 32 {
+		panic(fmt.Sprintf("crypto: DeriveKyber768KeyPair: d must be 32 bytes, got %d", len(d)))
+	}
+	if len(z) != 32 {
+		panic(fmt.Sprintf("crypto: DeriveKyber768KeyPair: z must be 32 bytes, got %d", len(z)))
+	}
+	seed := make([]byte, 64)
+	copy(seed[:32], d)
+	copy(seed[32:], z)
+	pk, sk := mlkem768.NewKeyFromSeed(seed)
+	publicKey = make([]byte, Kyber768PublicKeySize)
+	pk.Pack(publicKey)
+	privateKey = make([]byte, Kyber768PrivateKeySize)
+	sk.Pack(privateKey)
+	return publicKey, privateKey
+}
+
+// HybridPrivateKeyFromKyberAndX25519 assembles a hybrid private key
+// from the packed Kyber768 private (Kyber768PrivateKeySize) and the
+// X25519 private (32 bytes) per the wire layout the production
+// GenerateKeyPair produces: kyberPriv || x25519Priv.
+//
+// Like DeriveKyber768KeyPair, this is a deterministic-input helper
+// for vectors and audits, NOT a production primitive. Production code
+// MUST get its hybrid keys from GenerateKeyPair (or a stored output
+// of it).
+func HybridPrivateKeyFromKyberAndX25519(x25519Priv, kyberPriv []byte) []byte {
+	if len(x25519Priv) != curve25519.PointSize {
+		panic(fmt.Sprintf("crypto: HybridPrivateKeyFromKyberAndX25519: x25519 priv must be %d bytes, got %d",
+			curve25519.PointSize, len(x25519Priv)))
+	}
+	if len(kyberPriv) != Kyber768PrivateKeySize {
+		panic(fmt.Sprintf("crypto: HybridPrivateKeyFromKyberAndX25519: kyber priv must be %d bytes, got %d",
+			Kyber768PrivateKeySize, len(kyberPriv)))
+	}
+	out := make([]byte, 0, HybridPrivateKeySize)
+	out = append(out, kyberPriv...)
+	out = append(out, x25519Priv...)
+	return out
+}
+
+// GenerateKeyPair returns a fresh (kyberPub || x25519Pub, kyberPriv ||
+// x25519Priv) keypair. The initiator calls this once during handshake
 // setup and sends the public half as its ephemeral key.
+//
+// Wire format places the Kyber half FIRST. This matches the
+// canonical order used by the cross-language test vectors and
+// `ENVELOPE.md` §4.4.1. Earlier semp-go releases placed the
+// X25519 half first, which produced byte-incompatible hybrid
+// keys with every other SEMP implementation; the order flipped
+// to fix that interop break (VR-6).
 func (kemHybridKyber768X25519) GenerateKeyPair() (publicKey, privateKey []byte, err error) {
 	xPub, xPriv, err := NewKEMX25519().GenerateKeyPair()
 	if err != nil {
 		return nil, nil, fmt.Errorf("crypto: hybrid x25519 keygen: %w", err)
 	}
-	kyberPub, kyberPriv, err := kyber768.GenerateKeyPair(rand.Reader)
+	kyberPub, kyberPriv, err := mlkem768.GenerateKeyPair(rand.Reader)
 	if err != nil {
 		Zeroize(xPriv)
 		return nil, nil, fmt.Errorf("crypto: hybrid kyber768 keygen: %w", err)
 	}
 
 	pub := make([]byte, 0, HybridPublicKeySize)
-	pub = append(pub, xPub...)
 	kyberPubBytes := make([]byte, Kyber768PublicKeySize)
 	kyberPub.Pack(kyberPubBytes)
 	pub = append(pub, kyberPubBytes...)
+	pub = append(pub, xPub...)
 
 	priv := make([]byte, 0, HybridPrivateKeySize)
-	priv = append(priv, xPriv...)
-	Zeroize(xPriv) // we've copied it; erase the original
 	kyberPrivBytes := make([]byte, Kyber768PrivateKeySize)
 	kyberPriv.Pack(kyberPrivBytes)
 	priv = append(priv, kyberPrivBytes...)
+	priv = append(priv, xPriv...)
+	Zeroize(xPriv) // we've copied it; erase the original
 
 	return pub, priv, nil
 }
 
 // Encapsulate is the responder-side half of the handshake. It takes
-// the initiator's hybrid public key (x25519Pub || kyberPub), generates
+// the initiator's hybrid public key (kyberPub || x25519Pub), generates
 // its own ephemeral X25519 keypair, performs X25519 DH against the
 // initiator's X25519 pub, encapsulates a Kyber shared key under the
 // initiator's Kyber pub, and returns:
 //
 //   - sharedSecret: K_kyber || K_x25519 (64 bytes) per SESSION.md §4.1
-//   - ciphertext: responderX25519Pub || kyberCiphertext (1120 bytes)
+//   - ciphertext: kyberCiphertext || responderX25519Pub (1120 bytes)
+//
+// Wire format places the Kyber half FIRST in both `remotePub` and
+// the returned ciphertext, matching the cross-language vectors and
+// ENVELOPE.md §4.4.1.
 //
 // The responder does not need to retain any state after this call —
 // its ephemeral X25519 private key is zeroized internally before
@@ -140,13 +215,13 @@ func (kemHybridKyber768X25519) Encapsulate(remotePub []byte) (sharedSecret, ciph
 		return nil, nil, fmt.Errorf("crypto: hybrid Encapsulate: remote public key length %d, want %d",
 			len(remotePub), HybridPublicKeySize)
 	}
-	xRemote := remotePub[:curve25519.PointSize]
-	kyberRemoteBytes := remotePub[curve25519.PointSize:]
+	kyberRemoteBytes := remotePub[:Kyber768PublicKeySize]
+	xRemote := remotePub[Kyber768PublicKeySize:]
 
 	// Unpack the Kyber public key. Kyber768's Unpack panics on wrong
 	// size; we've already guaranteed the slice length above so this is
 	// safe, but guard against internal package regressions.
-	var kyberPub kyber768.PublicKey
+	var kyberPub mlkem768.PublicKey
 	if len(kyberRemoteBytes) != Kyber768PublicKeySize {
 		return nil, nil, fmt.Errorf("crypto: hybrid Encapsulate: kyber pub size %d, want %d",
 			len(kyberRemoteBytes), Kyber768PublicKeySize)
@@ -179,20 +254,23 @@ func (kemHybridKyber768X25519) Encapsulate(remotePub []byte) (sharedSecret, ciph
 	shared = append(shared, kyberSS...)
 	shared = append(shared, xSS...)
 
-	// Ciphertext wire format: responderX25519Pub || kyberCiphertext.
+	// Ciphertext wire format: kyberCiphertext || responderX25519Pub.
 	ct := make([]byte, 0, HybridCiphertextSize)
-	ct = append(ct, xEphPub...)
 	ct = append(ct, kyberCt...)
+	ct = append(ct, xEphPub...)
 
 	return shared, ct, nil
 }
 
 // Decapsulate is the initiator-side half. It takes the responder's
-// combined ciphertext (responderX25519Pub || kyberCiphertext) and the
-// initiator's hybrid private key (x25519Priv || kyberPriv), performs
+// combined ciphertext (kyberCiphertext || responderX25519Pub) and the
+// initiator's hybrid private key (kyberPriv || x25519Priv), performs
 // X25519 against the responder's ephemeral pub, decapsulates the
 // Kyber ciphertext with its Kyber private, and returns the combined
 // shared secret.
+//
+// Both inputs use the Kyber-FIRST wire layout to match the
+// cross-language vectors and `ENVELOPE.md` §4.4.1.
 func (kemHybridKyber768X25519) Decapsulate(ciphertext, localPriv []byte) (sharedSecret []byte, err error) {
 	if len(ciphertext) != HybridCiphertextSize {
 		return nil, fmt.Errorf("crypto: hybrid Decapsulate: ciphertext length %d, want %d",
@@ -202,10 +280,10 @@ func (kemHybridKyber768X25519) Decapsulate(ciphertext, localPriv []byte) (shared
 		return nil, fmt.Errorf("crypto: hybrid Decapsulate: private key length %d, want %d",
 			len(localPriv), HybridPrivateKeySize)
 	}
-	xRemotePub := ciphertext[:curve25519.PointSize]
-	kyberCt := ciphertext[curve25519.PointSize:]
-	xLocalPriv := localPriv[:curve25519.ScalarSize]
-	kyberPrivBytes := localPriv[curve25519.ScalarSize:]
+	kyberCt := ciphertext[:Kyber768CiphertextSize]
+	xRemotePub := ciphertext[Kyber768CiphertextSize:]
+	kyberPrivBytes := localPriv[:Kyber768PrivateKeySize]
+	xLocalPriv := localPriv[Kyber768PrivateKeySize:]
 
 	// X25519 half.
 	xSS, err := NewKEMX25519().Agree(xLocalPriv, xRemotePub)
@@ -215,7 +293,7 @@ func (kemHybridKyber768X25519) Decapsulate(ciphertext, localPriv []byte) (shared
 	defer Zeroize(xSS)
 
 	// Kyber half.
-	var kyberPriv kyber768.PrivateKey
+	var kyberPriv mlkem768.PrivateKey
 	kyberPriv.Unpack(kyberPrivBytes)
 	kyberSS := make([]byte, Kyber768SharedKeySize)
 	kyberPriv.DecapsulateTo(kyberSS, kyberCt)

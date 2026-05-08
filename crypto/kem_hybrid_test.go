@@ -75,7 +75,8 @@ func TestHybridKEMSharedSecretLayout(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Encapsulate: %v", err)
 	}
-	// Flip one bit in the Kyber ciphertext portion (offset ≥ 32).
+	// Wire layout is kyberCt || x25519Pub; flip one bit in the
+	// Kyber ciphertext portion (offset < Kyber768CiphertextSize).
 	tampered := append([]byte{}, ct...)
 	tampered[100] ^= 0x01
 	altShared, err := kem.Decapsulate(tampered, priv)
@@ -111,7 +112,9 @@ func TestHybridKEMTamperedX25519HalfDesyncsKey(t *testing.T) {
 		t.Fatalf("Encapsulate: %v", err)
 	}
 	tampered := append([]byte{}, ct...)
-	tampered[0] ^= 0x01 // first byte is inside the X25519 pub region
+	// Wire layout is kyberCt || x25519Pub; flip a byte inside the
+	// X25519 pub region at the end of the ciphertext.
+	tampered[crypto.Kyber768CiphertextSize] ^= 0x01
 	altShared, err := kem.Decapsulate(tampered, priv)
 	if err != nil {
 		t.Fatalf("Decapsulate(tampered x25519): %v", err)

@@ -613,8 +613,45 @@ func handleDiscovery(t *testing.T, entry vectorEntry) {
 			}
 		}
 	case "discovery-response-parsing":
-		t.Skip("discovery-response-parsing: cross-checks signature and " +
-			"caching policy; Phase 2 (needs signed-discovery harness)")
+		// Parse the response, assert per-address `status` matches
+		// the action documented in expected.per_address_actions,
+		// confirm every result has a `ttl` (§4.6 caching policy
+		// requirement). Signature verification of discovery
+		// responses is exercised separately by
+		// discovery-signed.json (Wave 2A); this vector pins a
+		// placeholder signature value because its purpose is
+		// parsing semantics.
+		var resp map[string]any
+		if err := json.Unmarshal(jgetRaw(t, entry.Inputs, "response_json"), &resp); err != nil {
+			t.Fatalf("response_json unmarshal: %v", err)
+		}
+		results, _ := resp["results"].([]any)
+		if len(results) == 0 {
+			t.Fatal("response.results is empty")
+		}
+		var actions map[string]json.RawMessage
+		if err := json.Unmarshal(jgetRaw(t, entry.Expected, "per_address_actions"), &actions); err != nil {
+			t.Fatalf("per_address_actions unmarshal: %v", err)
+		}
+		for _, r := range results {
+			rec, _ := r.(map[string]any)
+			addr, _ := rec["address"].(string)
+			status, _ := rec["status"].(string)
+			expRaw, ok := actions[addr]
+			if !ok {
+				t.Errorf("address %q missing from per_address_actions", addr)
+				continue
+			}
+			var expEntry map[string]any
+			_ = json.Unmarshal(expRaw, &expEntry)
+			expStatus, _ := expEntry["status"].(string)
+			if status != expStatus {
+				t.Errorf("address %q: status %q, want %q", addr, status, expStatus)
+			}
+			if _, hasTTL := rec["ttl"]; !hasTTL {
+				t.Errorf("address %q: result missing ttl", addr)
+			}
+		}
 	default:
 		t.Skipf("discovery sub-vector %q: no handler", entry.ID)
 	}
@@ -638,6 +675,44 @@ func handleRejectionCodes(t *testing.T, entry vectorEntry) {
 // (accept / reject) under a registry built from the input's
 // `implementation_supports` list.
 func handleExtensionEntries(t *testing.T, entry vectorEntry) {
+	if entry.ID == "extension-size-limits" {
+		// Per-layer byte-size enforcement (§4 size limits). Each
+		// sample pins a (layer, size_limit, test_payload, outcome)
+		// tuple; the runner asserts the layer's MaxBytesFor matches
+		// the pinned size_limit AND that test_payload <= size_limit
+		// iff outcome is accept.
+		for i, raw := range entry.Samples {
+			layerStr := jget(t, raw, "layer")
+			limit := jgetInt(t, raw, "size_limit_bytes")
+			payload := jgetInt(t, raw, "test_payload_bytes")
+			outcome := jget(t, raw, "expected_outcome")
+
+			layer := layerFromVectorString(layerStr)
+			gotLimit := extensions.MaxBytesFor(layer)
+			if int(gotLimit) != limit {
+				t.Errorf("sample %d: layer %s size limit got %d, want %d",
+					i, layerStr, gotLimit, limit)
+			}
+			accept := payload <= int(gotLimit)
+			switch outcome {
+			case "accept":
+				if !accept {
+					t.Errorf("sample %d: payload %d under limit %d but expected accept",
+						i, payload, gotLimit)
+				}
+			case "reject":
+				if accept {
+					t.Errorf("sample %d: payload %d <= limit %d but expected reject",
+						i, payload, gotLimit)
+				}
+				// reason_code MUST be a known ReasonCode.
+				if rc := jgetRaw(t, raw, "reason_code"); len(rc) > 0 {
+					validateReasonCode(t, i, rc)
+				}
+			}
+		}
+		return
+	}
 	extRaw := jgetRaw(t, entry.Inputs, "extensions_json")
 	if len(extRaw) == 0 {
 		t.Skipf("extension-entries %q: no extensions_json", entry.ID)
@@ -724,6 +799,24 @@ func handleClockTolerance(t *testing.T, entry vectorEntry) {
 			t.Skipf("clock-tolerance sub-vector %q: no handler", entry.ID)
 			return
 		}
+	}
+}
+
+// layerFromVectorString maps the vector's "X.extensions" layer name
+// (e.g. "postmark.extensions") to the corresponding extensions.Layer
+// constant.
+func layerFromVectorString(s string) extensions.Layer {
+	switch s {
+	case "postmark.extensions", "postmark":
+		return extensions.LayerPostmark
+	case "seal.extensions", "seal":
+		return extensions.LayerSeal
+	case "brief.extensions", "brief":
+		return extensions.LayerBrief
+	case "enclosure.extensions", "enclosure":
+		return extensions.LayerEnclosure
+	default:
+		return extensions.LayerPostmark
 	}
 }
 

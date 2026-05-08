@@ -1354,6 +1354,28 @@ func verifyConsistencyProofRFC6962(n1, n2 int, oldRoot, newRoot []byte, path [][
 	return lastNode == 0 && bytesEq(oldHash, oldRoot) && bytesEq(newHash, newRoot)
 }
 
+// pqUnwrap reconstructs the recipient's hybrid private key from
+// the pinned kyber keygen seeds + X25519 private and dispatches to
+// seal.NewWrapper(crypto.SuitePQ).Unwrap. The hybrid wire layout is
+// `x25519_priv || kyber_priv` per crypto.HybridPrivateKeyFromKyberAndX25519.
+func pqUnwrap(t *testing.T, entry vectorEntry, wrappedB64 string) ([]byte, error) {
+	t.Helper()
+	d := decodeHexF(t, jget(t, entry.Inputs, "recipient_kyber_keygen_d_hex"),
+		"recipient_kyber_keygen_d_hex")
+	z := decodeHexF(t, jget(t, entry.Inputs, "recipient_kyber_keygen_z_hex"),
+		"recipient_kyber_keygen_z_hex")
+	xPriv := decodeHexF(t, jget(t, entry.Inputs, "recipient_x25519_private_key_hex"),
+		"recipient_x25519_private_key_hex")
+	hybridPub := decodeHexF(t, jget(t, entry.Inputs, "recipient_hybrid_public_key_hex"),
+		"recipient_hybrid_public_key_hex")
+
+	_, kyberPriv := crypto.DeriveKyber768KeyPair(d, z)
+	hybridPriv := crypto.HybridPrivateKeyFromKyberAndX25519(xPriv, kyberPriv)
+
+	w := seal.NewWrapper(crypto.SuitePQ)
+	return w.Unwrap(hybridPriv, hybridPub, wrappedB64)
+}
+
 // ---------------------------------------------------------------------------
 // envelope-roundtrip: full envelope flow (verify-only, baseline)
 //
@@ -1374,15 +1396,45 @@ func verifyConsistencyProofRFC6962(n1, n2 int, oldRoot, newRoot []byte, path [][
 func handleEnvelopeRoundtrip(t *testing.T, entry vectorEntry) {
 	switch entry.ID {
 	case "envelope-roundtrip-baseline-single-recipient":
-		runEnvelopeRoundtripBaseline(t, entry)
+		runEnvelopeRoundtrip(t, entry, crypto.SuiteBaseline)
 	case "envelope-roundtrip-pq-single-recipient":
-		t.Skip("envelope-roundtrip PQ: needs deterministic kyber keygen; deferred")
+		runEnvelopeRoundtrip(t, entry, crypto.SuitePQ)
 	default:
 		t.Skipf("envelope-roundtrip %q: no handler", entry.ID)
 	}
 }
 
-func runEnvelopeRoundtripBaseline(t *testing.T, entry vectorEntry) {
+// recipientKeysForSuite returns the (priv, pub) byte slices the
+// recipient passes to seal.Wrapper.Unwrap. For the baseline suite the
+// pinned vector inputs are 32-byte X25519 priv/pub. For the PQ suite
+// the priv is reassembled from pinned (kyber d, z, x25519 priv) and
+// the pub is the pinned 1216-byte hybrid public key.
+func recipientKeysForSuite(t *testing.T, entry vectorEntry, suite crypto.Suite) (priv, pub []byte) {
+	t.Helper()
+	switch suite {
+	case crypto.SuiteBaseline:
+		priv = decodeHexF(t, jget(t, entry.Inputs, "recipient_client_priv_hex"),
+			"recipient_client_priv_hex")
+		pub = decodeHexF(t, jget(t, entry.Inputs, "recipient_client_pub_hex"),
+			"recipient_client_pub_hex")
+	case crypto.SuitePQ:
+		d := decodeHexF(t, jget(t, entry.Inputs, "recipient_client_kyber_keygen_d_hex"),
+			"recipient_client_kyber_keygen_d_hex")
+		z := decodeHexF(t, jget(t, entry.Inputs, "recipient_client_kyber_keygen_z_hex"),
+			"recipient_client_kyber_keygen_z_hex")
+		xPriv := decodeHexF(t, jget(t, entry.Inputs, "recipient_client_x25519_priv_hex"),
+			"recipient_client_x25519_priv_hex")
+		_, kyberPriv := crypto.DeriveKyber768KeyPair(d, z)
+		priv = crypto.HybridPrivateKeyFromKyberAndX25519(xPriv, kyberPriv)
+		pub = decodeHexF(t, jget(t, entry.Inputs, "recipient_client_pub_hex"),
+			"recipient_client_pub_hex")
+	default:
+		t.Fatalf("unknown suite")
+	}
+	return priv, pub
+}
+
+func runEnvelopeRoundtrip(t *testing.T, entry vectorEntry, suite crypto.Suite) {
 	t.Helper()
 	envRaw := jgetRaw(t, entry.Expected, "envelope_json")
 	if len(envRaw) == 0 {
@@ -1425,11 +1477,8 @@ func runEnvelopeRoundtripBaseline(t *testing.T, entry vectorEntry) {
 	}
 
 	// Step 3: brief AEAD round-trip via recipient_client unwrap.
-	w := seal.NewWrapper(crypto.SuiteBaseline)
-	clientPriv := decodeHexF(t, jget(t, entry.Inputs, "recipient_client_priv_hex"),
-		"recipient_client_priv_hex")
-	clientPub := decodeHexF(t, jget(t, entry.Inputs, "recipient_client_pub_hex"),
-		"recipient_client_pub_hex")
+	w := seal.NewWrapper(suite)
+	clientPriv, clientPub := recipientKeysForSuite(t, entry, suite)
 	clientFP := jget(t, entry.Inputs, "recipient_client_key_id")
 	briefWrapped, ok := env.Seal.BriefRecipients[keys.Fingerprint(clientFP)]
 	if !ok {
@@ -1567,15 +1616,14 @@ func handleSealRoundtrip(t *testing.T, entry vectorEntry) {
 			}
 		}
 	case "pq-kyber768-x25519":
-		// PQ unwrap requires reconstructing the recipient's hybrid
-		// private key from the pinned kyber keygen seeds (d, z), and
-		// semp-go's crypto.KEM doesn't currently expose a
-		// deterministic kyber keygen from seed (production keygen
-		// reads rand.Reader). Wiring the deterministic path requires
-		// either a test-only export from crypto/kem_hybrid.go or
-		// dropping to circl's lower-level kyber768 directly. Both
-		// are out of scope for this Phase 2 wave.
-		t.Skip("seal-roundtrip PQ: needs deterministic kyber keygen from seed; deferred")
+		k, err := pqUnwrap(t, entry, wrappedB64)
+		if err != nil {
+			t.Fatalf("PQ unwrap: %v", err)
+		}
+		if !bytesEq(k, wantK) {
+			t.Errorf("pq unwrap recovered K mismatch:\n  got  %x\n  want %x",
+				k, wantK)
+		}
 	default:
 		t.Skipf("seal-roundtrip suite %q: no handler", suite)
 	}

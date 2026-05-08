@@ -3,7 +3,6 @@ package largeattachment
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
@@ -11,6 +10,7 @@ import (
 	"strings"
 
 	"semp.dev/semp-go/crypto"
+	"semp.dev/semp-go/internal/canonical"
 )
 
 // DeriveAttachmentKey derives K_attachment from K_enclosure per
@@ -47,12 +47,20 @@ func DeriveAttachmentKey(kdf crypto.KDF, kEnclosure []byte, attachmentID string,
 // Binding the metadata into AEAD additional-data prevents an
 // attacker from swapping `filename` or `mime_type` while leaving
 // the ciphertext intact.
+//
+// "Canonical" here means ENVELOPE.md §4.3 canonicalization: keys
+// sorted lexicographically at every nesting level, no insignificant
+// whitespace. Routing through internal/canonical produces the same
+// bytes regardless of Go struct field order, which is what
+// cross-language interop requires — a Dart or TypeScript
+// implementation that respects the spec's canonical rule must be
+// able to AEAD-decrypt an attachment a Go implementation produced.
 func AdditionalData(item Item) ([]byte, error) {
 	clone := item
 	clone.CiphertextHash = ""
 	clone.AEADNonce = ""
 	clone.Extensions = nil
-	return json.Marshal(clone)
+	return canonical.Marshal(clone)
 }
 
 // CiphertextHash computes the §2.3 ciphertext_hash value for the
