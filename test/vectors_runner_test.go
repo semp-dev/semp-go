@@ -111,6 +111,11 @@ var dispatch = map[string]handler{
 	// Wave 2C: cross-reference + must-reject schema.
 	"must-reject-index":           handleMustRejectIndex,
 	"negative-envelope-rejection": handleNegativeEnvelopeRejection,
+
+	// Wave 2D: verify-only round-trip handlers.
+	"sender-signature": handleSenderSignature,
+	"delivery-receipt": handleDeliveryReceipt,
+	"transparency":     handleTransparency,
 }
 
 // TestVectors is the entry point. It walks every *.json file in the
