@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -232,10 +233,11 @@ func DefaultFederationEndpointFunc(result *discovery.Result) (string, error) {
 	}
 	// No advertised federation endpoints. Fall back to HTTP/2 at the DNS
 	// SRV target. Every conformant SEMP server MUST accept HTTP/2
-	// connections per TRANSPORT.md section 4, so this is always valid
-	// even when no transport is explicitly advertised.
+	// connections per TRANSPORT.md section 4, and federation traffic
+	// terminates at /v1/h2/federate (TRANSPORT.md §4.2), so this is
+	// always valid even when no transport is explicitly advertised.
 	if result.Server != "" {
-		return "https://" + result.Server + "/v1/h2", nil
+		return "https://" + strings.TrimSuffix(result.Server, ".") + "/v1/h2/federate", nil
 	}
 	return "", fmt.Errorf("inboxd: discovery result for %s has no endpoint", result.Address)
 }
