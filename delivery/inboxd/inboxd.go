@@ -723,22 +723,13 @@ func (s *Server) handleKeys(ctx context.Context, stream MessageStream, raw []byt
 			})
 			continue
 		}
-		// If we don't have a peer config for this domain, treat it
-		// the same as "no SEMP support" — StatusNotFound per
-		// CLIENT.md §5.4.6. A production server with a real
-		// discovery layer might return StatusError with a retry
-		// hint, but for the demo this is the simplest truthful
-		// answer.
-		if _, ok := s.Forwarder.Peers.Lookup(d); !ok {
-			results = append(results, keys.ResponseResult{
-				Address: addr,
-				Status:  keys.StatusNotFound,
-				Domain:  d,
-			})
-			continue
-		}
 		// Fetch once per remote domain and reuse the response for
-		// every address on that domain.
+		// every address on that domain. The Forwarder auto-registers
+		// unknown peers and resolves their endpoint via DNS SRV +
+		// well-known per DISCOVERY.md, so we MUST NOT short-circuit
+		// on Peers.Lookup here — doing so would return not_found for
+		// any peer the operator has not explicitly pre-configured,
+		// even when SEMP discovery could reach them.
 		peerResp, err := s.cachedRemoteFetch(ctx, d, byDomain[d])
 		if err != nil {
 			results = append(results, keys.ResponseResult{
