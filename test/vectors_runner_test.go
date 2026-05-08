@@ -116,6 +116,8 @@ var dispatch = map[string]handler{
 	"sender-signature": handleSenderSignature,
 	"delivery-receipt": handleDeliveryReceipt,
 	"transparency":     handleTransparency,
+	"forwarding":       handleForwarding,
+	"migration":        handleMigration,
 }
 
 // TestVectors is the entry point. It walks every *.json file in the

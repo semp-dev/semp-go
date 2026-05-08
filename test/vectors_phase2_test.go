@@ -1325,3 +1325,247 @@ func sha256Inner(left, right []byte) []byte {
 	return sum[:]
 }
 
+// ---------------------------------------------------------------------------
+// forwarding: three-signature verification chain (§6.6.4)
+//
+//	step 1: outer enclosure.sender_signature             (forwarder pub)
+//	step 2: forwarded_from.forwarder_attestation         (forwarder pub)
+//	step 3: forwarded_from.original_enclosure_plaintext.
+//	          sender_signature                           (original sender pub)
+//
+// Each step verifies a different scope (full document for step 1,
+// forwarded_from subtree for step 2, original_enclosure_plaintext
+// subtree for step 3). The corresponding domain-separation prefix
+// changes between SEMP-ENCLOSURE-SENDER: and SEMP-FORWARDER-ATTESTATION:.
+
+func handleForwarding(t *testing.T, entry vectorEntry) {
+	switch entry.ID {
+	case "forward-valid-three-step-chain":
+		runForwardingChain(t, entry,
+			jgetRaw(t, entry.Expected, "outer_enclosure_json"),
+			true, true, true)
+	case "forward-tampered-original-content":
+		// All three steps SHOULD reject because the outer
+		// canonicalization includes the forwarded_from subtree and
+		// the forwarded_from canonical bytes also cover the inner
+		// content.
+		runForwardingChain(t, entry,
+			jgetRaw(t, entry.Inputs, "tampered_outer_enclosure_json"),
+			jgetBool(t, entry.Expected, "step_1_outer_sender_signature_verifies"),
+			jgetBool(t, entry.Expected, "step_2_forwarder_attestation_verifies"),
+			jgetBool(t, entry.Expected, "step_3_original_sender_signature_verifies"))
+	case "forward-spoofed-outer-signer":
+		// A spoofer publishes an outer enclosure with its own
+		// signature but claims forwarder B's key_id. Step 1
+		// verifies the outer sender_signature against the public
+		// key the key_id POINTS AT (B's, not the spoofer's).
+		// Verification MUST fail because the spoofer cannot forge
+		// B's signature.
+		var doc map[string]any
+		if err := json.Unmarshal(jgetRaw(t, entry.Inputs, "spoofed_outer_enclosure_json"), &doc); err != nil {
+			t.Fatalf("spoofed outer unmarshal: %v", err)
+		}
+		claimed := pubKeyFromInputs(t, entry, "claimed_forwarder_pub_hex")
+		spec := signedDocSpec{
+			SignedJSON:    deepCopyMap(doc),
+			SignaturePath: "sender_signature.value",
+			PublicKey:     claimed,
+			Prefix:        "SEMP-ENCLOSURE-SENDER:",
+		}
+		_, _, ok := verifySingleSignedDoc(t, spec)
+		want := jgetBool(t, entry.Expected, "step_1_outer_sender_signature_verifies_against_claimed_key")
+		if ok != want {
+			t.Errorf("spoofed step 1 against claimed key got %v, want %v",
+				ok, want)
+		}
+		// Sanity-check: against the actual signer's pubkey it
+		// SHOULD verify (we're not testing forgery here).
+		if hex := jget(t, entry.Inputs, "actual_outer_signer_pub_hex"); hex != "" {
+			actualPub := ed25519.PublicKey(decodeHexF(t, hex, "actual_outer_signer_pub_hex"))
+			specSanity := signedDocSpec{
+				SignedJSON:    deepCopyMap(doc),
+				SignaturePath: "sender_signature.value",
+				PublicKey:     actualPub,
+				Prefix:        "SEMP-ENCLOSURE-SENDER:",
+			}
+			_, _, sanityOK := verifySingleSignedDoc(t, specSanity)
+			if !sanityOK {
+				t.Error("actual signer's pub did not verify (sanity check)")
+			}
+		}
+	default:
+		t.Skipf("forwarding %q: no handler", entry.ID)
+	}
+}
+
+func runForwardingChain(t *testing.T, entry vectorEntry, outerRaw json.RawMessage, want1, want2, want3 bool) {
+	t.Helper()
+	if len(outerRaw) == 0 {
+		t.Fatal("missing outer enclosure JSON")
+	}
+	var outer map[string]any
+	if err := json.Unmarshal(outerRaw, &outer); err != nil {
+		t.Fatalf("outer unmarshal: %v", err)
+	}
+	forwarderPub := pubKeyFromInputs(t, entry, "forwarder_identity_pub_hex", "forwarder_pub_hex")
+	originalPub := pubKeyFromInputs(t, entry, "original_sender_identity_pub_hex", "original_sender_pub_hex")
+
+	// Step 1: outer document, sender_signature.value blanked, forwarder pub.
+	step1 := signedDocSpec{
+		SignedJSON:    deepCopyMap(outer),
+		SignaturePath: "sender_signature.value",
+		PublicKey:     forwarderPub,
+		Prefix:        "SEMP-ENCLOSURE-SENDER:",
+	}
+	_, _, ok1 := verifySingleSignedDoc(t, step1)
+	if ok1 != want1 {
+		t.Errorf("step 1 (outer sender_signature) got %v, want %v", ok1, want1)
+	}
+
+	// Step 2: forwarded_from subtree, forwarder_attestation.value blanked.
+	from, _ := outer["forwarded_from"].(map[string]any)
+	if from == nil {
+		t.Fatal("outer enclosure missing forwarded_from")
+	}
+	step2 := signedDocSpec{
+		SignedJSON:    deepCopyMap(from),
+		SignaturePath: "forwarder_attestation.value",
+		PublicKey:     forwarderPub,
+		Prefix:        "SEMP-FORWARDER-ATTESTATION:",
+	}
+	_, _, ok2 := verifySingleSignedDoc(t, step2)
+	if ok2 != want2 {
+		t.Errorf("step 2 (forwarder_attestation) got %v, want %v", ok2, want2)
+	}
+
+	// Step 3: original_enclosure_plaintext subtree, sender_signature.value blanked.
+	orig, _ := from["original_enclosure_plaintext"].(map[string]any)
+	if orig == nil {
+		t.Fatal("forwarded_from missing original_enclosure_plaintext")
+	}
+	step3 := signedDocSpec{
+		SignedJSON:    deepCopyMap(orig),
+		SignaturePath: "sender_signature.value",
+		PublicKey:     originalPub,
+		Prefix:        "SEMP-ENCLOSURE-SENDER:",
+	}
+	_, _, ok3 := verifySingleSignedDoc(t, step3)
+	if ok3 != want3 {
+		t.Errorf("step 3 (original sender_signature) got %v, want %v", ok3, want3)
+	}
+}
+
+
+// ---------------------------------------------------------------------------
+// migration: four-signature chain (§3 cooperative migration)
+//
+// Each of the four signatures (old_identity, old_domain, new_identity,
+// new_domain) is verified against the FINAL signed record by blanking
+// only that one signature value and recomputing canonical bytes. The
+// generator pre-computes these per-signer canonical bytes in the
+// signature_chain intermediates; the runner regenerates them from the
+// final record and asserts equality before verifying signatures.
+
+func handleMigration(t *testing.T, entry vectorEntry) {
+	if entry.ID != "migration-cooperative-four-signature-chain" {
+		t.Skipf("migration %q: no handler", entry.ID)
+	}
+
+	// Migration is a sequential chain: each signer signs a document
+	// where every PRIOR signer's value is populated and every LATER
+	// signer's value is blank. To verify the final record we replay
+	// the chain in the same order. The generator pins the per-step
+	// canonical bytes in intermediates.signature_chain, so the
+	// runner can both:
+	//   (a) re-derive the per-step canonical bytes from the final
+	//       record by replaying the blanking sequence, AND
+	//   (b) cross-check (a) against intermediates.signature_chain.
+	// We do (a) and (b) and then verify each signer's Ed25519
+	// against (a).
+	signedRaw := jgetRaw(t, entry.Expected, "signed_record_json")
+	if len(signedRaw) == 0 {
+		t.Fatal("missing signed_record_json")
+	}
+	var signedDoc map[string]any
+	if err := json.Unmarshal(signedRaw, &signedDoc); err != nil {
+		t.Fatalf("signed record unmarshal: %v", err)
+	}
+
+	// Order observed in the generator: 1=old_identity, 2=new_identity,
+	// 3=new_domain, 4=old_domain. Pull the chain from intermediates
+	// to confirm.
+	type chainStep struct {
+		fieldName string
+		pubHexKey string
+		role      string
+	}
+	chain := []chainStep{
+		{"old_identity_signature", "old_identity_pub_hex", "old_identity"},
+		{"new_identity_signature", "new_identity_pub_hex", "new_identity"},
+		{"new_domain_signature", "new_domain_pub_hex", "new_domain"},
+		{"old_domain_signature", "old_domain_pub_hex", "old_domain"},
+	}
+
+	var interChain []map[string]any
+	if raw := jgetRaw(t, entry.Intermediates, "signature_chain"); len(raw) > 0 {
+		if err := json.Unmarshal(raw, &interChain); err != nil {
+			t.Fatalf("signature_chain unmarshal: %v", err)
+		}
+	}
+
+	allOK := true
+	for i, step := range chain {
+		// Build the per-step view of the document: blank
+		// signature[i].value AND every later signature[j>i].value;
+		// leave signature[j<i].value populated (those signers had
+		// already produced their values when this step ran).
+		stepDoc := deepCopyMap(signedDoc)
+		for j, other := range chain {
+			if j < i {
+				continue
+			}
+			obj, _ := stepDoc[other.fieldName].(map[string]any)
+			if obj == nil {
+				t.Fatalf("step %d: missing %s", i+1, other.fieldName)
+			}
+			obj["value"] = ""
+		}
+		blanked, err := canonical.Marshal(stepDoc)
+		if err != nil {
+			t.Fatalf("step %d canonical: %v", i+1, err)
+		}
+
+		// Cross-check (b): generator's pinned canonical matches our
+		// re-derivation.
+		if i < len(interChain) {
+			if want, _ := interChain[i]["canonical_with_blanked_signature_utf8"].(string); want != "" {
+				if string(blanked) != want {
+					t.Errorf("step %d canonical mismatch:\n  got  %s\n  want %s",
+						i+1, string(blanked), want)
+				}
+			}
+		}
+
+		// Pull this signer's signature value from the FINAL doc
+		// (not the per-step view) and Ed25519-verify it.
+		sigObj, _ := signedDoc[step.fieldName].(map[string]any)
+		sigVal, _ := sigObj["value"].(string)
+		sig, err := base64.StdEncoding.DecodeString(sigVal)
+		if err != nil {
+			t.Fatalf("step %d decode signature: %v", i+1, err)
+		}
+		pub := ed25519.PublicKey(decodeHexF(t,
+			jget(t, entry.Inputs, step.pubHexKey), step.pubHexKey))
+		signingInput := append([]byte("SEMP-MIGRATION-RECORD:"), blanked...)
+		ok := ed25519.Verify(pub, signingInput, sig)
+		if !ok {
+			t.Errorf("step %d (%s) signature verify failed", i+1, step.role)
+			allOK = false
+		}
+	}
+	wantAll := jgetBool(t, entry.Expected, "all_four_signatures_verify")
+	if allOK != wantAll {
+		t.Errorf("all_four_signatures_verify got %v, want %v", allOK, wantAll)
+	}
+}
+
