@@ -13,9 +13,9 @@ The Phase 1 JSON test-vectors runner ([`test/vectors_runner_test.go`]) surfaces 
 - ~~**VR-1** Canonical envelope strips empty `extensions` maps.~~ Landed. `envelope.Postmark.Extensions` and `seal.Seal.Extensions` no longer carry `omitempty`; both layers now emit `extensions:{}` verbatim per ENVELOPE.md §4.3.
 - ~~**VR-2** Canonical envelope emits `first_contact_token: null`.~~ Landed. `seal.Seal.FirstContactToken` now carries `omitempty` and disappears from canonical bytes when nil.
 - ~~**VR-3** Rekey HKDF info labels.~~ Landed. The `InfoRekey*` constants are now type-aliases of the corresponding `InfoSession*` constants per `VECTORS.md` §2.2; rekey relies on salt-based separation only.
-- **VR-4** Required-extension rejection scope. `extensions.Validate` only rejects required-but-unregistered extensions in the `semp.dev/` namespace; vendor and `x-` keys are accepted. The spec (`EXTENSIONS.md` §3) says any required extension a recipient does not understand MUST be rejected, regardless of namespace. Fix: drop the `NamespacePrefixCore` guard so required-and-unknown rejects for any namespace. Affected file: [`extensions/limits.go`].
+- ~~**VR-4** Required-extension rejection scope.~~ Landed. `extensions.Validate` now rejects any required-but-unregistered extension regardless of namespace per `EXTENSIONS.md` §3.
 
-VR-3 and VR-4 are independent and shippable on their own. VR-1 and VR-2 landed together because both change canonical envelope bytes (which feed signature inputs).
+All four Phase 1 vector-runner findings (VR-1 through VR-4) are closed. Categories that were `t.Skip`'d in `test/vectors_runner_test.go` are now exercised directly.
 
 **Out of library scope (semp-reference-client):**
 

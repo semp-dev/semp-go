@@ -202,27 +202,40 @@ func TestValidateRejectsUnregisteredRequired(t *testing.T) {
 	}
 }
 
-// TestValidateAllowsRequiredVendorExtension confirms a required
-// vendor extension is accepted even without registry presence
-// because the registry is authoritative only for the semp.dev/
-// namespace.
-func TestValidateAllowsRequiredVendorExtension(t *testing.T) {
+// TestValidateRejectsRequiredVendorExtensionWhenUnregistered confirms a
+// required vendor extension that is NOT in the registry is rejected.
+// EXTENSIONS.md §3 requires rejection for any required extension a
+// recipient does not understand, regardless of namespace — the receiver
+// cannot interpret data it has no schema for, vendor or otherwise.
+func TestValidateRejectsRequiredVendorExtensionWhenUnregistered(t *testing.T) {
 	m := extensions.Map{
 		"vendor.example.com/proprietary": extensions.Entry{Required: true},
 	}
-	if err := extensions.Validate(extensions.DefaultRegistry, extensions.LayerBrief, m); err != nil {
-		t.Errorf("required vendor extension should pass: %v", err)
+	err := extensions.Validate(extensions.DefaultRegistry, extensions.LayerBrief, m)
+	if err == nil {
+		t.Fatal("required unregistered vendor extension should be rejected")
+	}
+	var ue *extensions.UnsupportedError
+	if !errors.As(err, &ue) {
+		t.Fatalf("expected *UnsupportedError, got %T: %v", err, err)
 	}
 }
 
-// TestValidateAllowsRequiredExperimentalExtension confirms a
-// required x- extension is accepted — the operator opted in.
-func TestValidateAllowsRequiredExperimentalExtension(t *testing.T) {
+// TestValidateRejectsRequiredExperimentalExtensionWhenUnregistered
+// confirms a required x- extension that is NOT in the registry is
+// rejected. The x- prefix marks an experimental key but it does not
+// exempt it from the §3 required-must-be-understood rule.
+func TestValidateRejectsRequiredExperimentalExtensionWhenUnregistered(t *testing.T) {
 	m := extensions.Map{
 		"x-my-experiment": extensions.Entry{Required: true},
 	}
-	if err := extensions.Validate(extensions.DefaultRegistry, extensions.LayerBrief, m); err != nil {
-		t.Errorf("required x- extension should pass: %v", err)
+	err := extensions.Validate(extensions.DefaultRegistry, extensions.LayerBrief, m)
+	if err == nil {
+		t.Fatal("required unregistered x- extension should be rejected")
+	}
+	var ue *extensions.UnsupportedError
+	if !errors.As(err, &ue) {
+		t.Fatalf("expected *UnsupportedError, got %T: %v", err, err)
 	}
 }
 
@@ -263,17 +276,32 @@ func TestValidateRejectsMalformedKey(t *testing.T) {
 	}
 }
 
-// TestValidateNilRegistryAllowsEverything confirms passing a nil
-// registry skips the registry check entirely — every syntactically
-// valid key passes regardless of required/optional.
-func TestValidateNilRegistryAllowsEverything(t *testing.T) {
-	m := extensions.Map{
-		"semp.dev/anything": extensions.Entry{Required: true},
-		"vendor.example.com/feature":  extensions.Entry{Required: true},
-		"x-test": extensions.Entry{Required: true},
+// TestValidateNilRegistryAcceptsOptionalRejectsRequired confirms that
+// passing a nil registry accepts optional extensions of any namespace
+// (the receiver simply ignores them per EXTENSIONS.md §3) but rejects
+// required extensions of any namespace (the receiver has no way to
+// interpret them). A nil registry is the "no extension knowledge"
+// boundary case; the §3 rule still applies.
+func TestValidateNilRegistryAcceptsOptionalRejectsRequired(t *testing.T) {
+	optional := extensions.Map{
+		"semp.dev/anything":          extensions.Entry{Required: false},
+		"vendor.example.com/feature": extensions.Entry{Required: false},
+		"x-test":                     extensions.Entry{Required: false},
 	}
-	if err := extensions.Validate(nil, extensions.LayerBrief, m); err != nil {
-		t.Errorf("nil registry should accept all valid keys: %v", err)
+	if err := extensions.Validate(nil, extensions.LayerBrief, optional); err != nil {
+		t.Errorf("nil registry should accept optional keys of any namespace: %v", err)
+	}
+
+	required := extensions.Map{
+		"vendor.example.com/feature": extensions.Entry{Required: true},
+	}
+	err := extensions.Validate(nil, extensions.LayerBrief, required)
+	if err == nil {
+		t.Fatal("nil registry + required extension should be rejected")
+	}
+	var ue *extensions.UnsupportedError
+	if !errors.As(err, &ue) {
+		t.Fatalf("expected *UnsupportedError, got %T: %v", err, err)
 	}
 }
 

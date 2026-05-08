@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
-	"strings"
 
 	semp "semp.dev/semp-go"
 )
@@ -211,26 +210,30 @@ func Validate(registry *Registry, layer Layer, m Map) error {
 		if !entry.Required {
 			continue
 		}
-		// Required extension: must be registered OR live in a
-		// namespace the registry doesn't govern. Only semp.dev/
-		// keys require registry presence. Vendor and x- keys
-		// are at the operator's own risk.
-		if registry != nil && strings.HasPrefix(key, NamespacePrefixCore) {
-			if _, ok := registry.Lookup(key); !ok {
+		// Required extension: a recipient that does not understand
+		// it MUST reject the containing message per EXTENSIONS.md
+		// §3, regardless of namespace. We check the registry for
+		// every required key (semp.dev, vendor.*, x-*) — if it
+		// isn't there, we reject. The earlier semp.dev/-only scope
+		// was a privilege the spec does not grant: vendor keys
+		// gain interop value precisely because both sides must
+		// agree, and a recipient that silently accepts a required
+		// vendor extension it cannot interpret would be acting on
+		// data it does not understand.
+		if registry != nil {
+			regEntry, ok := registry.Lookup(key)
+			if !ok {
 				return &UnsupportedError{Key: key, Layer: layer}
 			}
-		}
-		// Optional: also verify the registered layer matches. A
-		// registered extension MAY only be used at the layers
-		// it was registered for; using it elsewhere is a spec
-		// violation per EXTENSIONS.md §5.2 ("Layer(s): Which
-		// extension points the extension occupies").
-		if registry != nil && strings.HasPrefix(key, NamespacePrefixCore) {
-			if entry, ok := registry.Lookup(key); ok {
-				if !entry.SupportsLayer(layer) {
-					return &UnsupportedError{Key: key, Layer: layer}
-				}
+			// Registered extensions MAY only be used at the layers
+			// they were registered for, per EXTENSIONS.md §5.2.
+			if !regEntry.SupportsLayer(layer) {
+				return &UnsupportedError{Key: key, Layer: layer}
 			}
+		} else {
+			// No registry at all: a required extension is
+			// definitionally unsupported.
+			return &UnsupportedError{Key: key, Layer: layer}
 		}
 	}
 	return ValidateSize(layer, m)

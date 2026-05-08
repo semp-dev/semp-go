@@ -605,18 +605,6 @@ func handleRejectionCodes(t *testing.T, entry vectorEntry) {
 // (accept / reject) under a registry built from the input's
 // `implementation_supports` list.
 func handleExtensionEntries(t *testing.T, entry vectorEntry) {
-	// SPEC-GAP.md VR-4: semp-go's extensions.Validate only enforces
-	// required-but-unregistered rejection for the semp.dev/ namespace.
-	// EXTENSIONS.md §3 says ANY required extension a recipient does not
-	// understand MUST be rejected. Skip the cases where the vector
-	// expects rejection of a vendor-namespaced required extension.
-	switch entry.ID {
-	case "extension-required-known-unsupported",
-		"extension-required-unknown",
-		"extension-mixed-required-and-optional":
-		t.Skip("VR-4: semp-go.Validate scope is namespace-narrow; see SPEC-GAP.md")
-	}
-
 	extRaw := jgetRaw(t, entry.Inputs, "extensions_json")
 	if len(extRaw) == 0 {
 		t.Skipf("extension-entries %q: no extensions_json", entry.ID)
