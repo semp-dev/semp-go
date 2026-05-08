@@ -119,6 +119,7 @@ var dispatch = map[string]handler{
 	"forwarding":       handleForwarding,
 	"migration":        handleMigration,
 	"large-attachment": handleLargeAttachment,
+	"account-recovery": handleAccountRecovery,
 }
 
 // TestVectors is the entry point. It walks every *.json file in the

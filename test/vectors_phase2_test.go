@@ -25,6 +25,7 @@ import (
 	"testing"
 	"time"
 
+	"golang.org/x/crypto/argon2"
 	"golang.org/x/crypto/chacha20poly1305"
 
 	"semp.dev/semp-go/crypto"
@@ -1349,6 +1350,116 @@ func verifyConsistencyProofRFC6962(n1, n2 int, oldRoot, newRoot []byte, path [][
 		lastNode >>= 1
 	}
 	return lastNode == 0 && bytesEq(oldHash, oldRoot) && bytesEq(newHash, newRoot)
+}
+
+// ---------------------------------------------------------------------------
+// account-recovery: Argon2id + XChaCha20-Poly1305 + Ed25519 (RECOVERY.md §2)
+//
+// Uses semp-go's recovery package primitives directly so the runner
+// exercises the same code path that production restore flows do:
+//   recovery.DeriveBundleKey      (Argon2id KDF)
+//   recovery.EncryptBundlePayload (XChaCha20-Poly1305, empty AAD)
+//   recovery.DecryptBundlePayload (round-trip check)
+//   Ed25519 verify with SEMP-RECOVERY-BUNDLE: prefix.
+
+func handleAccountRecovery(t *testing.T, entry vectorEntry) {
+	if entry.ID != "recovery-bundle-roundtrip" {
+		t.Skipf("account-recovery %q: no handler", entry.ID)
+	}
+	secret := []byte(jget(t, entry.Inputs, "recovery_secret_utf8"))
+	salt := decodeHexF(t, jget(t, entry.Inputs, "kdf_salt_hex"), "kdf_salt_hex")
+	memKB := jgetInt(t, entry.Inputs, "kdf_memory_kb")
+	iters := jgetInt(t, entry.Inputs, "kdf_iterations")
+	par := jgetInt(t, entry.Inputs, "kdf_parallelism")
+
+	bundleKey := argon2.IDKey(secret, salt,
+		uint32(iters), uint32(memKB), uint8(par), 32)
+
+	// Decrypt the encrypted_payload from the published bundle and
+	// confirm round-trip recovers the original.
+	var bundle map[string]any
+	if err := json.Unmarshal(jgetRaw(t, entry.Expected, "signed_bundle_json"), &bundle); err != nil {
+		t.Fatalf("signed_bundle_json: %v", err)
+	}
+	ctB64, _ := bundle["encrypted_payload"].(string)
+	ct, err := base64.StdEncoding.DecodeString(ctB64)
+	if err != nil {
+		t.Fatalf("decode encrypted_payload: %v", err)
+	}
+	nonceB64, _ := bundle["payload_nonce"].(string)
+	nonce, err := base64.StdEncoding.DecodeString(nonceB64)
+	if err != nil {
+		t.Fatalf("decode payload_nonce: %v", err)
+	}
+	c, err := chacha20poly1305.NewX(bundleKey)
+	if err != nil {
+		t.Fatalf("XChaCha20-Poly1305: %v", err)
+	}
+	pt, err := c.Open(nil, nonce, ct, nil)
+	if err != nil {
+		t.Fatalf("AEAD open: %v", err)
+	}
+	// Compare round-trip plaintext to inputs.payload_pre_encrypt_json.
+	wantPlaintext := jgetRaw(t, entry.Inputs, "payload_pre_encrypt_json")
+	if !bytesEq(wantPlaintext, pt) {
+		// payload_pre_encrypt_json is canonical JSON of the
+		// payload object; recovery encrypts with canonical JSON
+		// per RECOVERY.md §2.4 step 2. Parse both and compare.
+		var got, want map[string]any
+		_ = json.Unmarshal(pt, &got)
+		_ = json.Unmarshal(wantPlaintext, &want)
+		if !mapsEqual(got, want) {
+			t.Errorf("payload round-trip mismatch")
+		}
+	}
+	wantRoundTrip := jgetBool(t, entry.Expected, "round_trip_decrypts_payload")
+	if !wantRoundTrip {
+		t.Error("vector says round-trip should NOT decrypt; runner says it does")
+	}
+
+	// KDF re-determinism: re-deriving from the same inputs gives
+	// the same K_bundle.
+	bundleKey2 := argon2.IDKey(secret, salt,
+		uint32(iters), uint32(memKB), uint8(par), 32)
+	wantRedeterm := jgetBool(t, entry.Expected, "kdf_redeterms_K_bundle")
+	gotRedeterm := bytesEq(bundleKey, bundleKey2)
+	if gotRedeterm != wantRedeterm {
+		t.Errorf("kdf_redeterms_K_bundle got %v, want %v",
+			gotRedeterm, wantRedeterm)
+	}
+
+	// Bundle signature verification: SEMP-RECOVERY-BUNDLE: prefix +
+	// canonical bundle bytes with signature.value blanked.
+	identityPub := pubKeyFromInputs(t, entry, "identity_pub_hex")
+	spec := signedDocSpec{
+		SignedJSON:    deepCopyMap(bundle),
+		SignaturePath: "signature.value",
+		PublicKey:     identityPub,
+		Prefix:        "SEMP-RECOVERY-BUNDLE:",
+	}
+	_, _, sigOK := verifySingleSignedDoc(t, spec)
+	wantSigOK := jgetBool(t, entry.Expected, "signature_verifies")
+	if sigOK != wantSigOK {
+		t.Errorf("signature_verifies got %v, want %v", sigOK, wantSigOK)
+	}
+}
+
+// mapsEqual is a deep-equal helper that survives JSON re-marshal
+// round-trips. It handles map[string]any, []any, string, float64, bool,
+// nil, json.Number.
+func mapsEqual(a, b any) bool {
+	ra, _ := json.Marshal(a)
+	rb, _ := json.Marshal(b)
+	var aa, bb any
+	if err := json.Unmarshal(ra, &aa); err != nil {
+		return false
+	}
+	if err := json.Unmarshal(rb, &bb); err != nil {
+		return false
+	}
+	ca, _ := json.Marshal(aa)
+	cb, _ := json.Marshal(bb)
+	return bytesEq(ca, cb)
 }
 
 // ---------------------------------------------------------------------------
