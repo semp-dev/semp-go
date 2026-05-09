@@ -28,8 +28,10 @@ package quic
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/quic-go/quic-go/http3"
 
@@ -39,25 +41,25 @@ import (
 
 // Config controls the behavior of the QUIC transport.
 type Config struct {
-	// TLSConfig is the TLS configuration for both client and server.
-	// Required for Listen (the server must present a certificate);
-	// optional for Dial (a nil config picks the default, which
-	// requires valid certs — for tests, set InsecureSkipVerify).
+	// TLSConfig is the TLS configuration for the QUIC client. A nil
+	// config picks the default, which requires valid certificates;
+	// tests targeting a self-signed local server set
+	// InsecureSkipVerify here.
 	TLSConfig *tls.Config
 
 	// H2Config is the underlying h2 configuration inherited by the
 	// QUIC client. Carries TLS, dial timeout, and request-body bounds.
 	H2Config h2.Config
 
-	// MaxBodyBytes caps the size of request and response bodies. Zero
-	// picks h2.DefaultMaxBodyBytes (25 MiB).
+	// MaxBodyBytes caps the size of response bodies. Zero picks
+	// h2.DefaultMaxBodyBytes (25 MiB).
 	MaxBodyBytes int64
 }
 
-// Transport is the QUIC / HTTP/3 implementation of transport.Transport.
-// It delegates all session management, message framing, and turn-based
-// Conn semantics to the h2 package and only handles the QUIC-specific
-// server and client setup.
+// Transport is the QUIC / HTTP/3 client implementation of
+// transport.Transport. It delegates all session management, message
+// framing, and turn-based Conn semantics to the h2 package and only
+// handles the QUIC-specific client setup.
 type Transport struct {
 	cfg Config
 }
@@ -78,7 +80,7 @@ func (*Transport) ID() transport.ID { return transport.IDQUIC }
 func (*Transport) Profiles() transport.Profile { return transport.ProfileBoth }
 
 // Dial opens a turn-based transport.Conn to endpoint over HTTP/3.
-// The endpoint MUST be an https:// URL — QUIC does not permit
+// The endpoint MUST be an https:// URL; QUIC does not permit
 // unencrypted connections. Dial does no network I/O; the first POST
 // happens on the first Send.
 //
@@ -87,6 +89,12 @@ func (*Transport) Profiles() transport.Profile { return transport.ProfileBoth }
 // pattern.
 func (t *Transport) Dial(ctx context.Context, endpoint string) (transport.Conn, error) {
 	_ = ctx // Dial is non-blocking
+	if endpoint == "" {
+		return nil, errors.New("quic: empty endpoint")
+	}
+	if !strings.HasPrefix(endpoint, "https://") {
+		return nil, fmt.Errorf("quic: refusing to dial non-https URL %q (QUIC requires TLS)", endpoint)
+	}
 	tlsCfg := t.cfg.TLSConfig
 	if tlsCfg == nil {
 		tlsCfg = &tls.Config{}
@@ -102,8 +110,12 @@ func (t *Transport) Dial(ctx context.Context, endpoint string) (transport.Conn, 
 	}
 	// Build an h2.Transport with the HTTP/3 client plugged in, then
 	// delegate to its Dial which returns a turn-based transport.Conn.
+	// We force h2's AllowInsecure here because QUIC's own scheme check
+	// above already enforced https://; h2.Dial would otherwise re-check
+	// the same scheme without knowing it's about to be carried over
+	// HTTP/3.
 	h2Cfg := t.cfg.H2Config
-	h2Cfg.AllowInsecure = true // the URL is https:// but we're using http3; h2.Dial only checks the scheme prefix
+	h2Cfg.AllowInsecure = true
 	h2Cfg.HTTPClient = newHTTPClient(h3Transport)
 	h2T := h2.NewWithConfig(h2Cfg)
 	h2Conn, err := h2T.Dial(ctx, endpoint)
