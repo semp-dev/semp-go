@@ -33,7 +33,13 @@
       "Bash(curl -sL \"https://semp.dev/semp-go/crypto?go-get=1\")",
       "Bash(curl -sI \"https://semp.dev/semp-go/crypto?go-get=1\")",
       "Read(//tmp/**)",
-      "Bash(GONOSUMCHECK=semp.dev/semp-go GOFLAGS=-insecure GOPROXY=direct go get semp.dev/semp-go@v0.1.0)"
+      "Bash(GONOSUMCHECK=semp.dev/semp-go GOFLAGS=-insecure GOPROXY=direct go get semp.dev/semp-go@v0.1.0)",
+      "Bash(ls /Users/gokce/projects/semp/ 2>/dev/null)",
+      "Bash(npx vitest *)",
+      "Bash(git -C /Users/gokce/projects/semp/semp-spec log --oneline -10)",
+      "Bash(git -C /Users/gokce/projects/semp/semp-spec log --oneline --since=\"2026-04-13\")",
+      "Bash(git -C /Users/gokce/projects/semp/semp-spec log --oneline --since=\"2026-04-13\" -- '*.md')",
+      "Bash(git rev-list *)"
     ]
   }
 }

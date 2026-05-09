@@ -10,10 +10,10 @@ import (
 // contains the message body in one or more representations, plus any
 // attachments (ENVELOPE.md section 6.1).
 type Enclosure struct {
-	// Subject is the (optional) subject line. The subject lives here, not
-	// in the brief, because it is semantic content rather than routing
-	// metadata. The recipient server cannot read it.
-	Subject string `json:"subject,omitempty"`
+	// Subject is the subject line. Required in canonical form per the
+	// ENVELOPE.md §6.5 vector (sender-signature.json). Empty string when
+	// the message has no subject; do NOT omit the field.
+	Subject string `json:"subject"`
 
 	// ContentType is the MIME type of the body. Use "multipart/alternative"
 	// when Body contains multiple representations of the same content.
@@ -24,25 +24,28 @@ type Enclosure struct {
 	// matching that type.
 	Body Body `json:"body"`
 
-	// Attachments is the optional list of attached files.
-	Attachments []Attachment `json:"attachments,omitempty"`
+	// Attachments is the list of attached files. Required in canonical
+	// form per the ENVELOPE.md §6.5 vector. Empty list serializes as
+	// `[]`, never `null` or omitted.
+	Attachments []Attachment `json:"attachments"`
 
 	// ForwardedFrom is the forwarding-evidence block present when the
-	// envelope is a forward of a previously received envelope. nil on
-	// fresh envelopes. See ENVELOPE.md section 6.6.
-	ForwardedFrom *ForwardedFrom `json:"forwarded_from,omitempty"`
+	// envelope is a forward of a previously received envelope. Required
+	// in canonical form per the ENVELOPE.md §6.5 vector; nil pointer
+	// serializes as `null` for fresh envelopes.
+	ForwardedFrom *ForwardedFrom `json:"forwarded_from"`
 
-	// Extensions are content-layer extensions visible only to the recipient
-	// client.
-	Extensions extensions.Map `json:"extensions,omitempty"`
+	// Extensions are content-layer extensions visible only to the
+	// recipient client. Required in canonical form per the ENVELOPE.md
+	// §6.5 vector. Empty map serializes as `{}`, never `null` or
+	// omitted.
+	Extensions extensions.Map `json:"extensions"`
 
 	// SenderSignature is the sender-identity signature over the canonical
 	// enclosure bytes, computed per ENVELOPE.md section 6.5. Required on
-	// every enclosure by the spec; modeled as a pointer here to keep
-	// non-signing callers compiling during catch-up. Integrations that
-	// follow the spec strictly MUST populate this field via SignEnclosure
-	// before encryption.
-	SenderSignature *Signature `json:"sender_signature,omitempty"`
+	// every enclosure by the spec; modeled as a pointer here so the
+	// elider can blank the value during signing.
+	SenderSignature *Signature `json:"sender_signature"`
 }
 
 // Signature is a reusable signature block used by sender_signature,
