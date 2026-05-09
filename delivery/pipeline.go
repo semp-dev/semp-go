@@ -59,7 +59,7 @@ type DomainPolicyFunc func(ctx context.Context, fromDomain, fromServer string) (
 // the envelope is stored in the inbox) or a remote one (in which case
 // the recipient is reported as recipient_not_found). The pipeline does
 // NOT forward to remote peers itself — that responsibility belongs to
-// the caller (inboxd's federation Forwarder).
+// the caller (the federation Forwarder).
 type LocalAddressFunc func(address string) bool
 
 // InboxStore is the minimal write side of the local inbox. The bundled
@@ -70,7 +70,7 @@ type InboxStore interface {
 
 // EnvMACFunc returns the K_env_mac the pipeline should use right now.
 // Plumbed through a function rather than a static []byte so live
-// session rekeying takes effect immediately (the inboxd Server hands
+// session rekeying takes effect immediately (the application hands
 // in a closure that reads from session.Session.EnvMAC()).
 type EnvMACFunc func() []byte
 

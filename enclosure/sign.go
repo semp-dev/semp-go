@@ -6,7 +6,7 @@ import (
 	"fmt"
 
 	"semp.dev/semp-go/crypto"
-	"semp.dev/semp-go/internal/canonical"
+	"semp.dev/semp-go/canonical"
 )
 
 // SignatureAlgorithmEd25519 is the only signature algorithm defined

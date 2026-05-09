@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"semp.dev/semp-go/crypto"
-	"semp.dev/semp-go/internal/canonical"
+	"semp.dev/semp-go/canonical"
 	"semp.dev/semp-go/keys"
 )
 
@@ -215,83 +215,6 @@ func (s *InMemoryObservationSource) Len() int {
 	return len(s.byDomain)
 }
 
-// PublicationHandlerConfig groups the inputs to NewPublicationHandler.
-type PublicationHandlerConfig struct {
-	// Source is the read side of the observation store. Required.
-	Source ObservationSource
-
-	// Signer is the crypto.Suite signer used to sign the envelope.
-	// Required.
-	Signer crypto.Signer
-
-	// PrivateKey is the observer domain's private signing key.
-	// Required — the handler cannot publish without being able to
-	// sign the envelope.
-	PrivateKey []byte
-
-	// ObserverKeyID is the observer domain's key fingerprint. Must
-	// match the corresponding public key published at the observer's
-	// discovery record so fetchers can verify.
-	ObserverKeyID keys.Fingerprint
-}
-
-// NewPublicationHandler returns an http.Handler that serves the
-// well-known trust gossip publication endpoint per REPUTATION.md §5.1.
-// The handler extracts the subject from the trailing path segment,
-// fetches observations via cfg.Source, wraps them in a signed
-// TrustObservations response, and writes it as JSON.
-//
-// Mount at PublicationPath ("/.well-known/semp/reputation/") using a
-// pattern that captures the subject:
-//
-//	mux.Handle(reputation.PublicationPath, reputation.NewPublicationHandler(cfg))
-//
-// The handler accepts GET only. Any other method returns 405.
-// Paths that don't start with PublicationPath return 404. Missing
-// subject (path equals PublicationPath exactly) returns 400.
-func NewPublicationHandler(cfg PublicationHandlerConfig) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet && r.Method != http.MethodHead {
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-		if !strings.HasPrefix(r.URL.Path, PublicationPath) {
-			http.Error(w, "not found", http.StatusNotFound)
-			return
-		}
-		subject := strings.TrimPrefix(r.URL.Path, PublicationPath)
-		if subject == "" || strings.Contains(subject, "/") {
-			http.Error(w, "missing or malformed subject", http.StatusBadRequest)
-			return
-		}
-		if cfg.Source == nil || cfg.Signer == nil || len(cfg.PrivateKey) == 0 {
-			http.Error(w, "publication handler misconfigured", http.StatusInternalServerError)
-			return
-		}
-
-		observations, err := cfg.Source.Lookup(r.Context(), subject)
-		if err != nil {
-			http.Error(w, "lookup: "+err.Error(), http.StatusInternalServerError)
-			return
-		}
-		resp := &TrustObservations{
-			Type:         ObservationsType,
-			Version:      ObservationVersion,
-			Subject:      subject,
-			Observations: observations,
-		}
-		if err := SignTrustObservations(cfg.Signer, cfg.PrivateKey, cfg.ObserverKeyID, resp); err != nil {
-			http.Error(w, "sign: "+err.Error(), http.StatusInternalServerError)
-			return
-		}
-		w.Header().Set("Content-Type", "application/json; charset=utf-8")
-		if r.Method == http.MethodHead {
-			w.WriteHeader(http.StatusOK)
-			return
-		}
-		_ = json.NewEncoder(w).Encode(resp)
-	})
-}
 
 // -----------------------------------------------------------------------------
 // Fetcher (client side)

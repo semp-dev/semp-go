@@ -1,6 +1,6 @@
 // Package memstore is a minimal in-memory implementation of keys.Store
 // and keys.PrivateStore. It is intended for tests, single-process demos,
-// and the reference cmd/semp-server / cmd/semp-cli binaries.
+// and the reference SEMP server / client builds.
 //
 // memstore is NOT a production storage layer:
 //
@@ -204,7 +204,7 @@ func (s *Store) LookupDeviceCertificate(_ context.Context, deviceKeyID keys.Fing
 // certificates by the delegated device's public-key fingerprint
 // computed from cert.DevicePublicKey (base64-decoded), matching
 // the LookupDeviceCertificate parameter shape used by
-// inboxd's scope-enforcement path.
+// the scope-enforcement path.
 func (s *Store) PutDeviceCertificate(_ context.Context, cert *keys.DeviceCertificate) error {
 	if cert == nil {
 		return errors.New("memstore: nil certificate")

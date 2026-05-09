@@ -6,6 +6,16 @@ import (
 	"sync"
 )
 
+// PublicationStore is the persistence interface a migration
+// publication endpoint plugs into. It stores 4-sig MigrationRecord
+// values keyed by old address (per §6.2 the published record
+// stays accessible as historical evidence) and by record id.
+type PublicationStore interface {
+	PutRecord(ctx context.Context, r *MigrationRecord) error
+	GetByOldAddress(ctx context.Context, oldAddress string) (*MigrationRecord, error)
+	GetByRecordID(ctx context.Context, recordID string) (*MigrationRecord, error)
+}
+
 // inMemoryPublicationStore is the reference PublicationStore. Per
 // §6.2 the store retains records as historical evidence even after
 // the local-part is reassigned; this implementation never evicts

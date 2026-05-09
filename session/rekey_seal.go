@@ -30,7 +30,7 @@ import (
 // open the message. Tampering with Direction causes decryption to
 // fail because the AAD changes.
 type SealedRekey struct {
-	// Type is always MessageType ("SEMP_REKEY") — the inboxd dispatch
+	// Type is always MessageType ("SEMP_REKEY") — the session dispatch
 	// loop uses this to route sealed rekey messages through the rekey
 	// handler.
 	Type string `json:"type"`

@@ -7,7 +7,7 @@ import (
 )
 
 // FetchType is the wire-level type discriminator for the demo-only fetch
-// protocol used by the cmd/semp-cli `receive` subcommand.
+// client→home-server fetch protocol per CLIENT.md §3.
 //
 // HANDSHAKE.md §4.6 explicitly leaves the client wakeup mechanism outside
 // the scope of the spec: "How a server notifies a client that incoming

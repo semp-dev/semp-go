@@ -1,7 +1,7 @@
 package envelope
 
 import (
-	"semp.dev/semp-go/internal/canonical"
+	"semp.dev/semp-go/canonical"
 	"semp.dev/semp-go/seal"
 )
 

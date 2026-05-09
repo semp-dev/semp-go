@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"semp.dev/semp-go/crypto"
-	"semp.dev/semp-go/internal/canonical"
+	"semp.dev/semp-go/canonical"
 )
 
 // Wire-level constants for SEMP_DELIVERY_RECEIPT per DELIVERY.md

@@ -177,7 +177,7 @@ func TestRekeySealWireFormatIsOpaque(t *testing.T) {
 		t.Error("wire bytes contain the plaintext field name 'rekey_nonce'")
 	}
 	// Sanity: the wire DOES contain the top-level discriminator so
-	// the inboxd dispatch loop can route it.
+	// the session dispatch loop can route it.
 	if !strings.Contains(string(wire), `"type":"SEMP_REKEY"`) {
 		t.Error("wire bytes missing the SEMP_REKEY type discriminator")
 	}

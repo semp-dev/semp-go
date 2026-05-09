@@ -10,7 +10,7 @@ import (
 	"strings"
 
 	"semp.dev/semp-go/crypto"
-	"semp.dev/semp-go/internal/canonical"
+	"semp.dev/semp-go/canonical"
 )
 
 // DeriveAttachmentKey derives K_attachment from K_enclosure per

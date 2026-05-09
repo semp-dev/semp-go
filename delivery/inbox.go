@@ -3,7 +3,7 @@ package delivery
 import "sync"
 
 // Inbox is a minimal in-memory per-user envelope queue. It is intended for
-// the cmd/semp-server demo binary and for in-process tests; it is NOT a
+// in-process tests and embedded servers; it is NOT a
 // production storage layer.
 //
 // The store is keyed by recipient address (the canonical user@domain

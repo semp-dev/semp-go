@@ -16,7 +16,7 @@ import (
 
 // RekeyStream is the minimal message-stream interface a rekey driver
 // needs from a transport. transport.Conn and the handshake /
-// inboxd MessageStream interfaces all satisfy it structurally.
+// MessageStream interfaces all satisfy it structurally.
 type RekeyStream interface {
 	Send(ctx context.Context, msg []byte) error
 	Recv(ctx context.Context) ([]byte, error)

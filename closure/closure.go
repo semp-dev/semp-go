@@ -10,7 +10,7 @@
 // This package covers the wire records and their signing/verifying
 // primitives. Home-server orchestration (closure_pending state,
 // finalization atomic effects, ingress handling after finalization,
-// local-part reassignment) is operational and lives in inboxd / a
+// local-part reassignment) is operational and lives in a
 // future server-side commit.
 package closure
 
@@ -21,7 +21,7 @@ import (
 	"time"
 
 	"semp.dev/semp-go/crypto"
-	"semp.dev/semp-go/internal/canonical"
+	"semp.dev/semp-go/canonical"
 )
 
 // Wire-level constants per CLOSURE.md §2.1.

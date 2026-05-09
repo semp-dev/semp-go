@@ -17,7 +17,7 @@ import (
 	"golang.org/x/text/unicode/norm"
 
 	"semp.dev/semp-go/crypto"
-	"semp.dev/semp-go/internal/canonical"
+	"semp.dev/semp-go/canonical"
 )
 
 // SecretForm names the recovery secret encoding per RECOVERY.md

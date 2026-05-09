@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"semp.dev/semp-go/extensions"
-	"semp.dev/semp-go/internal/canonical"
+	"semp.dev/semp-go/canonical"
 	"semp.dev/semp-go/keys"
 )
 

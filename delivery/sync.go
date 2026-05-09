@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"semp.dev/semp-go/crypto"
-	"semp.dev/semp-go/internal/canonical"
+	"semp.dev/semp-go/canonical"
 	"semp.dev/semp-go/keys"
 )
 

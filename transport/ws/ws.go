@@ -22,8 +22,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net"
-	"net/http"
 	"strings"
 	"sync"
 
@@ -119,64 +117,6 @@ func (t *Transport) Dial(ctx context.Context, endpoint string) (transport.Conn, 
 	return &Conn{ws: wc, peer: endpoint}, nil
 }
 
-// Listen starts a WebSocket listener bound to addr (host:port). The
-// returned Listener serves a single path, "/v1/ws", which upgrades to
-// the SEMP WebSocket subprotocol.
-//
-// The returned Listener is plain HTTP. Operators that want TLS termination
-// at the binding level should construct an *http.Server with TLSConfig
-// around the Handler returned by NewHandler instead.
-func (t *Transport) Listen(ctx context.Context, addr string) (transport.Listener, error) {
-	netListener, err := net.Listen("tcp", addr)
-	if err != nil {
-		return nil, fmt.Errorf("ws: listen on %s: %w", addr, err)
-	}
-	l := newListener(t.cfg)
-	srv := &http.Server{
-		Handler:     l.handler(),
-		BaseContext: func(net.Listener) context.Context { return ctx },
-	}
-	l.srv = srv
-	go func() {
-		_ = srv.Serve(netListener)
-	}()
-	l.localAddr = netListener.Addr().String()
-	return l, nil
-}
-
-// NewHandler returns an http.Handler that upgrades inbound HTTP requests
-// to SEMP WebSocket connections. Each accepted connection is delivered to
-// the supplied accept function, which is invoked in its own goroutine.
-//
-// This is the entry point operators use to mount SEMP on an existing
-// *http.Server or HTTP routing tree.
-func NewHandler(cfg Config, accept func(transport.Conn)) http.Handler {
-	limit := cfg.MaxEnvelopeSize
-	if limit <= 0 {
-		limit = DefaultMaxEnvelopeSize
-	}
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		wc, err := websocket.Accept(w, r, &websocket.AcceptOptions{
-			Subprotocols:   []string{Subprotocol},
-			OriginPatterns: cfg.OriginPatterns,
-		})
-		if err != nil {
-			// Accept already wrote an HTTP error response.
-			return
-		}
-		if wc.Subprotocol() != Subprotocol {
-			_ = wc.Close(websocket.StatusPolicyViolation, "subprotocol not confirmed")
-			return
-		}
-		wc.SetReadLimit(limit)
-		c := &Conn{
-			ws:   wc,
-			peer: r.RemoteAddr,
-		}
-		accept(c)
-	})
-}
-
 // Conn is a single SEMP message stream over a WebSocket.
 type Conn struct {
 	ws   *websocket.Conn
@@ -233,77 +173,3 @@ func (c *Conn) Peer() string {
 	return c.peer
 }
 
-// listener is the transport.Listener implementation returned by Transport.Listen.
-type listener struct {
-	cfg       Config
-	srv       *http.Server
-	localAddr string
-	mu        sync.Mutex
-	queue     chan transport.Conn
-	closed    bool
-}
-
-func newListener(cfg Config) *listener {
-	return &listener{
-		cfg:   cfg,
-		queue: make(chan transport.Conn, 32),
-	}
-}
-
-func (l *listener) handler() http.Handler {
-	return NewHandler(l.cfg, func(c transport.Conn) {
-		l.mu.Lock()
-		closed := l.closed
-		l.mu.Unlock()
-		if closed {
-			_ = c.Close()
-			return
-		}
-		select {
-		case l.queue <- c:
-		default:
-			// Queue full — drop the connection rather than block the
-			// HTTP handler indefinitely.
-			_ = c.Close()
-		}
-	})
-}
-
-// Accept blocks until the next inbound connection arrives.
-func (l *listener) Accept(ctx context.Context) (transport.Conn, error) {
-	select {
-	case c, ok := <-l.queue:
-		if !ok {
-			return nil, errors.New("ws: listener closed")
-		}
-		return c, nil
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	}
-}
-
-// Close stops the listener. Already-accepted connections continue to
-// function until their callers close them.
-func (l *listener) Close() error {
-	l.mu.Lock()
-	if l.closed {
-		l.mu.Unlock()
-		return nil
-	}
-	l.closed = true
-	l.mu.Unlock()
-	close(l.queue)
-	if l.srv != nil {
-		return l.srv.Close()
-	}
-	return nil
-}
-
-// Addr returns the local listen address as a host:port string. Useful in
-// tests where the operator passes addr=":0" to bind to an ephemeral port.
-func (l *listener) Addr() string {
-	if l == nil {
-		return ""
-	}
-	return l.localAddr
-}

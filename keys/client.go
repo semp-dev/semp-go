@@ -8,7 +8,7 @@ import (
 )
 
 // ClientStream is the minimal interface a Fetcher needs from a
-// transport. Both transport.Conn and the handshake/inboxd
+// transport. Both transport.Conn and the handshake / dispatch
 // MessageStream interfaces satisfy it structurally; the keys package
 // intentionally does not import transport directly to keep the layering
 // one-way.

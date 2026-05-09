@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"semp.dev/semp-go/crypto"
-	"semp.dev/semp-go/internal/canonical"
+	"semp.dev/semp-go/canonical"
 )
 
 // SignatureAlgorithmEd25519 is the algorithm string used in
@@ -130,7 +130,7 @@ func canonicalResponseResultBytes(r *ResponseResult) ([]byte, error) {
 // SignResponseResult fills in r.OriginSignature with a domain
 // signature over the canonical bytes of r, computed with privKey.
 // Used by the serving home server when returning a local lookup
-// result from inboxd.handleKeys. The origin_signature is an end-to-
+// result from a SEMP_KEYS responder. The origin_signature is an end-to-
 // end attestation: a home server that forwards this result to its
 // own client via federation MUST pass the origin_signature through
 // intact (CLIENT.md §5.4.5).

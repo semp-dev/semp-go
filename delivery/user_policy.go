@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"semp.dev/semp-go/crypto"
-	"semp.dev/semp-go/internal/canonical"
+	"semp.dev/semp-go/canonical"
 )
 
 // SEMP_USER_POLICY message constants per DELIVERY.md §7.1.

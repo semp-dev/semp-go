@@ -1,4 +1,4 @@
-package inboxd
+package delivery
 
 import (
 	"context"
@@ -11,7 +11,6 @@ import (
 
 	semp "semp.dev/semp-go"
 	"semp.dev/semp-go/crypto"
-	"semp.dev/semp-go/delivery"
 	"semp.dev/semp-go/discovery"
 	"semp.dev/semp-go/envelope"
 	"semp.dev/semp-go/handshake"
@@ -209,12 +208,12 @@ type FederationEndpointFunc func(result *discovery.Result) (string, error)
 // endpoints).
 //
 // Operators whose federation endpoint path differs from the client
-// endpoint (e.g. the cmd/semp-server demo binary, which splits
+// endpoint (e.g. the host server, which may split
 // "/v1/ws" and "/v1/federate") MUST supply their own
 // FederationEndpointFunc.
 func DefaultFederationEndpointFunc(result *discovery.Result) (string, error) {
 	if result == nil {
-		return "", errors.New("inboxd: nil discovery result")
+		return "", errors.New("delivery: nil discovery result")
 	}
 	// If the well-known configuration is available, use federation
 	// endpoints with the standard fallback order: QUIC > WebSocket > HTTP/2.
@@ -239,7 +238,7 @@ func DefaultFederationEndpointFunc(result *discovery.Result) (string, error) {
 	if result.Server != "" {
 		return "https://" + strings.TrimSuffix(result.Server, ".") + "/v1/h2/federate", nil
 	}
-	return "", fmt.Errorf("inboxd: discovery result for %s has no endpoint", result.Address)
+	return "", fmt.Errorf("delivery: discovery result for %s has no endpoint", result.Address)
 }
 
 // hasScheme reports whether url starts with the given scheme
@@ -337,12 +336,12 @@ func (f *Forwarder) Close() {
 // The returned SubmissionResponse is the peer's verbatim reply. On
 // transport or handshake error, Forward returns the error without
 // caching the failed session.
-func (f *Forwarder) Forward(ctx context.Context, peerDomain string, env *envelope.Envelope) (*delivery.SubmissionResponse, error) {
+func (f *Forwarder) Forward(ctx context.Context, peerDomain string, env *envelope.Envelope) (*SubmissionResponse, error) {
 	if env == nil {
-		return nil, errors.New("inboxd: nil envelope")
+		return nil, errors.New("delivery: nil envelope")
 	}
 	if f.Dial == nil {
-		return nil, errors.New("inboxd: forwarder has no Dial")
+		return nil, errors.New("delivery: forwarder has no Dial")
 	}
 	peerCfg, ok := f.Peers.Lookup(peerDomain)
 	if !ok {
@@ -366,9 +365,9 @@ func (f *Forwarder) Forward(ctx context.Context, peerDomain string, env *envelop
 	if err != nil {
 		return nil, err
 	}
-	var resp delivery.SubmissionResponse
+	var resp SubmissionResponse
 	if err := json.Unmarshal(respRaw, &resp); err != nil {
-		return nil, fmt.Errorf("inboxd: parse federation submission response: %w", err)
+		return nil, fmt.Errorf("delivery: parse federation submission response: %w", err)
 	}
 	return &resp, nil
 }
@@ -394,18 +393,18 @@ func (f *Forwarder) forwardOnSession(ctx context.Context, fs *forwarderSession, 
 	// functionally identical to "the sender's domain signed this
 	// envelope" — the provenance proof is unchanged.
 	if err := envelope.Sign(env, f.Suite, f.LocalDomainPrivateKey, fs.sess.EnvMAC()); err != nil {
-		return nil, false, fmt.Errorf("inboxd: re-sign forwarded envelope: %w", err)
+		return nil, false, fmt.Errorf("delivery: re-sign forwarded envelope: %w", err)
 	}
 	wire, err := envelope.Encode(env)
 	if err != nil {
-		return nil, false, fmt.Errorf("inboxd: encode forwarded envelope: %w", err)
+		return nil, false, fmt.Errorf("delivery: encode forwarded envelope: %w", err)
 	}
 	if err := fs.conn.Send(ctx, wire); err != nil {
-		return nil, true, fmt.Errorf("inboxd: send forwarded envelope: %w", err)
+		return nil, true, fmt.Errorf("delivery: send forwarded envelope: %w", err)
 	}
 	respRaw, err := fs.conn.Recv(ctx)
 	if err != nil {
-		return nil, true, fmt.Errorf("inboxd: recv federation submission response: %w", err)
+		return nil, true, fmt.Errorf("delivery: recv federation submission response: %w", err)
 	}
 	return respRaw, false, nil
 }
@@ -454,7 +453,7 @@ func (f *Forwarder) getSession(ctx context.Context, peerCfg PeerConfig) (*forwar
 	}()
 
 	if f.Store == nil {
-		return nil, errors.New("inboxd: forwarder has no Store for peer key material")
+		return nil, errors.New("delivery: forwarder has no Store for peer key material")
 	}
 
 	// Resolve the federation endpoint if we don't have one cached.
@@ -472,7 +471,7 @@ func (f *Forwarder) getSession(ctx context.Context, peerCfg PeerConfig) (*forwar
 
 	conn, err := f.Dial(ctx, peerCfg.Endpoint)
 	if err != nil {
-		return nil, fmt.Errorf("inboxd: dial peer %s: %w", peerCfg.Endpoint, err)
+		return nil, fmt.Errorf("delivery: dial peer %s: %w", peerCfg.Endpoint, err)
 	}
 	initiator := handshake.NewInitiator(handshake.InitiatorConfig{
 		Suite:                 f.Suite,
@@ -489,7 +488,7 @@ func (f *Forwarder) getSession(ctx context.Context, peerCfg PeerConfig) (*forwar
 	sess, err := handshake.RunInitiator(ctx, conn, initiator)
 	if err != nil {
 		_ = conn.Close()
-		return nil, fmt.Errorf("inboxd: federation handshake with %s: %w", peerCfg.Domain, err)
+		return nil, fmt.Errorf("delivery: federation handshake with %s: %w", peerCfg.Domain, err)
 	}
 	bgCtx, cancel := context.WithCancel(context.Background())
 	newFS := &forwarderSession{
@@ -515,17 +514,17 @@ func (f *Forwarder) getSession(ctx context.Context, peerCfg PeerConfig) (*forwar
 // rejects the resolved result.
 func (f *Forwarder) resolveFederationEndpoint(ctx context.Context, peerDomain string) (string, error) {
 	if f.Resolver == nil {
-		return "", fmt.Errorf("inboxd: peer %s has no endpoint and no Resolver is configured", peerDomain)
+		return "", fmt.Errorf("delivery: peer %s has no endpoint and no Resolver is configured", peerDomain)
 	}
 	result, err := f.Resolver.Resolve(ctx, peerDomain)
 	if err != nil {
-		return "", fmt.Errorf("inboxd: resolve peer %s: %w", peerDomain, err)
+		return "", fmt.Errorf("delivery: resolve peer %s: %w", peerDomain, err)
 	}
 	if result == nil {
-		return "", fmt.Errorf("inboxd: resolver returned nil result for %s", peerDomain)
+		return "", fmt.Errorf("delivery: resolver returned nil result for %s", peerDomain)
 	}
 	if result.Status != semp.DiscoverySEMP {
-		return "", fmt.Errorf("inboxd: peer %s discovery status %s (not semp)", peerDomain, result.Status)
+		return "", fmt.Errorf("delivery: peer %s discovery status %s (not semp)", peerDomain, result.Status)
 	}
 	endpointFunc := f.FederationEndpointFunc
 	if endpointFunc == nil {
@@ -533,10 +532,10 @@ func (f *Forwarder) resolveFederationEndpoint(ctx context.Context, peerDomain st
 	}
 	endpoint, err := endpointFunc(result)
 	if err != nil {
-		return "", fmt.Errorf("inboxd: derive federation endpoint for %s: %w", peerDomain, err)
+		return "", fmt.Errorf("delivery: derive federation endpoint for %s: %w", peerDomain, err)
 	}
 	if endpoint == "" {
-		return "", fmt.Errorf("inboxd: federation endpoint func returned empty URL for %s", peerDomain)
+		return "", fmt.Errorf("delivery: federation endpoint func returned empty URL for %s", peerDomain)
 	}
 	return endpoint, nil
 }
@@ -671,17 +670,17 @@ var nowFunc = time.Now
 //
 // Unlike Forward, FetchKeys does NOT touch any envelope — it simply
 // marshals the request, writes it to the federation stream, and parses
-// the response. The peer is expected to be running inboxd in
-// ModeFederation, which handles SEMP_KEYS on the federation path.
+// the response. The peer is expected to be a SEMP server running in
+// federation mode that handles SEMP_KEYS on the federation path.
 //
 // The peer's response is returned verbatim; the caller is responsible
 // for verifying any signatures on the enclosed key records.
 func (f *Forwarder) FetchKeys(ctx context.Context, peerDomain string, req *keys.Request) (*keys.Response, error) {
 	if req == nil {
-		return nil, errors.New("inboxd: nil SEMP_KEYS request")
+		return nil, errors.New("delivery: nil SEMP_KEYS request")
 	}
 	if f.Dial == nil {
-		return nil, errors.New("inboxd: forwarder has no Dial")
+		return nil, errors.New("delivery: forwarder has no Dial")
 	}
 	peerCfg, ok := f.Peers.Lookup(peerDomain)
 	if !ok {
@@ -701,7 +700,7 @@ func (f *Forwarder) FetchKeys(ctx context.Context, peerDomain string, req *keys.
 	}
 	var resp keys.Response
 	if err := json.Unmarshal(respRaw, &resp); err != nil {
-		return nil, fmt.Errorf("inboxd: parse SEMP_KEYS response: %w", err)
+		return nil, fmt.Errorf("delivery: parse SEMP_KEYS response: %w", err)
 	}
 	return &resp, nil
 }
@@ -713,14 +712,14 @@ func (f *Forwarder) fetchKeysOnSession(ctx context.Context, fs *forwarderSession
 	defer fs.wireMu.Unlock()
 	reqBytes, err := json.Marshal(req)
 	if err != nil {
-		return nil, false, fmt.Errorf("inboxd: marshal SEMP_KEYS request: %w", err)
+		return nil, false, fmt.Errorf("delivery: marshal SEMP_KEYS request: %w", err)
 	}
 	if err := fs.conn.Send(ctx, reqBytes); err != nil {
-		return nil, true, fmt.Errorf("inboxd: send SEMP_KEYS request: %w", err)
+		return nil, true, fmt.Errorf("delivery: send SEMP_KEYS request: %w", err)
 	}
 	respRaw, err := fs.conn.Recv(ctx)
 	if err != nil {
-		return nil, true, fmt.Errorf("inboxd: recv SEMP_KEYS response: %w", err)
+		return nil, true, fmt.Errorf("delivery: recv SEMP_KEYS response: %w", err)
 	}
 	return respRaw, false, nil
 }

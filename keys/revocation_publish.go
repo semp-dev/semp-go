@@ -30,7 +30,7 @@ import (
 	"time"
 
 	"semp.dev/semp-go/crypto"
-	"semp.dev/semp-go/internal/canonical"
+	"semp.dev/semp-go/canonical"
 )
 
 // Wire-level constants for revocation publications.
@@ -148,121 +148,6 @@ func VerifyRevocationPublication(signer crypto.Signer, pub *RevocationPublicatio
 	return nil
 }
 
-// -----------------------------------------------------------------------------
-// Publication handler
-// -----------------------------------------------------------------------------
-
-// RevocationSource is the read side a publication handler uses to
-// retrieve the current set of revocations for a query. The typical
-// implementation walks the Store and collects all revoked key records
-// for the requested address or domain.
-type RevocationSource interface {
-	// LookupRevocations returns the current revocation entries for
-	// the given address or domain. An empty slice + nil error means
-	// "no revocations on file." An error means the handler should
-	// return HTTP 500.
-	LookupRevocations(ctx context.Context, addressOrDomain string) ([]RevokedKeyEntry, error)
-}
-
-// StoreRevocationSource adapts a Store into a RevocationSource by
-// looking up all user keys and collecting the revoked ones.
-type StoreRevocationSource struct {
-	Store Store
-}
-
-// LookupRevocations implements RevocationSource.
-func (s *StoreRevocationSource) LookupRevocations(ctx context.Context, addressOrDomain string) ([]RevokedKeyEntry, error) {
-	if s == nil || s.Store == nil {
-		return nil, errors.New("keys: nil store")
-	}
-	recs, err := s.Store.LookupUserKeys(ctx, addressOrDomain)
-	if err != nil {
-		return nil, err
-	}
-	var entries []RevokedKeyEntry
-	for _, r := range recs {
-		if r.Revocation == nil {
-			continue
-		}
-		entries = append(entries, RevokedKeyEntry{
-			KeyID:            r.KeyID,
-			Address:          r.Address,
-			Reason:           r.Revocation.Reason,
-			RevokedAt:        r.Revocation.RevokedAt,
-			ReplacementKeyID: r.Revocation.ReplacementKeyID,
-		})
-	}
-	return entries, nil
-}
-
-// RevocationHandlerConfig groups the inputs to
-// NewRevocationPublicationHandler.
-type RevocationHandlerConfig struct {
-	// Source retrieves revocation entries. Required.
-	Source RevocationSource
-
-	// Signer is the crypto.Signer used to sign the publication
-	// envelope. Required.
-	Signer crypto.Signer
-
-	// PrivateKey is the domain's signing private key. Required.
-	PrivateKey []byte
-
-	// DomainKeyID is the domain's key fingerprint.
-	DomainKeyID Fingerprint
-}
-
-// NewRevocationPublicationHandler returns an http.Handler that serves
-// revocation publications at RevocationPublicationPath per KEY.md
-// §8.3. The handler extracts the address or domain from the trailing
-// path segment, fetches revocations from the source, wraps them in a
-// signed RevocationPublication, and serves as JSON.
-//
-// GET only; POST → 405; missing address → 400.
-func NewRevocationPublicationHandler(cfg RevocationHandlerConfig) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet && r.Method != http.MethodHead {
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-		if !strings.HasPrefix(r.URL.Path, RevocationPublicationPath) {
-			http.Error(w, "not found", http.StatusNotFound)
-			return
-		}
-		query := strings.TrimPrefix(r.URL.Path, RevocationPublicationPath)
-		if query == "" || strings.Contains(query, "/") {
-			http.Error(w, "missing or malformed query", http.StatusBadRequest)
-			return
-		}
-		if cfg.Source == nil || cfg.Signer == nil || len(cfg.PrivateKey) == 0 {
-			http.Error(w, "handler misconfigured", http.StatusInternalServerError)
-			return
-		}
-		entries, err := cfg.Source.LookupRevocations(r.Context(), query)
-		if err != nil {
-			http.Error(w, "lookup: "+err.Error(), http.StatusInternalServerError)
-			return
-		}
-		pub := &RevocationPublication{
-			Type:        RevocationType,
-			Version:     RevocationVersion,
-			RevokedKeys: entries,
-		}
-		if pub.RevokedKeys == nil {
-			pub.RevokedKeys = []RevokedKeyEntry{}
-		}
-		if err := SignRevocationPublication(cfg.Signer, cfg.PrivateKey, cfg.DomainKeyID, pub); err != nil {
-			http.Error(w, "sign: "+err.Error(), http.StatusInternalServerError)
-			return
-		}
-		w.Header().Set("Content-Type", "application/json; charset=utf-8")
-		if r.Method == http.MethodHead {
-			w.WriteHeader(http.StatusOK)
-			return
-		}
-		_ = json.NewEncoder(w).Encode(pub)
-	})
-}
 
 // -----------------------------------------------------------------------------
 // Fetcher

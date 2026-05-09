@@ -9,7 +9,7 @@ import (
 
 	"semp.dev/semp-go/clockskew"
 	"semp.dev/semp-go/crypto"
-	"semp.dev/semp-go/internal/canonical"
+	"semp.dev/semp-go/canonical"
 )
 
 // canonicalDeviceCertificateBytes returns the canonical JSON form of

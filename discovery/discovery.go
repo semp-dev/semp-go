@@ -59,7 +59,7 @@ type Result struct {
 	// path. DNS-only resolution (SRV+TXT without well-known) leaves
 	// this nil. This field is NOT part of the SEMP_DISCOVERY wire
 	// format — it's library-internal state that lets downstream
-	// callers (e.g. the inboxd Forwarder) inspect the full endpoint
+	// callers (e.g. the federation forwarder) inspect the full endpoint
 	// map without re-fetching.
 	Configuration *Configuration `json:"-"`
 }

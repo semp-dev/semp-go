@@ -31,7 +31,7 @@ import (
 	"semp.dev/semp-go/crypto"
 	"semp.dev/semp-go/envelope"
 	"semp.dev/semp-go/handshake"
-	"semp.dev/semp-go/internal/canonical"
+	"semp.dev/semp-go/canonical"
 	"semp.dev/semp-go/keys"
 	"semp.dev/semp-go/seal"
 )

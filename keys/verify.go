@@ -96,7 +96,7 @@ func (v *Verifier) Verify(resp *Response) error {
 }
 
 // decodeBase64 accepts both standard and URL-safe base64, with or
-// without padding. Mirrors the helper in cmd/semp-cli so any key
+// without padding. Standard SEMP fingerprint encoding so any key
 // response body we receive can be decoded regardless of which
 // variant the server used.
 func decodeBase64(s string) ([]byte, error) {
