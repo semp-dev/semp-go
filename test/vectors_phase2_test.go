@@ -698,9 +698,9 @@ func requireSampleFields(t *testing.T, samples []json.RawMessage, required ...st
 
 func handleDeliveryStatus(t *testing.T, entry vectorEntry) {
 	switch entry.ID {
-	case "acknowledgment-to-ui-state":
+	case "submission-status-to-ui-state":
 		requireSampleFields(t, entry.Samples,
-			"server_acknowledgment", "client_ui_state")
+			"submission_status", "client_ui_state")
 	case "queued-to-final-transitions":
 		requireSampleFields(t, entry.Samples,
 			"initial_status", "delivery_event_status", "client_action")
