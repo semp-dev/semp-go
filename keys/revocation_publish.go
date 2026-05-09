@@ -1,20 +1,19 @@
-// Package keys — revocation publication, signing, and pull-based
+// Package keys revocation publication, signing, and pull-based
 // distribution per KEY.md §8.
 //
 // The spec's revocation model is pull-based: "Servers have NO
 // obligation to push revocation notices." Revocation records are
 // made discoverable at the same well-known endpoint where the key
 // was originally published, and receivers fetch them when they query
-// keys. This file implements:
+// keys. This file implements the protocol primitives:
 //
 //   - SignRevocationPublication / VerifyRevocationPublication
-//   - NewRevocationPublicationHandler (server-side HTTP handler)
 //   - FetchRevocations (client-side HTTP fetcher)
 //   - RevocationCache (in-memory cache of fetched revocations with TTL)
 //
-// The gossip model mirrors reputation/trust_gossip.go: publication
-// at a well-known URI, per-domain signing, and a client that verifies
-// the envelope before caching.
+// Server-side publication (mounting an HTTP handler that serves
+// signed revocation lists at the well-known URI) is application-layer
+// and lives outside this package.
 package keys
 
 import (

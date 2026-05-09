@@ -22,8 +22,9 @@ import (
 //
 //	https://<observer>/.well-known/semp/reputation/<subject>
 //
-// Callers mount PublicationHandler at this prefix and the handler
-// extracts the subject from the trailing path segment.
+// The application-layer HTTP handler serves an
+// [ObservationSource]-backed [TrustObservations] envelope at this
+// prefix; the trailing path segment is the subject domain.
 const PublicationPath = "/.well-known/semp/reputation/"
 
 // TrustObservations is the response envelope served at the
@@ -136,10 +137,11 @@ func VerifyTrustObservations(signer crypto.Signer, resp *TrustObservations, obse
 // Publication handler
 // -----------------------------------------------------------------------------
 
-// ObservationSource is the read side of an observation store. A
-// PublicationHandler calls Lookup(subject) to retrieve the set of
-// observations it should publish for subject, then serves them back
-// to the requester as a signed TrustObservations envelope.
+// ObservationSource is the read side of an observation store. The
+// application-layer HTTP handler that serves [PublicationPath] calls
+// Lookup(subject) to retrieve the set of observations it should
+// publish for subject, then serves them back to the requester as a
+// signed [TrustObservations] envelope.
 //
 // The handler takes a read-side interface rather than a concrete
 // *ObservationStore so operators can plug in a persistent backend
@@ -147,17 +149,17 @@ func VerifyTrustObservations(signer crypto.Signer, resp *TrustObservations, obse
 type ObservationSource interface {
 	// Lookup returns the currently-published observations for
 	// subject. An empty slice plus nil error means "no data" and
-	// produces a signed-but-empty publication — legitimate per
-	// REPUTATION.md §5.1. Returning an error causes the handler to
-	// respond with HTTP 500.
+	// produces a signed-but-empty publication, which is legitimate
+	// per REPUTATION.md §5.1. Returning an error is surfaced to the
+	// HTTP layer as a 500.
 	Lookup(ctx context.Context, subject string) ([]Observation, error)
 }
 
 // InMemoryObservationSource is a tiny ObservationSource backed by a
 // map of pre-signed observations keyed by subject domain. Operators
 // that build observations from an ObservationStore on a fixed cadence
-// can park the resulting signed records here so the PublicationHandler
-// can serve them without regenerating on every request.
+// can park the resulting signed records here so the publication
+// handler can serve them without regenerating on every request.
 type InMemoryObservationSource struct {
 	mu sync.Mutex
 	// byDomain keys on lowercase subject domain.

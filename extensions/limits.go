@@ -242,10 +242,10 @@ func Validate(registry *Registry, layer Layer, m Map) error {
 // marshalExtensions returns the canonical-ish byte form used to
 // measure `extensions` object size. We use encoding/json with sorted
 // keys via an intermediate map[string]Entry — the actual canonical
-// serializer in internal/canonical also sorts keys, so this
-// measurement matches what the seal signer produces to within a few
-// bytes (whitespace differences only). Since the per-layer ceilings
-// have 4–64 KB of headroom over any realistic payload, the small
+// serializer in canonical also sorts keys, so this measurement
+// matches what the seal signer produces to within a few bytes
+// (whitespace differences only). Since the per-layer ceilings have
+// 4–64 KB of headroom over any realistic payload, the small
 // difference is in the noise.
 func marshalExtensions(m Map) ([]byte, error) {
 	if len(m) == 0 {

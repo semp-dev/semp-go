@@ -1,21 +1,27 @@
-// Package ws is the WebSocket binding for the SEMP transport layer.
+// Package ws is the client-side WebSocket binding for the SEMP
+// transport layer (TRANSPORT.md §4.1).
 //
-// It implements the seven minimum transport requirements from TRANSPORT.md
-// §2 on top of github.com/coder/websocket:
+// It implements the seven minimum transport requirements from
+// TRANSPORT.md §2 on top of github.com/coder/websocket:
 //
-//   - Confidentiality:        TLS via wss:// (the operator is responsible
-//                             for terminating TLS, typically with a reverse
-//                             proxy or http.Server with TLSConfig).
-//   - Server authentication:  TLS certificate verification by the standard
-//                             library when wss:// is used.
-//   - Reliable, ordered:      WebSocket guarantees both within a connection.
+//   - Confidentiality:        TLS via wss:// (the operator is
+//                             responsible for terminating TLS).
+//   - Server authentication:  TLS certificate verification by the
+//                             standard library when wss:// is used.
+//   - Reliable, ordered:      WebSocket guarantees both within a
+//                             connection.
 //   - Bidirectional:          Native to WebSocket.
 //   - Message framing:        Native WebSocket frames.
-//   - Variable-length payloads: Limited only by the configured read limit.
-//   - Lifecycle signaling:    WebSocket close frames distinguish a clean
-//                             disconnect from a network failure.
+//   - Variable-length payloads: Limited only by the configured read
+//                             limit.
+//   - Lifecycle signaling:    WebSocket close frames distinguish a
+//                             clean disconnect from a network failure.
 //
 // SEMP messages travel as text frames per TRANSPORT.md §4.1.2.
+//
+// Server-side accept loops (HTTP listener mount, upgrade-request
+// authorization, per-connection goroutine spawn) are application-layer
+// and live outside this package.
 package ws
 
 import (
@@ -46,19 +52,15 @@ const DefaultMaxEnvelopeSize = 25 * 1024 * 1024
 
 // Config controls the behavior of a Transport.
 type Config struct {
-	// AllowInsecure permits dialing plain ws:// URLs and listening without
-	// requiring TLS at the binding level. This is for tests and local
-	// development only — production deployments MUST set this to false
-	// (the default), in which case Dial refuses ws:// URLs.
+	// AllowInsecure permits dialing plain ws:// URLs. This is for
+	// tests and local development only. Production deployments MUST
+	// leave this false (the default), in which case Dial refuses
+	// ws:// URLs.
 	AllowInsecure bool
 
-	// MaxEnvelopeSize is the maximum SEMP message size in bytes that the
-	// binding will accept on read. Zero means use DefaultMaxEnvelopeSize.
+	// MaxEnvelopeSize is the maximum SEMP message size in bytes that
+	// Recv will accept on read. Zero means use DefaultMaxEnvelopeSize.
 	MaxEnvelopeSize int64
-
-	// OriginPatterns is forwarded to websocket.AcceptOptions.OriginPatterns.
-	// Used by the listener to authorize cross-origin upgrade requests.
-	OriginPatterns []string
 }
 
 // Transport is the WebSocket implementation of transport.Transport.

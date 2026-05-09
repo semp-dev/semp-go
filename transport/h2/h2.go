@@ -61,29 +61,26 @@ const ContentType = "application/json; charset=utf-8"
 // each Do call when the context has no deadline.
 const DefaultTimeout = 30 * time.Second
 
-// DefaultMaxBodyBytes is the maximum body size the server-side
-// handler will read from an incoming POST and the Client will read
-// from a response. 25 MiB matches the DISCOVERY.md §3.1 default
-// max_envelope_size and keeps a hostile peer from tricking the
-// reader into unbounded allocation.
+// DefaultMaxBodyBytes is the maximum response body size the Client
+// will read from an HTTP/2 response. 25 MiB matches the
+// DISCOVERY.md §3.1 default max_envelope_size and keeps a hostile
+// peer from tricking the reader into unbounded allocation.
 const DefaultMaxBodyBytes int64 = 25 * 1024 * 1024
 
-// Config controls the behavior of Client and NewHandler.
+// Config controls the behavior of Client.
 type Config struct {
-	// AllowInsecure permits dialing plain http:// URLs and
-	// accepting plain HTTP servers. Production deployments MUST
-	// leave this false (the default). Per TRANSPORT.md §4.2,
-	// HTTPS is the only permitted scheme; tests and local dev use
-	// this flag to opt out of the check.
+	// AllowInsecure permits dialing plain http:// URLs. Production
+	// deployments MUST leave this false (the default). Per
+	// TRANSPORT.md §4.2, HTTPS is the only permitted scheme; tests
+	// and local dev use this flag to opt out of the check.
 	AllowInsecure bool
 
 	// HTTPClient is the underlying *http.Client. Zero means
 	// "use a fresh client with DefaultTimeout".
 	HTTPClient *http.Client
 
-	// MaxBodyBytes caps the size of request AND response bodies
-	// on both the client and server. Zero means
-	// DefaultMaxBodyBytes.
+	// MaxBodyBytes caps the size of response bodies the Client
+	// reads. Zero means DefaultMaxBodyBytes.
 	MaxBodyBytes int64
 }
 

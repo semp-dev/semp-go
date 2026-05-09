@@ -21,6 +21,10 @@ const (
 // (TLS 1.2+), server authentication, reliable ordered delivery, bidirectional
 // messaging, message framing, binary-safe variable-length payloads, and
 // connection lifecycle signaling.
+//
+// Server-side accept loops are application-layer; this interface only
+// covers the client direction (Dial). The HTTP listener mount and the
+// inbound-Conn fan-out live in the consumer's framework.
 type Transport interface {
 	// ID returns the wire identifier for this transport.
 	ID() ID
@@ -32,11 +36,6 @@ type Transport interface {
 	// Dial opens a client connection to endpoint. The caller is
 	// responsible for selecting endpoint from the discovery results.
 	Dial(ctx context.Context, endpoint string) (Conn, error)
-
-	// Listen starts a server listener bound to addr. The returned Listener
-	// produces inbound Conns until the context is canceled or Close is
-	// called on the listener.
-	Listen(ctx context.Context, addr string) (Listener, error)
 }
 
 // Conn is a single bidirectional message channel between two SEMP peers.
@@ -63,12 +62,3 @@ type Conn interface {
 	Peer() string
 }
 
-// Listener is the inbound side of a transport binding.
-type Listener interface {
-	// Accept blocks until the next inbound Conn arrives.
-	Accept(ctx context.Context) (Conn, error)
-
-	// Close stops accepting new connections. Existing Conns are not
-	// affected and must be closed explicitly.
-	Close() error
-}

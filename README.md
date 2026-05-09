@@ -19,83 +19,69 @@ Key properties:
 
 ## Status
 
-**Tracking SEMP spec 0.2.0-draft.** The library implements the full CLIENT + SERVER + CRYPTO scope of the spec, with reference in-memory implementations of every persistence interface and operator-runnable demo binaries. What's left is genuinely outside the library's scope:
+**Tracking SEMP spec 0.2.0-draft.** The library implements the full CLIENT + SERVER + CRYPTO protocol layer of the spec, with reference in-memory implementations of every persistence interface. The library is intentionally protocol-only: it ships the wire-format primitives, state machines, and signing / verification helpers, and leaves runtime concerns (HTTP listener mounts, session fan-out, durable storage, demo binaries) to the consuming application or to `semp-reference-server` / `semp-reference-client`.
 
-- **Client-side flows** that belong in `semp-reference-client`: restore-flow orchestration, full identity-rotation cascade driver, enrollment local-pairing.
+What's outside the library's scope:
+
+- **Server runtime**: HTTP listener wiring, session demux, fan-out registry. Use `session.Dispatch` and the per-type handlers below to compose your own.
+- **Client-side application flows** that belong in `semp-reference-client`: restore-flow orchestration, full identity-rotation cascade driver, enrollment local-pairing.
 - **Spec-deferred** items: §3.2 §5.2 delegated forwarding mechanism, §3.5 streaming AEAD modes (both deferred to future spec revisions).
-- **Operator integration**: durable storage backends behind the provided `Store` / `BundleStore` / `LockoutRegistry` / `RateLimitCounter` / `BlockListLookup` interfaces — the library ships in-memory reference impls for every one of them.
+- **Durable storage backends** behind the provided `Store` / `BundleStore` / `LockoutRegistry` / `RateLimitCounter` / `BlockListLookup` interfaces. The library ships in-memory reference impls for every one of them; production deployments MUST plug their own.
 
-The library is appropriate for non-critical production deployments today. Operators MUST plug durable backends into the storage interfaces; the in-memory references are demo-grade. See [SPEC-GAP.md](SPEC-GAP.md) for the per-cluster status.
+See [SPEC-GAP.md](SPEC-GAP.md) for the per-cluster catch-up status.
 
 | Metric | Value |
 |---|---|
-| Test packages | 25, all passing under `-race` |
-| Fuzz targets | 9 (envelope, canonical, brief, h2 SSE, handshake PoW) |
+| Test packages | 24, all passing under `-race` |
+| Fuzz targets | 9 (envelope, canonical x2, brief, handshake x3, h2 SSE x2) |
 | External deps | 3 (`cloudflare/circl`, `coder/websocket`, `quic-go/quic-go`) |
 | Go version | 1.25+ |
 
 ## Quick Start
 
-### Server
+### Server: handshake + dispatch
+
+The library does not own the HTTP listener. Mount whatever framework you use, hand each accepted connection a `transport.Conn`, run the handshake state machine, then enter the post-handshake message loop with `session.Dispatch`:
 
 ```go
-package main
-
 import (
     "context"
-    "net/http"
 
-    "semp.dev/semp-go/crypto"
-    "semp.dev/semp-go/delivery"
-    "semp.dev/semp-go/delivery/inboxd"
     "semp.dev/semp-go/handshake"
+    "semp.dev/semp-go/session"
     "semp.dev/semp-go/transport"
-    "semp.dev/semp-go/transport/ws"
 )
 
-func main() {
-    suite := crypto.SuitePQ // post-quantum hybrid by default
-    store := myKeyStore()   // your keys.Store implementation
-    inbox := delivery.NewInbox()
+// per accepted connection (your framework wraps this in a goroutine):
+func serveSession(ctx context.Context, conn transport.Conn) {
+    defer conn.Close()
 
-    mux := http.NewServeMux()
-    mux.Handle("/v1/ws", ws.NewHandler(ws.Config{}, func(conn transport.Conn) {
-        defer conn.Close()
-        ctx := context.Background()
+    srv := handshake.NewServer(handshake.ServerConfig{
+        Suite:            crypto.SuitePQ,
+        Store:            myKeyStore(),
+        Policy:           myPolicy(),
+        Domain:           "example.com",
+        DomainKeyID:      domainKeyFP,
+        DomainPrivateKey: domainPriv,
+    })
+    defer srv.Erase()
 
-        srv := handshake.NewServer(handshake.ServerConfig{
-            Suite:            suite,
-            Store:            store,
-            Policy:           myPolicy(),
-            Domain:           "example.com",
-            DomainKeyID:      domainKeyFP,
-            DomainPrivateKey: domainPriv,
-        })
-        defer srv.Erase()
+    sess, err := handshake.RunServer(ctx, conn, srv)
+    if err != nil {
+        return
+    }
 
-        sess, err := handshake.RunServer(ctx, conn, srv)
-        if err != nil {
-            return
-        }
-
-        loop := &inboxd.Server{
-            Suite:          suite,
-            Store:          store,
-            Inbox:          inbox,
-            LocalDomain:    "example.com",
-            DomainSignFP:   domainKeyFP,
-            DomainSignPriv: domainPriv,
-            DomainEncFP:    domainEncFP,
-            DomainEncPriv:  domainEncPriv,
-            Identity:       srv.ClientIdentity(),
-            Session:        sess,
-        }
-        loop.Serve(ctx, conn)
-    }))
-
-    http.ListenAndServe(":8080", mux)
+    err = session.Dispatch(ctx, conn, session.DispatchHandlers{
+        OnEnvelope: func(ctx context.Context, raw []byte) error { return handleEnvelope(ctx, sess, raw) },
+        OnFetch:    func(ctx context.Context, raw []byte) error { return handleFetch(ctx, sess, raw) },
+        OnRekey:    func(ctx context.Context, raw []byte) error { return handleRekey(ctx, sess, raw) },
+        OnKeys:     func(ctx context.Context, raw []byte) error { return handleKeys(ctx, sess, raw) },
+    })
+    _ = err
 }
 ```
+
+The per-type handlers compose primitives the library already exposes (`envelope.Decode` + `envelope.Verify`, `keys.HandleRequest`, `session.Rekeyer`, etc.). For cross-domain forwarding, drive a `delivery.Forwarder` from inside `OnEnvelope`.
 
 ### Client — Send
 
@@ -176,21 +162,18 @@ for _, b64 := range resp.Envelopes {
 | `transport/h2` | TRANSPORT.md §4.2 | HTTP/2 binding with persistent Conn adapter and SSE session stream for server-push |
 | `transport/quic` | TRANSPORT.md §4.3 | QUIC / HTTP/3 binding via `quic-go` |
 | `discovery` | DISCOVERY.md | DNS SRV/TXT discovery, well-known URI fetch, partition resolution (alpha/hash/lookup), signed responses, caching |
-| `reputation` | REPUTATION.md | Observation store + scoring, signed trust gossip publication + fetch, PoW challenge issuance + ledger, abuse report handler with disclosure authorization, domain age interface |
-| `delivery` | DELIVERY.md | 9-step delivery pipeline, block list with scope/precedence, signed delivery receipts + envelope-binding, user-policy state machine, retry / cancellation / queue state, staged-delivery runner, scheduler, recipient policy hook |
-| `delivery/inboxd` | — | Post-handshake server loop: envelope submission (client + federation), SEMP_FETCH, SEMP_KEYS, SEMP_REKEY dispatch, receipt issuance + verification on the federation forward path |
+| `reputation` | REPUTATION.md | Observation store + scoring, signed trust gossip (sign / verify / fetch primitives plus `ObservationSource` interface), PoW challenge issuance + ledger, signed-disclosure-authorization primitives, domain age interface |
+| `delivery` | DELIVERY.md | 9-step delivery pipeline, block list with scope/precedence, signed delivery receipts + envelope-binding, user-policy state machine, retry / cancellation / queue state, staged-delivery runner, scheduler, recipient policy hook, federation `Forwarder` (cross-domain re-sign + cached session + auto-rekey) |
 | `closure` | CLOSURE.md | `SEMP_ACCOUNT_CLOSURE` request/cancel records, finalization driver running the §4.2 nine atomic effects, closure persistence Store, recipient-policy adapter for §5 ingress |
-| `migration` | MIGRATION.md | `SEMP_MIGRATION` four-signature chained record, cooperative `BuildSubmission` + `AcceptSubmission` endpoint flow, `LockoutRegistry`, §5.3 migration_notice rejection, third-party policy hooks, HTTP handler, in-memory `PublicationStore` |
-| `recovery` | RECOVERY.md | `SEMP_BACKUP_BUNDLE` schema + Argon2id KDF + XChaCha20-Poly1305 payload + HKDF recovery sign-key, Shamir GF(256) split + Lagrange reconstruction, successor record + Shamir manifest + share record signing, `BundleStore`, contributor-pubkey directory cross-check, HTTP backup handler with rate-limiter |
-| `transparency` | TRANSPARENCY.md | `SEMP_TRANSPARENCY_LEAF` log entries, `SignedTreeHead` issuance + verification, RFC 6962 inclusion + consistency proof generation and verification, append-only `Log` state machine, monitor/append HTTP handler |
+| `migration` | MIGRATION.md | `SEMP_MIGRATION` four-signature chained record, cooperative `BuildSubmission` + `AcceptSubmission` flow, `LockoutRegistry`, §5.3 migration_notice rejection, third-party policy hooks, in-memory `PublicationStore` |
+| `recovery` | RECOVERY.md | `SEMP_BACKUP_BUNDLE` schema + Argon2id KDF + XChaCha20-Poly1305 payload + HKDF recovery sign-key, Shamir GF(256) split + Lagrange reconstruction, successor record + Shamir manifest + share record signing, `BundleStore`, contributor-pubkey directory cross-check |
+| `transparency` | TRANSPARENCY.md | `SEMP_TRANSPARENCY_LEAF` log entries, `SignedTreeHead` issuance + verification, RFC 6962 inclusion + consistency proof generation and verification, append-only `Log` state machine |
 | `largeattachment` | ATTACHMENTS.md | `semp.dev/large-attachment` extension types, HKDF-derived per-item keys, AEAD encrypt/decrypt round-trip, ciphertext-hash verification, ULID id generator, ciphertext `Store` interface, enclosure-extension read/write helpers |
 | `extensions` | EXTENSIONS.md | Extension entry/map types, key validation (namespace rules), per-layer size limits, default registry from §9 candidate list |
 | `clockskew` | CONFORMANCE.md §9.3 | Tiered clock-skew tolerance helpers (`Default`, `Strict`) shared across handshake, delivery, session, keys |
-| `internal/canonical` | ENVELOPE.md §4.3 | Canonical JSON serializer used by every signature and MAC computation |
-| `cmd/semp-server` | — | Reference server binary (demo — uses seed-derived keys and in-memory inbox) |
-| `cmd/semp-cli` | — | Reference client CLI: `handshake`, `send`, `receive` subcommands |
-| `cmd/semp-log-server` | — | Reference transparency log server binary; exposes append + monitor endpoints over the `transparency.Log` |
-| `test` | VECTORS.md | Integration tests: envelope round-trip, handshake (baseline + PQ), federation, cross-domain delivery, multi-device, device certs, rekey, PoW challenge |
+| `canonical` | ENVELOPE.md §4.3 | Canonical JSON serializer used by every signature and MAC computation |
+| `session` (Dispatch) | — | Post-handshake message-loop primitive: reads frames off any `MessageStream`, peeks the outer `type`, fans out to caller-supplied per-type handlers |
+| `test` | VECTORS.md | Cross-language vectors runner + integration tests (envelope round-trip, handshake baseline + PQ, rekey, account-recovery bundle round-trip) |
 
 ## What You Provide for Production
 
@@ -203,7 +186,8 @@ The library implements the entire SEMP protocol layer. To build a production ser
 | `delivery.BlockListLookup` | Per-user block list storage | Block lists are stored encrypted at rest; the storage format is operator-specific |
 | `handshake.Policy` | Rate limiting, challenge gating, session TTL, permissions | Policy decisions are operator-specific |
 | `reputation.WHOIS` | Domain registration age lookup | No free, reliable WHOIS library exists; the interface is intentionally pluggable |
-| TLS certificates | Real certificates for transport listeners | The demo binaries use `AllowInsecure` for local testing |
+| HTTP listener / framework wiring | Mounting the SEMP transport endpoints (`/v1/ws`, `/v1/handshake`, `/v1/envelope`, `/v1/session/{id}`, etc.) into your HTTP framework, dispatching to per-session goroutines | Server-side wiring is application-layer; the library exposes the protocol primitives (`session.Dispatch`, handshake state machines, envelope verify / sign) for you to compose |
+| TLS certificates | Real certificates for the underlying transport listeners | The transport packages expose an `AllowInsecure` config flag for local testing only |
 
 ## Algorithm Suites
 
@@ -238,29 +222,10 @@ conn, err := transport.Fallback(ctx, transport.Order(candidates))
 ```sh
 go build ./...                          # zero errors
 go vet ./...                            # zero findings
-go test ./...                           # all 24 packages pass
+go test ./...                           # every package passes
 go test -fuzz=FuzzEnvelopeDecode ./envelope/...  # fuzz the envelope parser
 go test -race ./...                     # no data races
 ```
-
-## Demo Binaries
-
-The `cmd/` directory contains working demo binaries that exercise the full protocol stack in-process:
-
-```sh
-# Terminal 1: start the server
-go run ./cmd/semp-server -domain example.com -users alice@example.com,bob@example.com
-
-# Terminal 2: send an envelope
-go run ./cmd/semp-cli send -url ws://localhost:8080/v1/ws \
-    -from alice@example.com -to bob@example.com -body "Hello Bob"
-
-# Terminal 3: receive envelopes
-go run ./cmd/semp-cli receive -url ws://localhost:8080/v1/ws \
-    -identity bob@example.com
-```
-
-These binaries use deterministic seed-derived keys (`internal/demoseed`) and an in-memory inbox. They are **not suitable for production** — they demonstrate the protocol flow and serve as integration tests.
 
 ## Dependencies
 

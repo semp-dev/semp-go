@@ -37,9 +37,6 @@ func (f *fakeTransport) Dial(ctx context.Context, endpoint string) (transport.Co
 	}
 	return nil, errors.New("fakeTransport: no dialFunc configured")
 }
-func (f *fakeTransport) Listen(context.Context, string) (transport.Listener, error) {
-	return nil, errors.New("fakeTransport: Listen not supported")
-}
 
 // fakeConn is a minimal transport.Conn that remembers its origin
 // transport ID so tests can confirm which candidate actually won.

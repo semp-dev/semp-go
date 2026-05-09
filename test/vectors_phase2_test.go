@@ -61,7 +61,7 @@ type signedDocSpec struct {
 
 // verifySingleSignedDoc performs the four-step verification:
 //  1. Deep-copy SignedJSON; navigate SignaturePath; capture and blank.
-//  2. Canonicalize the blanked copy via internal/canonical.
+//  2. Canonicalize the blanked copy via canonical.
 //  3. Prepend Prefix bytes.
 //  4. Ed25519.Verify(PublicKey, prefix||canonical, signature).
 //
@@ -1933,7 +1933,7 @@ func runShamirRoundTrip(t *testing.T, entry vectorEntry) {
 //	PQ           = XChaCha20-Poly1305 (24-byte nonce)
 //	ciphertext_hash = "sha256:" + hex(SHA-256(aead_ct))
 //
-// The runner uses internal/canonical for the AAD rather than
+// The runner uses canonical for the AAD rather than
 // largeattachment.AdditionalData, which uses plain json.Marshal
 // (struct-order, NOT alphabetical canonical). semp-go's encrypt and
 // decrypt use the same AAD function so round-trips work locally,

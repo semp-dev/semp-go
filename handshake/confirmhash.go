@@ -12,7 +12,7 @@ import (
 // Both arguments MUST already be in canonical form (lexicographically sorted
 // JSON keys, no insignificant whitespace) — this function does not perform
 // canonicalization itself. Callers obtain canonical bytes via
-// internal/canonical.Marshal applied to a *handshake.ClientInit or
+// canonical.Marshal applied to a *handshake.ClientInit or
 // *handshake.ServerResponse value, or by retaining the canonical bytes that
 // were transmitted on the wire.
 //
