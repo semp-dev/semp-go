@@ -122,6 +122,13 @@ var dispatch = map[string]handler{
 	"account-recovery":   handleAccountRecovery,
 	"seal-roundtrip":     handleSealRoundtrip,
 	"envelope-roundtrip": handleEnvelopeRoundtrip,
+
+	// LIBRARY_REVIEW decision-pass categories.
+	"migration-notice":      handleMigrationNotice,
+	"reputation-references": handleReputationReferencesValid,
+	"status-config":         handleStatusConfigValid,
+	"trust-observation":     handleTrustObservation,
+	"validation-failures":   handleValidationFailures,
 }
 
 // TestVectors is the entry point. It walks every *.json file in the
@@ -652,8 +659,18 @@ func handleDiscovery(t *testing.T, entry vectorEntry) {
 				t.Errorf("address %q: result missing ttl", addr)
 			}
 		}
+	case "discovery-srv-quic-udp-target":
+		handleDiscoverySRVQuicUDPTarget(t, entry)
+	case "discovery-config-reciprocity-policy":
+		handleDiscoveryReciprocityPolicy(t, entry)
+	case "key-fetch-status-dispatch":
+		handleDiscoveryKeyFetchStatus(t, entry)
+	case "http2-url-templates":
+		handleDiscoveryHTTP2Templates(t, entry)
+	case "migration-key-fetch-redirect":
+		handleDiscoveryMigrationKeyFetchRedirect(t, entry)
 	default:
-		t.Skipf("discovery sub-vector %q: no handler", entry.ID)
+		t.Errorf("discovery sub-vector %q: no handler", entry.ID)
 	}
 }
 
@@ -713,9 +730,13 @@ func handleExtensionEntries(t *testing.T, entry vectorEntry) {
 		}
 		return
 	}
+	if entry.ID == "extension-definition-document-url" {
+		handleExtensionDefinitionURL(t, entry)
+		return
+	}
 	extRaw := jgetRaw(t, entry.Inputs, "extensions_json")
 	if len(extRaw) == 0 {
-		t.Skipf("extension-entries %q: no extensions_json", entry.ID)
+		t.Errorf("extension-entries %q: no extensions_json", entry.ID)
 		return
 	}
 	var extMap extensions.Map

@@ -716,8 +716,10 @@ func handleDeliveryStatus(t *testing.T, entry vectorEntry) {
 		if len(entry.Expected) == 0 {
 			t.Error("expected missing")
 		}
+	case "persistent-silent-counter-behavior":
+		handlePersistentSilentCounter(t, entry)
 	default:
-		t.Skipf("delivery-status %q: no handler", entry.ID)
+		t.Errorf("delivery-status %q: no handler", entry.ID)
 	}
 }
 
