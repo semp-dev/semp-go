@@ -2,15 +2,17 @@ package reputation
 
 import (
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"sort"
 	"strings"
 	"sync"
 	"time"
 
-	"semp.dev/semp-go/extensions"
 	"semp.dev/semp-go/canonical"
+	"semp.dev/semp-go/extensions"
 	"semp.dev/semp-go/keys"
 )
 
@@ -69,8 +71,17 @@ type Observation struct {
 	EvidenceAvailable bool `json:"evidence_available"`
 
 	// EvidenceURI is the URL where evidence can be fetched when
-	// EvidenceAvailable is true.
+	// EvidenceAvailable is true. MUST be absent when
+	// EvidenceAvailable is false per REPUTATION.md §4.2.
 	EvidenceURI string `json:"evidence_uri,omitempty"`
+
+	// EvidenceHash binds fetched evidence bytes to the signed
+	// observation per REPUTATION.md §5.5.1. REQUIRED when
+	// EvidenceAvailable is true; MUST be absent when false. A
+	// consumer that fetches EvidenceURI MUST compute the digest
+	// under EvidenceHash.Algorithm and MUST treat a mismatch as a
+	// verification failure equivalent to a signature failure.
+	EvidenceHash *EvidenceHash `json:"evidence_hash,omitempty"`
 
 	// Timestamp is the ISO 8601 UTC time the observation was
 	// published. Distinct from Window.End.
@@ -93,6 +104,123 @@ type Observation struct {
 type Window struct {
 	Start time.Time `json:"start"`
 	End   time.Time `json:"end"`
+}
+
+// EvidenceHash binds the bytes returned by an observation's
+// EvidenceURI to the signed observation record per REPUTATION.md
+// §4.2 / §5.5.1.
+type EvidenceHash struct {
+	// Algorithm is the digest algorithm identifier. "sha-256" is
+	// the only value currently defined.
+	Algorithm string `json:"algorithm"`
+
+	// Value is the base64-encoded digest of the evidence bytes.
+	Value string `json:"value"`
+}
+
+// MaxObservationBytes is the §4.6.1 hard upper bound on the
+// canonical UTF-8 JSON form of a single SEMP_TRUST_OBSERVATION
+// record on the wire. Servers MUST reject larger records as
+// malformed and MUST NOT propagate them.
+const MaxObservationBytes = 16384
+
+// MaxEvidenceBytes is the §5.5.2 RECOMMENDED upper bound on a
+// single evidence-fetch response body. Operators MAY tighten this
+// further via local configuration. Consumers MUST cap their fetch
+// at a locally-configured limit and MUST treat exceeding bytes as
+// a fetch failure.
+const MaxEvidenceBytes = 1024 * 1024
+
+// ErrObservationOversized is returned when a canonical observation
+// record exceeds MaxObservationBytes per §4.6.1.
+var ErrObservationOversized = errors.New("reputation: observation exceeds 16 KiB cap")
+
+// ErrEvidenceHashMismatch is returned when fetched evidence bytes
+// do not hash to the value in EvidenceHash per §5.5.1. Consumers
+// MUST treat this as equivalent to a signature failure: discard
+// the observation, refuse to publish it, and (per §3.4) treat it
+// as a candidate for observation_record_abuse reporting.
+var ErrEvidenceHashMismatch = errors.New("reputation: evidence_hash does not match fetched bytes")
+
+// ValidateEvidenceFields enforces the REPUTATION.md §4.2 rules
+// linking EvidenceAvailable, EvidenceURI, and EvidenceHash:
+//
+//   - EvidenceAvailable == true: EvidenceURI MUST be non-empty and
+//     EvidenceHash MUST be present with a known algorithm and a
+//     non-empty value.
+//   - EvidenceAvailable == false: EvidenceURI and EvidenceHash MUST
+//     both be absent.
+func (o *Observation) ValidateEvidenceFields() error {
+	if o == nil {
+		return errors.New("reputation: nil observation")
+	}
+	if o.EvidenceAvailable {
+		if o.EvidenceURI == "" {
+			return errors.New("reputation: evidence_available=true requires evidence_uri")
+		}
+		if o.EvidenceHash == nil {
+			return errors.New("reputation: evidence_available=true requires evidence_hash")
+		}
+		if o.EvidenceHash.Algorithm == "" || o.EvidenceHash.Value == "" {
+			return errors.New("reputation: evidence_hash requires algorithm and value")
+		}
+		return nil
+	}
+	if o.EvidenceURI != "" {
+		return errors.New("reputation: evidence_available=false MUST NOT carry evidence_uri")
+	}
+	if o.EvidenceHash != nil {
+		return errors.New("reputation: evidence_available=false MUST NOT carry evidence_hash")
+	}
+	return nil
+}
+
+// VerifyEvidenceBytes computes the digest of evidence under the
+// observation's EvidenceHash.Algorithm and compares it to the
+// stored value per §5.5.1. Returns ErrEvidenceHashMismatch on
+// any divergence (algorithm unsupported, base64 decode failure,
+// or digest mismatch).
+//
+// Currently the only defined algorithm is "sha-256".
+func (o *Observation) VerifyEvidenceBytes(evidence []byte) error {
+	if o == nil || o.EvidenceHash == nil {
+		return errors.New("reputation: nil observation or missing evidence_hash")
+	}
+	want, err := base64.StdEncoding.DecodeString(o.EvidenceHash.Value)
+	if err != nil {
+		return fmt.Errorf("%w: evidence_hash.value not base64: %v",
+			ErrEvidenceHashMismatch, err)
+	}
+	var got []byte
+	switch o.EvidenceHash.Algorithm {
+	case "sha-256":
+		sum := sha256.Sum256(evidence)
+		got = sum[:]
+	default:
+		return fmt.Errorf("%w: unsupported algorithm %q",
+			ErrEvidenceHashMismatch, o.EvidenceHash.Algorithm)
+	}
+	if len(got) != len(want) {
+		return ErrEvidenceHashMismatch
+	}
+	for i := range got {
+		if got[i] != want[i] {
+			return ErrEvidenceHashMismatch
+		}
+	}
+	return nil
+}
+
+// CheckObservationSize returns ErrObservationOversized when the
+// canonical UTF-8 JSON form of obs exceeds MaxObservationBytes.
+// Servers MUST run this before propagating a received observation
+// per §4.6.1.
+func CheckObservationSize(canonicalBytes []byte) error {
+	if len(canonicalBytes) > MaxObservationBytes {
+		return fmt.Errorf("%w: %d bytes (max %d)",
+			ErrObservationOversized, len(canonicalBytes), MaxObservationBytes)
+	}
+	return nil
 }
 
 // Metrics is the quantitative payload of an Observation per
@@ -232,7 +360,7 @@ type GossipHash struct {
 // plug into their PoW policy hook.
 //
 // ObservationStore is safe for concurrent use. It is NOT a persistent
-// store — production deployments should wrap a durable backend that
+// store - production deployments should wrap a durable backend that
 // persists counters across restarts and supports sliding-window
 // pruning.
 type ObservationStore struct {
@@ -309,7 +437,7 @@ func (s *ObservationStore) RecordEnvelope(domain string, accepted bool) {
 // subject domain with the stated category. The caller is expected to
 // have verified the report's authenticity and any embedded
 // disclosure authorization before calling; the store does not
-// validate. category may be empty — an empty category is recorded as
+// validate. category may be empty - an empty category is recorded as
 // a count increment without a corresponding abuse_categories entry,
 // which matches the spec allowance that abuse_categories is optional.
 func (s *ObservationStore) RecordAbuseReport(domain string, category AbuseCategory) {
@@ -391,7 +519,7 @@ type Score struct {
 // Unknown domains return a zero-value Score with Assessment set to
 // AssessmentNeutral (the "insufficient data" outcome per §4.6).
 //
-// The scoring curve is intentionally simple — operators with richer
+// The scoring curve is intentionally simple - operators with richer
 // policies should treat Score as raw input and run their own
 // classifier. The defaults are:
 //
@@ -514,7 +642,7 @@ func normalize(domain string) string { return strings.ToLower(strings.TrimSpace(
 // should walk observations themselves.
 //
 // Returns an error if domain is empty. An empty observations slice is
-// allowed and produces a hash over just the domain — a legitimate
+// allowed and produces a hash over just the domain - a legitimate
 // "I have no observations for this subject" publication.
 func ComputeGossipHash(domain string, observations []Observation) (*GossipHash, error) {
 	if strings.TrimSpace(domain) == "" {

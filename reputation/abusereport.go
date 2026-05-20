@@ -27,7 +27,16 @@ const (
 	AbuseMalware       AbuseCategory = "malware"
 	AbuseProtocolAbuse AbuseCategory = "protocol_abuse"
 	AbuseImpersonation AbuseCategory = "impersonation"
-	AbuseOther         AbuseCategory = "other"
+
+	// AbuseObservationRecord covers misbehavior in published
+	// trust-gossip observation records themselves: oversized
+	// records (exceeding MaxObservationBytes), evidence-hash
+	// mismatches, hostile or non-conforming evidence_uri content,
+	// fabricated metrics, and systematic publication of
+	// unverifiable assessments. Per REPUTATION.md §3.4.
+	AbuseObservationRecord AbuseCategory = "observation_record_abuse"
+
+	AbuseOther AbuseCategory = "other"
 )
 
 // KnownAbuseCategory reports whether c is one of the categories
@@ -37,7 +46,8 @@ const (
 func KnownAbuseCategory(c AbuseCategory) bool {
 	switch c {
 	case AbuseSpam, AbuseHarassment, AbusePhishing, AbuseMalware,
-		AbuseProtocolAbuse, AbuseImpersonation, AbuseOther:
+		AbuseProtocolAbuse, AbuseImpersonation, AbuseObservationRecord,
+		AbuseOther:
 		return true
 	}
 	return false
@@ -48,7 +58,7 @@ func KnownAbuseCategory(c AbuseCategory) bool {
 // home server. Its JSON layout matches REPUTATION.md §3.2 exactly.
 //
 // Abuse reports are user → home-server messages sent over an already-
-// authenticated session — the handshake identified the reporting user
+// authenticated session - the handshake identified the reporting user
 // so the abuse report itself does not carry its own signature (the
 // §3.2 schema has no signature field). The report's evidence may
 // include decrypted envelope fragments, in which case an embedded
