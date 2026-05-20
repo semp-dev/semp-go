@@ -38,7 +38,27 @@ import (
 	"semp.dev/semp-go/transport"
 )
 
-// Path constants for the HTTP/2 binding (TRANSPORT.md §4.2.1).
+// Path constants for the HTTP/2 binding per TRANSPORT.md §4.2.1.
+//
+// Discovery and keys are read-only lookups that SHOULD be issued
+// as GET requests carrying the address in the path:
+//
+//   GET /v1/discovery/{address}
+//   GET /v1/keys/{address}
+//
+// Servers MUST also accept POST on the same paths so callers that
+// need to send a signed request body can use them. The bare
+// PathDiscovery and PathKeys constants are the path prefixes used
+// to build the per-address URL via DiscoveryPath and KeysPath.
+//
+// State-changing operations are POST-only:
+//
+//   POST /v1/handshake
+//   POST /v1/envelope
+//
+// Long-lived server-initiated streams use GET:
+//
+//   GET /v1/session/{id}
 const (
 	PathDiscovery = "/v1/discovery"
 	PathKeys      = "/v1/keys"
@@ -47,13 +67,31 @@ const (
 	PathSession   = "/v1/session/" // append session id
 )
 
+// DiscoveryPath returns the GET-lookup URL path for address per
+// TRANSPORT.md §4.2.1: "/v1/discovery/{address}".
+func DiscoveryPath(address string) string {
+	return PathDiscovery + "/" + address
+}
+
+// KeysPath returns the GET-lookup URL path for address per
+// TRANSPORT.md §4.2.1: "/v1/keys/{address}".
+func KeysPath(address string) string {
+	return PathKeys + "/" + address
+}
+
+// SessionPath returns the GET-stream URL path for a session id per
+// TRANSPORT.md §4.2.4: "/v1/session/{id}".
+func SessionPath(sessionID string) string {
+	return PathSession + sessionID
+}
+
 // HeaderSessionID is the response header that the server uses to
 // correlate subsequent handshake POSTs with the in-progress handshake
 // (TRANSPORT.md §4.2.3).
 const HeaderSessionID = "Semp-Session-Id"
 
 // ContentType is the JSON content type used for all SEMP HTTP/2
-// bodies (TRANSPORT.md §4.2.1 — "All request and response bodies are
+// bodies (TRANSPORT.md §4.2.1 - "All request and response bodies are
 // application/json; charset=utf-8").
 const ContentType = "application/json; charset=utf-8"
 
@@ -104,7 +142,7 @@ type Client struct {
 // Dial constructs a new Client targeting endpoint. The endpoint MUST
 // be an https:// URL unless cfg.AllowInsecure is true.
 //
-// Dial does not perform any network I/O — the first actual HTTP
+// Dial does not perform any network I/O - the first actual HTTP
 // request happens on the first Do call.
 func Dial(cfg Config, endpoint string) (*Client, error) {
 	if endpoint == "" {
@@ -135,7 +173,7 @@ func Dial(cfg Config, endpoint string) (*Client, error) {
 //
 // An HTTP status code outside [200, 300) is treated as a transport
 // error. The response body of a 200 response is returned as-is,
-// regardless of its SEMP-level content — SEMP rejections with a
+// regardless of its SEMP-level content - SEMP rejections with a
 // reason_code come back as normal 200 responses and the caller is
 // expected to parse the body.
 func (c *Client) Do(ctx context.Context, msg []byte) ([]byte, error) {
@@ -215,7 +253,7 @@ func (*Transport) Profiles() transport.Profile { return transport.ProfileBoth }
 
 // Dial opens a turn-based transport.Conn to endpoint. The endpoint
 // MUST be an https:// URL unless cfg.AllowInsecure is true. Dial does
-// no network I/O — the first POST happens on the first Send.
+// no network I/O - the first POST happens on the first Send.
 //
 // The returned Conn is strictly turn-based: callers MUST follow
 // Send → Recv → Send → Recv. This matches the SEMP handshake
