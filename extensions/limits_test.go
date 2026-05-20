@@ -66,7 +66,7 @@ func TestMaxBytesForUnknownLayer(t *testing.T) {
 // -----------------------------------------------------------------------------
 
 // TestValidateSizeEmptyMap confirms nil and empty maps pass at every
-// layer — the empty `{}` is 2 bytes and fits everywhere.
+// layer - the empty `{}` is 2 bytes and fits everywhere.
 func TestValidateSizeEmptyMap(t *testing.T) {
 	for _, layer := range []extensions.Layer{
 		extensions.LayerPostmark,
@@ -205,7 +205,7 @@ func TestValidateRejectsUnregisteredRequired(t *testing.T) {
 // TestValidateRejectsRequiredVendorExtensionWhenUnregistered confirms a
 // required vendor extension that is NOT in the registry is rejected.
 // EXTENSIONS.md §3 requires rejection for any required extension a
-// recipient does not understand, regardless of namespace — the receiver
+// recipient does not understand, regardless of namespace - the receiver
 // cannot interpret data it has no schema for, vendor or otherwise.
 func TestValidateRejectsRequiredVendorExtensionWhenUnregistered(t *testing.T) {
 	m := extensions.Map{
@@ -335,7 +335,7 @@ func TestValidateChecksSizeAfterKeys(t *testing.T) {
 }
 
 // TestValidateDeterministicErrorOrdering confirms the first failing
-// key is reported in sorted order — not map iteration order — so
+// key is reported in sorted order - not map iteration order - so
 // two servers given the same input produce the same error.
 func TestValidateDeterministicErrorOrdering(t *testing.T) {
 	// Two malformed keys; in sorted order "a bad" comes before

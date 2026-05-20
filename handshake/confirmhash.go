@@ -10,7 +10,7 @@ import (
 // proof to the specific exchange that preceded it (HANDSHAKE.md §2.5.3).
 //
 // Both arguments MUST already be in canonical form (lexicographically sorted
-// JSON keys, no insignificant whitespace) — this function does not perform
+// JSON keys, no insignificant whitespace) - this function does not perform
 // canonicalization itself. Callers obtain canonical bytes via
 // canonical.Marshal applied to a *handshake.ClientInit or
 // *handshake.ServerResponse value, or by retaining the canonical bytes that

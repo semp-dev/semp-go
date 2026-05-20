@@ -246,7 +246,7 @@ func TestResolverDNSFirst(t *testing.T) {
 		t.Error("Transports should be populated from TXT capability record")
 	}
 
-	// Second call should hit the cache — confirm by nil-ing out the
+	// Second call should hit the cache - confirm by nil-ing out the
 	// DNS mock and checking we still get the cached hit.
 	r2 := discovery.NewResolver(discovery.ResolverConfig{
 		Cache: cache, // share cache from previous resolver
@@ -313,7 +313,7 @@ func TestResolverWellKnownFallback(t *testing.T) {
 // the well-known URI fail, the resolver consults MX records and
 // returns status=legacy.
 func TestResolverMXFallback(t *testing.T) {
-	// httptest that always returns 404 — simulates a domain with no
+	// httptest that always returns 404 - simulates a domain with no
 	// well-known URI.
 	ts := httptest.NewServer(http.NotFoundHandler())
 	defer ts.Close()

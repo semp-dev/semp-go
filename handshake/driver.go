@@ -25,7 +25,7 @@ type MessageStream interface {
 // Sequence (HANDSHAKE.md §2.1):
 //
 //  1. Send init
-//  2. Recv response (or challenge interstitial — handled transparently)
+//  2. Recv response (or challenge interstitial - handled transparently)
 //  3. Send confirm
 //  4. Recv accepted (or rejected)
 //
@@ -125,7 +125,7 @@ func RunClient(ctx context.Context, stream MessageStream, c *Client) (*session.S
 // Sequence (HANDSHAKE.md §2.1):
 //
 //  1. Recv init
-//  2. Send response (or challenge interstitial — handled transparently)
+//  2. Send response (or challenge interstitial - handled transparently)
 //  3. Recv confirm
 //  4. Send accepted
 //

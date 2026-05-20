@@ -61,7 +61,7 @@ const (
 // -----------------------------------------------------------------------------
 
 // canonicalRevocationPublicationBytes returns the canonical JSON form
-// of pub with signature.value elided — same elider pattern as
+// of pub with signature.value elided - same elider pattern as
 // observation signing and discovery response signing.
 func canonicalRevocationPublicationBytes(pub *RevocationPublication) ([]byte, error) {
 	if pub == nil {
@@ -162,7 +162,7 @@ type FetchRevocationConfig struct {
 	Signer crypto.Signer
 
 	// DomainPublicKey is the publishing domain's signing public key.
-	// Required — unsigned or unverifiable publications MUST be
+	// Required - unsigned or unverifiable publications MUST be
 	// discarded per KEY.md §8.3.
 	DomainPublicKey []byte
 
@@ -270,7 +270,7 @@ func NewRevocationCache(ttl time.Duration, now func() time.Time) *RevocationCach
 
 // Apply ingests a verified RevocationPublication and caches every
 // entry. Callers MUST verify the publication signature (via
-// VerifyRevocationPublication) before calling Apply — Apply itself
+// VerifyRevocationPublication) before calling Apply - Apply itself
 // does not re-verify.
 func (c *RevocationCache) Apply(pub *RevocationPublication) {
 	if c == nil || pub == nil {
@@ -322,7 +322,7 @@ func (c *RevocationCache) Invalidate() {
 
 // InvalidateKey removes the cached entry for a single key. Useful
 // when a key response includes a revocation that the sender didn't
-// expect — the sender invalidates just that key's cache and re-fetches.
+// expect - the sender invalidates just that key's cache and re-fetches.
 func (c *RevocationCache) InvalidateKey(keyID Fingerprint) {
 	if c == nil {
 		return

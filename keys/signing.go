@@ -11,7 +11,7 @@ import (
 )
 
 // SignatureAlgorithmEd25519 is the algorithm string used in
-// Signature.Algorithm for Ed25519 signatures — the only algorithm
+// Signature.Algorithm for Ed25519 signatures - the only algorithm
 // used for key-layer signatures in both currently defined SEMP
 // suites (ENVELOPE.md §7.3.1).
 const SignatureAlgorithmEd25519 = "ed25519"

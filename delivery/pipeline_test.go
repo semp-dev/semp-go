@@ -176,7 +176,7 @@ func TestPipelineHappyPathFederation(t *testing.T) {
 		t.Fatalf("Process: %v", err)
 	}
 	if res.Rejected() {
-		t.Fatalf("envelope unexpectedly rejected: %s — %s", res.Rejection.Code, res.Rejection.Reason)
+		t.Fatalf("envelope unexpectedly rejected: %s - %s", res.Rejection.Code, res.Rejection.Reason)
 	}
 	if len(res.Results) != 1 {
 		t.Fatalf("results = %d, want 1", len(res.Results))

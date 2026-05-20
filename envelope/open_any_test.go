@@ -125,7 +125,7 @@ func TestOpenBriefAnyHappyPath(t *testing.T) {
 }
 
 // TestOpenBriefAnyDeviceBOnly confirms that a candidate list
-// containing ONLY device B still succeeds — the helper iterates and
+// containing ONLY device B still succeeds - the helper iterates and
 // finds B's entry on the envelope.
 func TestOpenBriefAnyDeviceBOnly(t *testing.T) {
 	suite := crypto.SuiteBaseline
@@ -143,7 +143,7 @@ func TestOpenBriefAnyDeviceBOnly(t *testing.T) {
 // TestOpenBriefAnyIgnoresUnrelatedCandidates confirms that a
 // candidate whose fingerprint is NOT authorized on the envelope is
 // silently skipped, not treated as a failure. This is the
-// multi-device client passing its full key ring — most keys won't
+// multi-device client passing its full key ring - most keys won't
 // have entries on any given envelope.
 func TestOpenBriefAnyIgnoresUnrelatedCandidates(t *testing.T) {
 	suite := crypto.SuiteBaseline
@@ -248,7 +248,7 @@ func TestOpenEnclosureAnyRejectsServerKey(t *testing.T) {
 
 	_, err := envelope.OpenEnclosureAny(env, suite, []envelope.RecipientPrivateKey{srv})
 	if err == nil {
-		t.Error("OpenEnclosureAny accepted the server's domain key — privacy boundary broken")
+		t.Error("OpenEnclosureAny accepted the server's domain key - privacy boundary broken")
 	}
 	if !strings.Contains(err.Error(), "no candidate matches") {
 		t.Errorf("expected 'no candidate matches' error, got: %v", err)

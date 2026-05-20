@@ -11,10 +11,10 @@
 //
 // Specification references:
 //
-//   - ENVELOPE.md §4.3   — canonical envelope serialization for seal.signature
+//   - ENVELOPE.md §4.3   - canonical envelope serialization for seal.signature
 //                          and seal.session_mac.
-//   - HANDSHAKE.md §2.5.3 — confirmation hash over canonical(message_1) ||
+//   - HANDSHAKE.md §2.5.3 - confirmation hash over canonical(message_1) ||
 //                           canonical(message_2).
-//   - DISCOVERY.md §4.6  — signed SEMP_DISCOVERY responses.
-//   - VECTORS.md §3      — canonical serialization test vectors.
+//   - DISCOVERY.md §4.6  - signed SEMP_DISCOVERY responses.
+//   - VECTORS.md §3      - canonical serialization test vectors.
 package canonical

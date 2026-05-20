@@ -245,7 +245,7 @@ func hashSliceToBase64(hashes [][32]byte) []string {
 	return out
 }
 
-// MarshalEntries returns canonical JSON for a slice of entries —
+// MarshalEntries returns canonical JSON for a slice of entries -
 // useful for log mirroring or audit-monitor batch fetches.
 func MarshalEntries(entries []LogEntry) ([]byte, error) {
 	return json.Marshal(entries)

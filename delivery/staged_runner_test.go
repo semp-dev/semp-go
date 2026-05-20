@@ -351,7 +351,7 @@ func TestStagedSnapshot(t *testing.T) {
 	if rec, ok := snap["env-1"]; !ok || len(rec.Stages) != 2 {
 		t.Fatalf("snapshot missing env-1 or wrong stage count: %+v", snap)
 	}
-	// Mutate snapshot — live state must NOT change.
+	// Mutate snapshot - live state must NOT change.
 	snap["env-1"].Stages[0].PendingDeviceIDs[0] = "tampered"
 	live := h.runner.Snapshot()
 	if live["env-1"].Stages[0].PendingDeviceIDs[0] != "d-spam" {

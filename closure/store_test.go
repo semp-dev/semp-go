@@ -103,7 +103,7 @@ func TestStoreFinalizedLifecycle(t *testing.T) {
 // retainFor is clamped to MinRetention per §6.1 spec floor.
 func TestStorePruneClampsToMinRetention(t *testing.T) {
 	store := closure.NewInMemoryStore()
-	// Entry aged 100 days — past a 1-hour window but within the
+	// Entry aged 100 days - past a 1-hour window but within the
 	// 180-day spec floor.
 	stale := time.Now().UTC().Add(-100 * 24 * time.Hour)
 	_ = store.PutFinalized(context.Background(), "alice@example.com", stale)

@@ -124,7 +124,7 @@ type Policy interface {
 
 // NewServer constructs a Server from a ServerConfig. When
 // cfg.Capabilities is zero, the returned server advertises ONLY the
-// suite it was constructed with (cfg.Suite.ID()) — any mismatch
+// suite it was constructed with (cfg.Suite.ID()) - any mismatch
 // between what the server advertises and what it can actually speak
 // would cause Negotiate to pick an unsupported suite and the
 // handshake to fail mid-flight. Operators that run a single binary
@@ -273,7 +273,7 @@ func (s *Server) processInit(init *ClientInit) ([]byte, error) {
 		return nil, fmt.Errorf("handshake: client ephemeral key base64: %w", err)
 	}
 
-	// Recompute and stash canonical(init) — used for the confirmation hash.
+	// Recompute and stash canonical(init) - used for the confirmation hash.
 	initCanonical, err := CanonicalForHashing(init)
 	if err != nil {
 		return nil, fmt.Errorf("handshake: canonical init: %w", err)
@@ -287,7 +287,7 @@ func (s *Server) processInit(init *ClientInit) ([]byte, error) {
 	// hybrid Kyber768+X25519 suite it additionally encapsulates a
 	// Kyber shared key under the initiator's Kyber pub and packs
 	// (responderX25519Pub || kyberCiphertext) as ephPub. The server
-	// holds no ephemeral private key after this call — Encapsulate
+	// holds no ephemeral private key after this call - Encapsulate
 	// zeroizes it internally.
 	shared, ephPub, err := s.suite.KEM().Encapsulate(clientEphPub)
 	if err != nil {
@@ -363,7 +363,7 @@ func (s *Server) processInit(init *ClientInit) ([]byte, error) {
 	}
 
 	// Commit state. The server no longer holds an ephemeral private
-	// key — Encapsulate zeroized it internally — so ephemeralPriv is
+	// key - Encapsulate zeroized it internally - so ephemeralPriv is
 	// left nil on the Server struct.
 	s.sessionID = sessionID
 	s.clientNonce = clientNonce

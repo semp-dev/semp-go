@@ -42,7 +42,7 @@ type Cache interface {
 // version of the address so "Alice@Example.com" and
 // "alice@example.com" share one entry.
 //
-// This implementation is NOT encrypted at rest — it is strictly for
+// This implementation is NOT encrypted at rest - it is strictly for
 // demo binaries and tests. A production deployment would back the
 // cache with a persistent, encrypted store.
 func NewMemCache() Cache {

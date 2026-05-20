@@ -55,7 +55,7 @@ type SyncMessage struct {
 }
 
 // canonicalSyncMessageBytes returns the canonical JSON form of m with
-// signature.value elided — the same pattern used by observation,
+// signature.value elided - the same pattern used by observation,
 // discovery, and revocation signing. The algorithm and key_id fields
 // are preserved so an attacker cannot swap them without invalidating
 // the signature.
@@ -79,7 +79,7 @@ func canonicalSyncMessageBytes(m *SyncMessage) ([]byte, error) {
 
 // Sign computes an Ed25519 signature over the canonical form of m
 // with signature.value elided, and populates m.Signature. The private
-// key is the originating device's identity key — DELIVERY.md §6.2
+// key is the originating device's identity key - DELIVERY.md §6.2
 // requires every sync message to be signed by the device that
 // produced the update.
 //

@@ -16,7 +16,7 @@ import (
 // -----------------------------------------------------------------------------
 
 // canonicalDisclosureAuthorizationBytes returns the canonical JSON
-// form of auth with signature.value elided — same elider pattern as
+// form of auth with signature.value elided - same elider pattern as
 // the observation signer.
 func canonicalDisclosureAuthorizationBytes(auth *DisclosureAuthorization) ([]byte, error) {
 	if auth == nil {
@@ -38,7 +38,7 @@ func canonicalDisclosureAuthorizationBytes(auth *DisclosureAuthorization) ([]byt
 
 // SignDisclosureAuthorization computes an Ed25519 signature over the
 // canonical form of auth and populates auth.Signature. The user's
-// own identity private key is used — this is the proof REPUTATION.md
+// own identity private key is used - this is the proof REPUTATION.md
 // §3.7 requires before decrypted content can be included in abuse
 // evidence.
 func SignDisclosureAuthorization(signer crypto.Signer, privKey []byte, userKeyID keys.Fingerprint, auth *DisclosureAuthorization) error {
@@ -100,7 +100,7 @@ func VerifyDisclosureAuthorization(signer crypto.Signer, auth *DisclosureAuthori
 
 // UserKeyLookup resolves a user's identity public key. Used by
 // ValidateEvidence to verify embedded DisclosureAuthorization
-// signatures. Returning (nil, nil) means "unknown user" — callers
+// signatures. Returning (nil, nil) means "unknown user" - callers
 // MUST treat that as a §3.7 verification failure.
 type UserKeyLookup func(ctx any, user string) ([]byte, error)
 
@@ -110,7 +110,7 @@ type UserKeyLookup func(ctx any, user string) ([]byte, error)
 func ValidateEvidence(ev *Evidence, signer crypto.Signer, userKeys UserKeyLookup, ctx any) error {
 	switch ev.Type {
 	case "", EvidenceTypeEnvelopeMetadata:
-		// Metadata evidence is always acceptable — the postmark +
+		// Metadata evidence is always acceptable - the postmark +
 		// seal evidence can be independently verified by the
 		// receiving server from the sender's published domain key,
 		// and no user content is disclosed.
@@ -135,7 +135,7 @@ func ValidateEvidence(ev *Evidence, signer crypto.Signer, userKeys UserKeyLookup
 			// the authorization signature. Callers that run the
 			// handler in metadata-only mode may skip this by
 			// leaving Signer or UserKeys nil, but they also cannot
-			// accept sealed evidence — we check that here.
+			// accept sealed evidence - we check that here.
 			if signer == nil || userKeys == nil {
 				return fmt.Errorf("envelope[%d]: sealed evidence not accepted (handler lacks signer/user key lookup)", i)
 			}

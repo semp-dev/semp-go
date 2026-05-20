@@ -61,7 +61,7 @@ type PartitionConfig struct {
 	// AlphaRanges, if non-nil, overrides the default 26-letter
 	// mapping for StrategyAlpha. Each entry maps a contiguous
 	// range of first-characters to a server hostname. The default
-	// mapping splits a–z into roughly equal groups of Servers
+	// mapping splits a-z into roughly equal groups of Servers
 	// size and resolves via _semp-partition-<range>.<domain> SRV.
 	// This field is provided for callers that pre-resolve the
 	// SRV records; if nil, ResolvePartition falls back to the
@@ -119,7 +119,7 @@ func DefaultAlphaRanges(servers int) []AlphaRange {
 // server (published at _semp-partition-lookup.<domain> SRV) and
 // translating the query/response into this function signature. The
 // discovery package does not prescribe the wire format of the
-// lookup query — DISCOVERY.md §2.4 says "the partition server
+// lookup query - DISCOVERY.md §2.4 says "the partition server
 // address is published as a separate SRV record" and leaves the
 // query protocol to the implementation.
 type PartitionLookupFunc func(ctx context.Context, address string) (server string, err error)
@@ -219,7 +219,7 @@ func resolveHash(ctx context.Context, resolver *PartitionResolver, config *Parti
 	// SHA-256(address) mod N per DISCOVERY.md §2.4.
 	sum := sha256.Sum256([]byte(strings.ToLower(address)))
 	// Use the first 8 bytes as a big-endian uint64 for the mod
-	// operation. 8 bytes of SHA-256 gives a 64-bit space — more
+	// operation. 8 bytes of SHA-256 gives a 64-bit space - more
 	// than sufficient for any realistic server count.
 	idx := binary.BigEndian.Uint64(sum[:8]) % uint64(config.Servers)
 	return resolveSRV(ctx, resolver.DNS, config.Domain, fmt.Sprintf("semp-partition-%d", idx))

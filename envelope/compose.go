@@ -50,7 +50,7 @@ type ComposeInput struct {
 
 	// BriefRecipients lists every party that should be able to decrypt
 	// K_brief: typically the recipient server's domain key plus the
-	// recipient client's encryption key. Per ENVELOPE.md §7.1 steps 6–7.
+	// recipient client's encryption key. Per ENVELOPE.md §7.1 steps 6-7.
 	BriefRecipients []seal.RecipientKey
 
 	// EnclosureRecipients lists every party that should be able to
@@ -107,12 +107,12 @@ type ComposeInput struct {
 	BucketSequence []int64
 }
 
-// Compose performs steps 1–9 of the encryption flow in ENVELOPE.md §7.1:
+// Compose performs steps 1-9 of the encryption flow in ENVELOPE.md §7.1:
 // it generates fresh K_brief and K_enclosure, encrypts the brief and
 // enclosure under those keys, wraps the symmetric keys for each recipient,
 // assembles the seal, and returns the unsigned envelope.
 //
-// The returned envelope has Seal.Signature and Seal.SessionMAC empty —
+// The returned envelope has Seal.Signature and Seal.SessionMAC empty -
 // signing is performed by the sender's home server in a separate step
 // using seal.Signer (envelope.Sign in this package).
 //
@@ -204,7 +204,7 @@ func Compose(in *ComposeInput) (*Envelope, error) {
 	}
 	enclBlob := base64.StdEncoding.EncodeToString(append(enclNonce, enclCT...))
 
-	// Steps 6–8: wrap K_brief and K_enclosure for recipients.
+	// Steps 6-8: wrap K_brief and K_enclosure for recipients.
 	wrapper := seal.NewWrapper(in.Suite)
 	if wrapper == nil {
 		return nil, errors.New("envelope: nil wrapper for suite")
@@ -290,7 +290,7 @@ func countByKind(rs []seal.RecipientKey, want seal.RecipientKind) (int, error) {
 	return n, nil
 }
 
-// Sign performs steps 10–12 of the encryption flow in ENVELOPE.md §7.1:
+// Sign performs steps 10-12 of the encryption flow in ENVELOPE.md §7.1:
 // it computes the canonical envelope bytes, signs them with the sender
 // domain private key, and MACs them with K_env_mac, storing both proofs
 // in env.Seal.

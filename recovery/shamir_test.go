@@ -9,7 +9,7 @@ import (
 	"semp.dev/semp-go/recovery"
 )
 
-// kBundleLen mirrors the §2.5 K_bundle width — the most important
+// kBundleLen mirrors the §2.5 K_bundle width - the most important
 // real-world Shamir input length for SEMP. Many tests use this so a
 // regression on the 32-byte path is obvious.
 const kBundleLen = 32
@@ -26,7 +26,7 @@ func randSecret(t *testing.T, n int) []byte {
 // TestShamirRoundTrip exercises every (M, N) pair within spec
 // bounds. Splitting is run once; combining is then run on every
 // M-subset that contains the lowest-indexed shares (a representative
-// sweep — exhaustively trying all M-of-N subsets is overkill). The
+// sweep - exhaustively trying all M-of-N subsets is overkill). The
 // secret length is the §2.5 K_bundle width.
 func TestShamirRoundTrip(t *testing.T) {
 	secret := randSecret(t, kBundleLen)

@@ -140,7 +140,7 @@ func TestBlockListMatchExpired(t *testing.T) {
 // keeps the block live for the brief skew window so a sender does
 // not slip through during clock disagreement.
 func TestBlockListMatchGraceWindow(t *testing.T) {
-	// 5 minutes past expiry — well inside the 15-min Default grace.
+	// 5 minutes past expiry - well inside the 15-min Default grace.
 	withinGrace := time.Now().UTC().Add(-5 * time.Minute)
 	entry := userEntry("alice@example.com", semp.AckRejected)
 	entry.ExpiresAt = &withinGrace

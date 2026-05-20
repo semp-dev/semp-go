@@ -132,7 +132,7 @@ func TestDriverTickBeforeDeadlineNoOp(t *testing.T) {
 	})
 	_ = d.Submit(context.Background(), requestRecord("alice@example.com", t0, 7*24*time.Hour))
 
-	// Tick at t0 — well before deadline.
+	// Tick at t0 - well before deadline.
 	finalized, err := d.Tick(context.Background())
 	if err != nil {
 		t.Fatalf("Tick: %v", err)

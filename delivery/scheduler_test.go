@@ -164,7 +164,7 @@ func TestSchedulerRecoverableRetries(t *testing.T) {
 	_ = sched.Enqueue(context.Background(), "env-1", "alice@example.com",
 		clk.Now().Add(72*time.Hour))
 
-	// Tick 1 — recoverable rejection schedules a retry.
+	// Tick 1 - recoverable rejection schedules a retry.
 	if _, err := sched.Tick(context.Background()); err != nil {
 		t.Fatalf("Tick 1: %v", err)
 	}
@@ -175,7 +175,7 @@ func TestSchedulerRecoverableRetries(t *testing.T) {
 	if q.NextAttemptAt == nil {
 		t.Fatal("NextAttemptAt is nil after recoverable rejection")
 	}
-	// Advance past NextAttemptAt; tick 2 — silent, schedules another.
+	// Advance past NextAttemptAt; tick 2 - silent, schedules another.
 	clk.Set(q.NextAttemptAt.Add(time.Second))
 	if _, err := sched.Tick(context.Background()); err != nil {
 		t.Fatalf("Tick 2: %v", err)
@@ -214,7 +214,7 @@ func TestSchedulerExpiresAtDeadline(t *testing.T) {
 	sched, _ := delivery.NewScheduler(delivery.SchedulerConfig{
 		Store: store, Deliver: deliver, NowFn: clk.Now,
 	})
-	// Postmark expires in 30 seconds — well below the next-attempt
+	// Postmark expires in 30 seconds - well below the next-attempt
 	// floor so the attempt's NextAttemptAt will be past Deadline.
 	_ = sched.Enqueue(context.Background(), "env-1", "alice@example.com",
 		t0.Add(30*time.Second))

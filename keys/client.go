@@ -20,7 +20,7 @@ type ClientStream interface {
 // Fetcher is a tiny client-side wrapper that sends a SEMP_KEYS request
 // over an authenticated session and returns the parsed response. It
 // does not perform any signature verification on the returned key
-// records — that is the caller's responsibility (per CLIENT.md §5.4.5).
+// records - that is the caller's responsibility (per CLIENT.md §5.4.5).
 type Fetcher struct {
 	// Stream is the authenticated session to the home server. Must be
 	// set before calling FetchKeys.

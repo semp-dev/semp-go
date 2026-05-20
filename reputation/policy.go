@@ -10,7 +10,7 @@ import (
 // decision "should this handshake be PoW-gated, and if so, at what
 // difficulty?". Operators plug it into the handshake layer via the
 // HandshakeAdapter below, which implements handshake.Policy (through
-// duck-typing — we avoid importing handshake here to prevent a
+// duck-typing - we avoid importing handshake here to prevent a
 // dependency cycle).
 //
 // The decision curve matches REPUTATION.md §8.3.2:
@@ -28,7 +28,7 @@ type PoWPolicy struct {
 	// Store is the reputation signal source. Required.
 	Store *ObservationStore
 
-	// Ledger tracks issued and redeemed challenges. Required — without
+	// Ledger tracks issued and redeemed challenges. Required - without
 	// a ledger the server cannot enforce the single-use rule from
 	// REPUTATION.md §8.3.4.
 	Ledger *ChallengeLedger
@@ -92,7 +92,7 @@ func (p *PoWPolicy) difficultyFor(domain string) int {
 	}
 	ageDiff := DifficultyForAge(ageDays)
 
-	// Use the HIGHER of the two signals — a trusted-but-very-new
+	// Use the HIGHER of the two signals - a trusted-but-very-new
 	// domain still gets the age friction; a suspicious-but-old domain
 	// still gets the assessment friction.
 	d := assessmentDiff
@@ -130,7 +130,7 @@ func (p *PoWPolicy) score(domain string) Score {
 //
 // On success the challenge is marked redeemed and (nil) is returned.
 // On any failure the ledger is NOT touched so the caller can attempt
-// verification with a fresh solution if the client retries — unless
+// verification with a fresh solution if the client retries - unless
 // the failure is the ledger's own single-use rejection, in which case
 // the challenge stays marked redeemed (which is correct).
 func (p *PoWPolicy) RedeemAndVerify(challengeID string, verify func(prefix []byte, difficulty int) error) error {
@@ -150,7 +150,7 @@ func (p *PoWPolicy) RedeemAndVerify(challengeID string, verify func(prefix []byt
 
 // HandshakeAdapter wraps a PoWPolicy so it satisfies the handshake
 // package's Policy interface without this package having to import
-// handshake (and thereby creating a cycle — handshake already depends
+// handshake (and thereby creating a cycle - handshake already depends
 // on reputation-shaped concepts). The adapter embeds a DelegatePolicy
 // for the non-PoW decisions (block lists, session TTL, permissions)
 // and delegates to it for everything other than RequireChallenge.
@@ -164,7 +164,7 @@ func (p *PoWPolicy) RedeemAndVerify(challengeID string, verify func(prefix []byt
 //	}
 //	handshake.NewServer(handshake.ServerConfig{ Policy: policy, ... })
 //
-// The Delegate is required — it owns the fields PoWPolicy does not.
+// The Delegate is required - it owns the fields PoWPolicy does not.
 type HandshakeAdapter struct {
 	PoW      *PoWPolicy
 	Delegate DelegatePolicy
@@ -173,7 +173,7 @@ type HandshakeAdapter struct {
 	// sender's domain. The handshake layer does not give us the
 	// sender's domain at the PoW decision point (the encrypted
 	// identity proof is not yet opened), so we rely on the operator
-	// to plumb per-connection domain hints — typically by remembering
+	// to plumb per-connection domain hints - typically by remembering
 	// the TLS SNI or the HTTP request's Host header when they accept
 	// the transport connection.
 	//

@@ -31,7 +31,7 @@ const DefaultIdleTimeout = 60 * time.Second
 // corresponding POST response body, correlated across calls by the
 // Semp-Session-Id header that h2.Client threads automatically.
 //
-// persistentClient is NOT safe for concurrent Send/Recv — the underlying
+// persistentClient is NOT safe for concurrent Send/Recv - the underlying
 // *h2.Client is single-threaded and the turn buffer is a one-element slot.
 type persistentClient struct {
 	client *Client
@@ -71,7 +71,7 @@ func (pc *persistentClient) Send(ctx context.Context, msg []byte) error {
 	pc.pendingMu.Lock()
 	if pc.hasPending {
 		pc.pendingMu.Unlock()
-		return errors.New("h2: Send called before previous Recv — persistent client is turn-based")
+		return errors.New("h2: Send called before previous Recv - persistent client is turn-based")
 	}
 	pc.pendingMu.Unlock()
 
@@ -103,7 +103,7 @@ func (pc *persistentClient) Recv(ctx context.Context) ([]byte, error) {
 	pc.pendingMu.Lock()
 	defer pc.pendingMu.Unlock()
 	if !pc.hasPending {
-		return nil, errors.New("h2: Recv called without a buffered response — call Send first")
+		return nil, errors.New("h2: Recv called without a buffered response - call Send first")
 	}
 	body := pc.pending
 	pc.pending = nil
@@ -113,7 +113,7 @@ func (pc *persistentClient) Recv(ctx context.Context) ([]byte, error) {
 
 // Close marks the client as closed; subsequent Send or Recv calls return
 // errors. The underlying *http.Client is shared with the embedded
-// h2.Client and is not torn down — callers that want to release the HTTP
+// h2.Client and is not torn down - callers that want to release the HTTP
 // transport should do so themselves.
 func (pc *persistentClient) Close() error {
 	if pc == nil {

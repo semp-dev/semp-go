@@ -71,13 +71,13 @@ type Rekeyer struct {
 // keys per SESSION.md §3.2. The AEAD additional data binds each
 // ciphertext to the direction label, the current session ID, and the
 // corresponding MAC key, so an attacker who somehow extracted the
-// encryption key alone still could not forge a message — the MAC
+// encryption key alone still could not forge a message - the MAC
 // key is mixed into the AAD.
 //
-// Rekey is NOT invoked automatically — callers decide when to rekey
+// Rekey is NOT invoked automatically - callers decide when to rekey
 // (typically at 80% TTL per SESSION.md §3.1).
 //
-// Reference: SESSION.md §3.2 – §3.5.
+// Reference: SESSION.md §3.2 - §3.5.
 func (r *Rekeyer) Rekey(ctx context.Context, stream RekeyStream) error {
 	if r == nil || r.Suite == nil || r.Session == nil {
 		return errors.New("session: nil rekeyer")
@@ -308,7 +308,7 @@ func (h *RekeyHandler) Handle(ctx context.Context, stream RekeyStream, raw []byt
 	// + Agree flow (Encapsulate internally generates a fresh X25519
 	// pair); for the hybrid suite it packs responderX25519Pub ||
 	// kyberCiphertext. The responder holds no ephemeral private key
-	// after this call — Encapsulate zeroizes it internally.
+	// after this call - Encapsulate zeroizes it internally.
 	shared, respEphPub, err := h.Suite.KEM().Encapsulate(initiatorEphPub)
 	if err != nil {
 		return h.reject(ctx, stream, respDir, init.SessionID, "rekey_unsupported",
@@ -348,7 +348,7 @@ func (h *RekeyHandler) Handle(ctx context.Context, stream RekeyStream, raw []byt
 	if err != nil {
 		return fmt.Errorf("session: marshal rekey_accepted: %w", err)
 	}
-	// Seal the response under the OLD session keys — the peer only
+	// Seal the response under the OLD session keys - the peer only
 	// gets to see the accepted message after successful AEAD open,
 	// which proves we hold the keys. After we apply the rekey we
 	// switch to the new keys for any subsequent message.
@@ -413,7 +413,7 @@ func peekRekeyStep(data []byte) (string, error) {
 
 // newRekeySessionID returns a fresh session ID for a rekey exchange.
 // The format is a 26-character Crockford base32 string similar to the
-// one handshake.newULID produces — we inline a tiny generator rather
+// one handshake.newULID produces - we inline a tiny generator rather
 // than import handshake (which would create a cycle).
 func newRekeySessionID() (string, error) {
 	const alphabet = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"

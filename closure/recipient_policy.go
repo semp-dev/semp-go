@@ -45,7 +45,7 @@ type RecipientPolicyOptions struct {
 
 // RecipientPolicy returns the adapter described in
 // RecipientPolicyOptions. The returned function has signature
-// compatible with delivery.RecipientPolicyFunc — operators wire it
+// compatible with delivery.RecipientPolicyFunc - operators wire it
 // as `pipeline.RecipientPolicy = closureDriver.RecipientPolicy(opts)`.
 func (d *Driver) RecipientPolicy(opts RecipientPolicyOptions) recipientPolicyFunc {
 	now := opts.NowFn

@@ -39,7 +39,7 @@ var ErrStreamBusy = errors.New("h2: session stream already open")
 // line terminators (WHATWG HTML §9.2). EncodeEvent normalizes any of
 // those three forms to a single LF before emitting each data line,
 // which means bare CR / CRLF bytes in msg do not survive the
-// round trip — they are all collapsed to LF. This is fine for SEMP
+// round trip - they are all collapsed to LF. This is fine for SEMP
 // because every SEMP payload is a JSON document where control bytes
 // are escaped (`\r`, `\n`), so the wire form never actually carries
 // a literal CR or LF. Callers that want to transmit arbitrary binary
@@ -59,7 +59,7 @@ func EncodeEvent(msg []byte) []byte {
 
 // splitSSELines splits msg on any SSE-recognized line terminator (CR,
 // LF, or CRLF), returning one element per line. A trailing terminator
-// does NOT produce a trailing empty line — matching the behavior of
+// does NOT produce a trailing empty line - matching the behavior of
 // strings.Split when the final byte is the separator is explicitly
 // what we want, because an empty trailing element would emit a spurious
 // `data: ` line and the decoder would then see an extra empty-data
@@ -135,7 +135,7 @@ func (er *EventReader) ReadEvent() ([]byte, error) {
 				return data, nil
 			}
 			// Empty leading blank lines (keepalives, initial handshake
-			// comment flushes) are benign — keep reading.
+			// comment flushes) are benign - keep reading.
 			if err == io.EOF {
 				return nil, io.EOF
 			}
@@ -213,7 +213,7 @@ type SessionStreamConn struct {
 // is true (tests and local development only).
 //
 // OpenSessionStream does NOT apply cfg.HTTPClient's Timeout to the
-// stream — session streams are expected to live for the duration of
+// stream - session streams are expected to live for the duration of
 // the session and the caller's ctx is the only cancellation source.
 // If cfg.HTTPClient is nil, a fresh timeout-free *http.Client is
 // constructed. Consumers that want a shared transport should pass a

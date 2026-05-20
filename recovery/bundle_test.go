@@ -36,7 +36,7 @@ func recommendedKDF(t *testing.T) recovery.BundleKDF {
 // normalization rules per RECOVERY.md §3.2: NFKC, surrounding
 // whitespace trimmed.
 func TestNormalizeRecoverySecretPassphrase(t *testing.T) {
-	// "ﬃ" (U+FB03) is the NFKC decomposition target "ffi" — three
+	// "ﬃ" (U+FB03) is the NFKC decomposition target "ffi" - three
 	// bytes of input produce three bytes of output, but the bytes
 	// themselves change.
 	got, err := recovery.NormalizeRecoverySecret(recovery.SecretFormPassphrase, "  long-enough-pass-ﬃ  ")
@@ -222,7 +222,7 @@ func TestEncryptDecryptBundlePayload(t *testing.T) {
 }
 
 // TestEncryptBundlePayloadRejectsBadNonce confirms a non-24-byte
-// nonce is refused — this is the AEAD's invariant, but the helper
+// nonce is refused - this is the AEAD's invariant, but the helper
 // returns the more-actionable error first.
 func TestEncryptBundlePayloadRejectsBadNonce(t *testing.T) {
 	bundleKey := make([]byte, 32)

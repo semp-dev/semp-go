@@ -18,7 +18,7 @@ import (
 //   → server-unwraps-brief → client-unwraps-brief → client-unwraps-enclosure
 //
 // All in one process. No transports, no real handshake, no real key
-// distribution — those layers are still stubs. The point is to prove that
+// distribution - those layers are still stubs. The point is to prove that
 // the data model and the seal layer mesh correctly with the crypto layer:
 // every byte that the sender produces is consumable by the receiver,
 // and every tampered byte is rejected.
@@ -192,7 +192,7 @@ func TestEnvelopeRoundTrip(t *testing.T) {
 
 	// --- 9. Receiving server CANNOT decrypt the enclosure (no wrap).
 	if _, err := envelope.OpenEnclosure(got, suite, receiverServerKeyID, receiverServerEncPriv, receiverServerEncPub); err == nil {
-		t.Error("server was able to decrypt the enclosure — this MUST NOT happen")
+		t.Error("server was able to decrypt the enclosure - this MUST NOT happen")
 	}
 
 	// --- 10. Tampering with the wire bytes must fail signature verification.

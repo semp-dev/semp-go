@@ -17,9 +17,9 @@
 //
 // Specification references:
 //
-//   - ENVELOPE.md §7.3   — algorithm suite definitions and requirements.
-//   - HANDSHAKE.md §2.4  — shared secret derivation procedure.
-//   - SESSION.md §2.1    — five session key labels and their lifetimes.
-//   - SESSION.md §4      — post-quantum hybrid construction.
-//   - VECTORS.md §2      — deterministic key derivation test vectors.
+//   - ENVELOPE.md §7.3   - algorithm suite definitions and requirements.
+//   - HANDSHAKE.md §2.4  - shared secret derivation procedure.
+//   - SESSION.md §2.1    - five session key labels and their lifetimes.
+//   - SESSION.md §4      - post-quantum hybrid construction.
+//   - VECTORS.md §2      - deterministic key derivation test vectors.
 package crypto

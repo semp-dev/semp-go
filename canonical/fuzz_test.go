@@ -35,7 +35,7 @@ func FuzzCanonicalMarshal(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
 		var v any
 		if err := json.Unmarshal(data, &v); err != nil {
-			// Not valid JSON — canonical.Marshal is not required to
+			// Not valid JSON - canonical.Marshal is not required to
 			// handle raw bytes that wouldn't have come from a
 			// legitimate encoding/json producer.
 			return

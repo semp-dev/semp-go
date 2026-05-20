@@ -23,7 +23,7 @@ type PipelineLogger interface {
 }
 
 // DomainKeyLookup is the minimal lookup interface needed by step 1 of
-// DELIVERY.md §2 — verifying seal.signature against the sender domain's
+// DELIVERY.md §2 - verifying seal.signature against the sender domain's
 // published key. Returning (nil, nil) means "no key on file"; the
 // pipeline treats that as `seal_invalid` rather than failing open.
 type DomainKeyLookup interface {
@@ -58,7 +58,7 @@ type DomainPolicyFunc func(ctx context.Context, fromDomain, fromServer string) (
 // whether a recipient address belongs to a local user (in which case
 // the envelope is stored in the inbox) or a remote one (in which case
 // the recipient is reported as recipient_not_found). The pipeline does
-// NOT forward to remote peers itself — that responsibility belongs to
+// NOT forward to remote peers itself - that responsibility belongs to
 // the caller (the federation Forwarder).
 type LocalAddressFunc func(address string) bool
 
@@ -92,7 +92,7 @@ type EnvMACFunc func() []byte
 // the orchestration. The exported Process method runs all steps in
 // order and short-circuits on the first failure.
 //
-// Pipeline does NOT generate signatures or session_macs — that is the
+// Pipeline does NOT generate signatures or session_macs - that is the
 // submission path's job (CLIENT.md §1.3, ENVELOPE.md §7.1 step 8). Set
 // SkipSignatureCheck and SkipSessionMACCheck to true when running the
 // pipeline against a freshly-signed local-client envelope where the
@@ -123,7 +123,7 @@ type Pipeline struct {
 	SkipSignatureCheck bool
 
 	// SkipSessionMACCheck disables step 4 entirely. Same rationale as
-	// SkipSignatureCheck — the home server has not yet bound a
+	// SkipSignatureCheck - the home server has not yet bound a
 	// session MAC at submission time.
 	SkipSessionMACCheck bool
 
@@ -164,7 +164,7 @@ type Pipeline struct {
 
 	// Inbox is where successfully-delivered envelopes are written at
 	// step 9. Nil makes step 9 a no-op (recipients still get a
-	// `delivered` outcome but nothing is stored — useful in pure
+	// `delivered` outcome but nothing is stored - useful in pure
 	// policy tests).
 	Inbox InboxStore
 
@@ -209,7 +209,7 @@ func (r *Result) Rejected() bool { return r != nil && r.Rejection != nil }
 // Process runs the full pipeline against env on behalf of the local
 // home server and returns a Result. A non-nil error is reserved for
 // transport-level failures (e.g. re-encoding the envelope for storage)
-// — pipeline-level rejections are surfaced through Result.Rejection
+// - pipeline-level rejections are surfaced through Result.Rejection
 // and per-recipient rejections through Result.Results.
 func (p *Pipeline) Process(ctx context.Context, env *envelope.Envelope) (*Result, error) {
 	if p == nil {
@@ -342,7 +342,7 @@ func (p *Pipeline) checkSessionID(ctx context.Context, env *envelope.Envelope) *
 	}
 	retired, err := p.Sessions.Retired(ctx, env.Postmark.SessionID)
 	if err != nil {
-		// Lookup failures fail open — log and continue rather than
+		// Lookup failures fail open - log and continue rather than
 		// blackhole every envelope on a transient store error.
 		p.logf("session expiry lookup error for %s: %v", env.Postmark.SessionID, err)
 		return nil
@@ -378,7 +378,7 @@ func (p *Pipeline) checkDomainPolicy(ctx context.Context, env *envelope.Envelope
 	}
 	// We do not currently track per-hop server hostnames in the
 	// envelope; the postmark only carries from_domain. The hook is
-	// passed an empty server string for forward compatibility — once
+	// passed an empty server string for forward compatibility - once
 	// we add a routed-through-server field to the postmark we can
 	// thread it here.
 	ack, code, reason := p.DomainPolicy(ctx, env.Postmark.FromDomain, "")

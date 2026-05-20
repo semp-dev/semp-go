@@ -9,9 +9,9 @@
 // transports, and the recommended transport fallback order. The three core
 // bindings live in subpackages:
 //
-//   - transport/ws   — WebSocket binding (RECOMMENDED default).
-//   - transport/h2   — HTTP/2 binding.
-//   - transport/quic — QUIC / HTTP/3 binding.
+//   - transport/ws   - WebSocket binding (RECOMMENDED default).
+//   - transport/h2   - HTTP/2 binding.
+//   - transport/quic - QUIC / HTTP/3 binding.
 //
 // Specification reference: TRANSPORT.md.
 package transport

@@ -58,7 +58,7 @@ type Result struct {
 	// populated when the Result was produced via the well-known URI
 	// path. DNS-only resolution (SRV+TXT without well-known) leaves
 	// this nil. This field is NOT part of the SEMP_DISCOVERY wire
-	// format — it's library-internal state that lets downstream
+	// format - it's library-internal state that lets downstream
 	// callers (e.g. the federation forwarder) inspect the full endpoint
 	// map without re-fetching.
 	Configuration *Configuration `json:"-"`
@@ -122,7 +122,7 @@ type defaultResolver struct {
 // Resolve implements the DISCOVERY.md §5.1 standard flow for a single
 // address:
 //
-//  1. Cache lookup — if present and within TTL, return.
+//  1. Cache lookup - if present and within TTL, return.
 //  2. DNS SRV + TXT for _semp._tcp.<domain>. If SRV records exist
 //     AND the TXT record advertises v=semp1, return status=semp.
 //  3. Well-known URI GET. If it returns a valid configuration,

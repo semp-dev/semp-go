@@ -114,7 +114,7 @@ type ClientInit struct {
 // The first (and currently only) defined challenge type is
 // ChallengeTypeProofOfWork, whose Parameters unmarshal into
 // PoWChallengeParams. Future challenge types can be added without
-// changing this struct — clients that do not recognize the
+// changing this struct - clients that do not recognize the
 // challenge_type MUST abort the handshake.
 type Challenge struct {
 	Type            string          `json:"type"`

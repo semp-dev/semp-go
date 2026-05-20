@@ -15,7 +15,7 @@ func TestWrapUnwrapRoundTrip(t *testing.T) {
 	wrapper := NewWrapper(suite)
 
 	// Recipient generates a long-term encryption key pair (we reuse the
-	// X25519 KEM for both ephemeral and long-term keys here — same
+	// X25519 KEM for both ephemeral and long-term keys here - same
 	// curve, same key material shape).
 	recipientPub, recipientPriv, err := suite.KEM().GenerateKeyPair()
 	if err != nil {

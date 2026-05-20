@@ -89,7 +89,7 @@ func TestRotationDriverFreshKeySkips(t *testing.T) {
 	}
 	// Create the initial key.
 	driver.Run(context.Background(), []keys.RotationPolicy{policy})
-	// Advance 10 days — still fresh.
+	// Advance 10 days - still fresh.
 	now = now.Add(10 * 24 * time.Hour)
 	results := driver.Run(context.Background(), []keys.RotationPolicy{policy})
 	if results[0].Rotated {
@@ -114,7 +114,7 @@ func TestRotationDriverRotatesExpiredKey(t *testing.T) {
 	r1 := driver.Run(context.Background(), []keys.RotationPolicy{policy})
 	oldKeyID := r1[0].NewKeyID
 
-	// Advance 31 days — past rotation deadline.
+	// Advance 31 days - past rotation deadline.
 	now = now.Add(31 * 24 * time.Hour)
 	r2 := driver.Run(context.Background(), []keys.RotationPolicy{policy})
 	if !r2[0].Rotated {

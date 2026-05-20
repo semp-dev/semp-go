@@ -47,7 +47,7 @@ func VerifySessionMAC(env *Envelope, suite crypto.Suite, envMAC []byte) error {
 // private key, which MUST be authorized in env.Seal.BriefRecipients under
 // recipientFingerprint. Used by both the receiving server (with its domain
 // encryption private key) and the receiving client (with its client
-// encryption private key) per ENVELOPE.md §7.2 steps 5–6 and step 8–9.
+// encryption private key) per ENVELOPE.md §7.2 steps 5-6 and step 8-9.
 func OpenBrief(env *Envelope, suite crypto.Suite, recipientFingerprint keys.Fingerprint, recipientPrivateKey, recipientPublicKey []byte) (*brief.Brief, error) {
 	if env == nil {
 		return nil, errors.New("envelope: nil envelope")
@@ -119,7 +119,7 @@ type RecipientPrivateKey struct {
 //
 // The function tries each candidate whose Fingerprint is present in
 // env.Seal.BriefRecipients; candidates whose fingerprints are not
-// authorized are skipped silently (they're not an error — a
+// authorized are skipped silently (they're not an error - a
 // multi-device user may pass the full key ring even when only one
 // key has a wrap entry). If every present candidate fails to
 // decrypt, the last underlying error is returned wrapped.

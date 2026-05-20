@@ -169,7 +169,7 @@ func (c *Client) Init() ([]byte, error) {
 // be aborted (HANDSHAKE.md §2.2a).
 //
 // If the challenge_type is not recognized, OnChallenge returns an error
-// and the client MUST abort the handshake — per the spec a client that
+// and the client MUST abort the handshake - per the spec a client that
 // does not recognize the challenge_type MUST NOT proceed.
 func (c *Client) OnChallenge(data []byte) ([]byte, error) {
 	if c == nil || c.suite == nil {
@@ -253,7 +253,7 @@ func (c *Client) OnChallenge(data []byte) ([]byte, error) {
 // session secret, and returns the confirm (message 3) bytes plus a partially
 // initialized Session that the caller will finalize on OnAccepted.
 //
-// Steps performed (HANDSHAKE.md §2.3 – §2.5, SESSION.md §2.1):
+// Steps performed (HANDSHAKE.md §2.3 - §2.5, SESSION.md §2.1):
 //
 //  1. Parse the response and verify it echoes our nonce.
 //  2. Look up the server's domain public key via the store and verify
@@ -408,7 +408,7 @@ func (c *Client) OnResponse(data []byte) (confirm []byte, sess *session.Session,
 	c.negotiated = resp.Negotiated
 
 	// Build a partially populated Session. The handshake is not yet
-	// established — OnAccepted will set State and timing fields.
+	// established - OnAccepted will set State and timing fields.
 	sess = session.New(session.RoleClient)
 	sess.ID = resp.SessionID
 	sess.PeerIdentity = c.serverDomain

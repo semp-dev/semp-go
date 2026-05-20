@@ -29,13 +29,13 @@ const (
 )
 
 // HybridPublicKeySize is the wire size of a concatenated X25519 || Kyber768
-// public key — what HybridKEMKyber768X25519.GenerateKeyPair returns as
+// public key - what HybridKEMKyber768X25519.GenerateKeyPair returns as
 // the first element and what the client sends as its ephemeral pub key
 // during the handshake.
 const HybridPublicKeySize = curve25519.PointSize + Kyber768PublicKeySize // 1216
 
 // HybridPrivateKeySize is the wire size of a concatenated X25519 || Kyber768
-// private key — held only in memory by the initiator between its init
+// private key - held only in memory by the initiator between its init
 // message and its receipt of the server's response.
 const HybridPrivateKeySize = curve25519.ScalarSize + Kyber768PrivateKeySize // 2432
 
@@ -67,7 +67,7 @@ const HybridSharedSecretSize = Kyber768SharedKeySize + curve25519.PointSize // 6
 //     (K_kyber || K_x25519), and returns the combined ciphertext as
 //     responderX25519Pub || kyberCiphertext (1120 bytes). This
 //     ciphertext is what goes on the wire as the "server ephemeral key"
-//     field in the ServerResponse message — the same slot the baseline
+//     field in the ServerResponse message - the same slot the baseline
 //     X25519 suite uses for a plain 32-byte public key.
 //
 //   - Initiator receives the responder's wire blob, splits it into
@@ -83,7 +83,7 @@ const HybridSharedSecretSize = Kyber768SharedKeySize + curve25519.PointSize // 6
 // is the initiator-side keygen, Encapsulate is the responder-side
 // "compute-shared-and-pack-ciphertext" call, and Decapsulate is the
 // initiator-side "unpack-and-combine" call. Agree is NOT supported
-// because hybrid Kyber has no Diffie-Hellman-style agree primitive —
+// because hybrid Kyber has no Diffie-Hellman-style agree primitive -
 // callers that expect symmetric DH (e.g. legacy X25519 code) must use
 // Encapsulate/Decapsulate instead. Agree returns a descriptive error.
 type kemHybridKyber768X25519 struct{}
@@ -102,7 +102,7 @@ func NewKEMHybridKyber768X25519() KEM { return kemHybridKyber768X25519{} }
 // USE CASES are intentionally narrow: cross-language test vectors and
 // determinism audits. Production keygen MUST use the entropy-driven
 // GenerateKeyPair / NewKEMHybridKyber768X25519().GenerateKeyPair() path
-// — a deterministic keygen that leaks d or z reduces to "the
+// - a deterministic keygen that leaks d or z reduces to "the
 // adversary has the private key".
 //
 // Returns the packed public-key bytes (Kyber768PublicKeySize) and
@@ -207,7 +207,7 @@ func (kemHybridKyber768X25519) GenerateKeyPair() (publicKey, privateKey []byte, 
 // the returned ciphertext, matching the cross-language vectors and
 // ENVELOPE.md §4.4.1.
 //
-// The responder does not need to retain any state after this call —
+// The responder does not need to retain any state after this call -
 // its ephemeral X25519 private key is zeroized internally before
 // return.
 func (kemHybridKyber768X25519) Encapsulate(remotePub []byte) (sharedSecret, ciphertext []byte, err error) {
@@ -307,7 +307,7 @@ func (kemHybridKyber768X25519) Decapsulate(ciphertext, localPriv []byte) (shared
 }
 
 // Agree is not supported by the hybrid KEM. Kyber768 is a KEM, not a
-// Diffie-Hellman primitive — the responder must use Encapsulate to
+// Diffie-Hellman primitive - the responder must use Encapsulate to
 // derive the shared secret and produce a ciphertext for the initiator
 // to Decapsulate. Calling Agree on a hybrid KEM returns a descriptive
 // error so legacy X25519 code paths (which call Agree directly) get a

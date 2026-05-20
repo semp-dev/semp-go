@@ -325,7 +325,7 @@ func ValidateKey(identifier string) error {
 
 // validateVendorDomain checks the domain component of a vendor
 // extension key. It applies the same DNS structural rules used by
-// brief.Address.Validate: ≤ 253 bytes, dot-separated labels of 1–63
+// brief.Address.Validate: ≤ 253 bytes, dot-separated labels of 1-63
 // bytes, no leading/trailing hyphen on any label, no empty labels.
 // This mirrors RFC 1035's LDH rule but relaxes case-insensitivity
 // (we accept mixed case, the brief package lowercases elsewhere).
@@ -358,7 +358,7 @@ func validateVendorDomain(domain string) error {
 		}
 	}
 	// A plain "vendor/foo" (no dots in the "domain" part) is a
-	// degenerate case — technically the spec says the domain MUST
+	// degenerate case - technically the spec says the domain MUST
 	// be a controlled DNS name. Require at least one dot so
 	// "vendor/foo" or "localhost/foo" are rejected.
 	if !strings.Contains(domain, ".") {

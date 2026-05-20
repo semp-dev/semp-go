@@ -5,26 +5,26 @@ type State int
 
 // Lifecycle states.
 const (
-	// StateInitial — created but not yet established.
+	// StateInitial - created but not yet established.
 	StateInitial State = iota
 
-	// StateHandshaking — handshake in progress.
+	// StateHandshaking - handshake in progress.
 	StateHandshaking
 
-	// StateActive — handshake complete, accepting envelopes.
+	// StateActive - handshake complete, accepting envelopes.
 	StateActive
 
-	// StateRekeying — in-session rekey exchange in progress.
+	// StateRekeying - in-session rekey exchange in progress.
 	StateRekeying
 
-	// StateExpired — TTL elapsed; key material still in memory until Erase.
+	// StateExpired - TTL elapsed; key material still in memory until Erase.
 	StateExpired
 
-	// StateInvalidated — explicitly invalidated by the server (block, key
+	// StateInvalidated - explicitly invalidated by the server (block, key
 	// revocation, security event).
 	StateInvalidated
 
-	// StateErased — Erase has been called; the session struct is now inert.
+	// StateErased - Erase has been called; the session struct is now inert.
 	StateErased
 )
 
@@ -56,9 +56,9 @@ type Role int
 
 // Session roles.
 const (
-	// RoleClient — a user client to its home server.
+	// RoleClient - a user client to its home server.
 	RoleClient Role = iota
 
-	// RoleFederation — a server-to-server federation connection.
+	// RoleFederation - a server-to-server federation connection.
 	RoleFederation
 )

@@ -143,7 +143,7 @@ func TestRekeySealTamperedCiphertextRejected(t *testing.T) {
 
 // TestRekeySealWireFormatIsOpaque confirms that the SEMP_REKEY wire
 // bytes reveal none of the plaintext fields (session_id, rekey_nonce,
-// ephemeral key material, etc.) to a passive observer — only the type
+// ephemeral key material, etc.) to a passive observer - only the type
 // discriminator, direction, and ciphertext.
 func TestRekeySealWireFormatIsOpaque(t *testing.T) {
 	suite := crypto.SuiteBaseline
@@ -171,7 +171,7 @@ func TestRekeySealWireFormatIsOpaque(t *testing.T) {
 		t.Fatalf("marshal sealed: %v", err)
 	}
 	if strings.Contains(string(wire), "PLAINTEXT-MARKER") {
-		t.Error("wire bytes contain the plaintext marker — sealing is not working")
+		t.Error("wire bytes contain the plaintext marker - sealing is not working")
 	}
 	if strings.Contains(string(wire), "rekey_nonce") {
 		t.Error("wire bytes contain the plaintext field name 'rekey_nonce'")

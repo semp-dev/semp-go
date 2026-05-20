@@ -36,8 +36,8 @@ import (
 //
 // TODO(ENVELOPE.md §7): the spec defines the encryption *flow* in §7.1
 // but does not pin the exact wrap byte format. This implementation is
-// the working interpretation. When the spec formalizes the format —
-// likely as full RFC 9180 HPKE-Base with an explicit context string —
+// the working interpretation. When the spec formalizes the format -
+// likely as full RFC 9180 HPKE-Base with an explicit context string -
 // this code will need to align. Cross-implementation interop is the
 // gating criterion.
 type Wrapper interface {
@@ -201,7 +201,7 @@ func (w *wrapper) Unwrap(recipientPrivateKey, recipientPublicKey []byte, wrapped
 // turn and returns the resulting RecipientMap. Used by the sending client
 // to populate Seal.BriefRecipients and Seal.EnclosureRecipients.
 //
-// Reference: ENVELOPE.md §7.1 steps 5–8.
+// Reference: ENVELOPE.md §7.1 steps 5-8.
 func WrapForRecipients(w Wrapper, symmetricKey []byte, recipients []RecipientKey) (RecipientMap, error) {
 	if w == nil {
 		return nil, errors.New("seal: nil wrapper")

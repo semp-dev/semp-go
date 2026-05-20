@@ -140,7 +140,7 @@ func TestSignResponseResultVerifyRoundTrip(t *testing.T) {
 		t.Errorf("VerifyResponseResult on untampered result: %v", err)
 	}
 
-	// Tamper with the Address (a covered field) — verification must fail.
+	// Tamper with the Address (a covered field) - verification must fail.
 	tampered := *result
 	tampered.Address = "mallory@example.com"
 	if err := keys.VerifyResponseResult(signer, &tampered, domainPub); err == nil {

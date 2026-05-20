@@ -52,7 +52,7 @@ func DeriveAttachmentKey(kdf crypto.KDF, kEnclosure []byte, attachmentID string,
 // sorted lexicographically at every nesting level, no insignificant
 // whitespace. Routing through canonical produces the same bytes
 // regardless of Go struct field order, which is what cross-language
-// interop requires — a Dart or TypeScript implementation that
+// interop requires - a Dart or TypeScript implementation that
 // respects the spec's canonical rule must be able to AEAD-decrypt an
 // attachment a Go implementation produced.
 func AdditionalData(item Item) ([]byte, error) {

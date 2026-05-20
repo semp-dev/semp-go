@@ -187,7 +187,7 @@ func TestResolvePartitionHashDeterministic(t *testing.T) {
 		Algorithm: "sha256",
 	}
 	resolver := &discovery.PartitionResolver{DNS: dns}
-	// Run twice — must produce the same result.
+	// Run twice - must produce the same result.
 	got1, err := discovery.ResolvePartition(context.Background(), resolver, config, "alice@example.com")
 	if err != nil {
 		t.Fatalf("first: %v", err)
@@ -205,7 +205,7 @@ func TestResolvePartitionHashDeterministic(t *testing.T) {
 	if err != nil {
 		t.Fatalf("bob: %v", err)
 	}
-	_ = got3 // no assertion — just confirm no error
+	_ = got3 // no assertion - just confirm no error
 }
 
 // TestResolvePartitionHashZeroServers returns error.

@@ -58,7 +58,7 @@ func TestHybridKEMEncapsulateDecapsulateRoundTrip(t *testing.T) {
 }
 
 // TestHybridKEMSharedSecretLayout verifies that the 64-byte combined
-// secret is structured as K_kyber || K_x25519 per SESSION.md §4.1 —
+// secret is structured as K_kyber || K_x25519 per SESSION.md §4.1 -
 // i.e. the first 32 bytes are the Kyber output and the last 32 are
 // the X25519 output. We cannot directly observe the two halves from
 // the public API, but we can confirm that the second 32 bytes change
@@ -89,11 +89,11 @@ func TestHybridKEMSharedSecretLayout(t *testing.T) {
 		t.Errorf("X25519 half changed despite tampering only Kyber bytes:\n  orig=%x\n  alt=%x",
 			shared[32:], altShared[32:])
 	}
-	// The Kyber half (first 32 bytes) MUST change — Kyber CCA security
+	// The Kyber half (first 32 bytes) MUST change - Kyber CCA security
 	// means any tampering produces a different (pseudo-random)
 	// decapsulated key.
 	if bytes.Equal(shared[:32], altShared[:32]) {
-		t.Error("Kyber half unchanged despite ciphertext tampering — CCA break?")
+		t.Error("Kyber half unchanged despite ciphertext tampering - CCA break?")
 	}
 }
 
@@ -122,7 +122,7 @@ func TestHybridKEMTamperedX25519HalfDesyncsKey(t *testing.T) {
 	if bytes.Equal(shared, altShared) {
 		t.Error("tampered X25519 did not change the derived shared secret")
 	}
-	// The Kyber half MUST be unchanged — we only touched the X25519 bytes.
+	// The Kyber half MUST be unchanged - we only touched the X25519 bytes.
 	if !bytes.Equal(shared[:32], altShared[:32]) {
 		t.Errorf("Kyber half changed despite only X25519 tampering")
 	}
@@ -130,7 +130,7 @@ func TestHybridKEMTamperedX25519HalfDesyncsKey(t *testing.T) {
 
 // TestHybridKEMWrongPrivateKeyDoesNotRecoverSecret confirms that
 // decapsulating a ciphertext with the wrong private key produces a
-// different shared secret (not an error — Kyber CCA is
+// different shared secret (not an error - Kyber CCA is
 // implicit-rejection, returning a pseudo-random value on bad input).
 func TestHybridKEMWrongPrivateKeyDoesNotRecoverSecret(t *testing.T) {
 	kem := crypto.NewKEMHybridKyber768X25519()

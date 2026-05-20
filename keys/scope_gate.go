@@ -91,7 +91,7 @@ func pickResource(scope Scope, kind ScopeResourceKind) (ScopeResource, error) {
 // Tiers with `amount_allowed: 0` are absolute prohibitions
 // (RECOMMENDED only for short-lived suspensions; equivalent to
 // mode:"none" expressed as a rate). All tiers in the array are
-// evaluated independently — an operation must fit within EVERY
+// evaluated independently - an operation must fit within EVERY
 // tier to be permitted.
 type RateLimitCounter interface {
 	Allow(ctx context.Context, key string, tiers []RateLimitTier, now time.Time) (bool, error)
@@ -255,7 +255,7 @@ func ValidateIssuance(ctx context.Context, signer crypto.Signer, info IssuerInfo
 	if cert == nil {
 		return errors.New("keys: nil certificate")
 	}
-	// Run Validate first — it covers steps 4, 5, 6 (structural,
+	// Run Validate first - it covers steps 4, 5, 6 (structural,
 	// allow/deny cap, lifetime cap).
 	if err := cert.Validate(); err != nil {
 		return semp.WrapErr(semp.ReasonScopeInvalid, err, "keys: certificate failed validation")

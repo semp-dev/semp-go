@@ -35,7 +35,7 @@ func FuzzEnvelopeDecode(f *testing.F) {
 		"brief": "QUJD",
 		"enclosure": "QUJD"
 	}`))
-	// Missing fields — Decode should return an error, not panic.
+	// Missing fields - Decode should return an error, not panic.
 	f.Add([]byte(`{}`))
 	f.Add([]byte(`{"type":"SEMP_ENVELOPE"}`))
 	// Pure garbage.
@@ -63,7 +63,7 @@ func FuzzEnvelopeDecode(f *testing.F) {
 			t.Fatalf("Decode of re-encoded envelope failed: %v", err)
 		}
 		// Compare JSON canonicalizations of the two envelopes rather
-		// than the envelopes themselves — the struct can carry
+		// than the envelopes themselves - the struct can carry
 		// pointer-identity noise (e.g. Postmark.HopCount) that is
 		// irrelevant to the wire format.
 		a, _ := json.Marshal(env)

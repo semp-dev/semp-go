@@ -28,7 +28,7 @@ type Challenge struct {
 }
 
 // Constants mirrored from handshake for direct use in the reputation
-// layer without importing handshake (which would cause a cycle — the
+// layer without importing handshake (which would cause a cycle - the
 // handshake package already imports the reputation abstractions).
 const (
 	// DefaultPoWAlgorithm is the only supported PoW hash algorithm.
@@ -57,16 +57,16 @@ const (
 	DifficultyRelaxed = 16
 
 	// DifficultySuspicious is the lower end of the "established domain
-	// exhibiting suspicious patterns" range (§8.3.2 table: 20–24).
+	// exhibiting suspicious patterns" range (§8.3.2 table: 20-24).
 	DifficultySuspicious = 22
 
 	// DifficultyHostile is the lower end of the "hostile assessment"
-	// range (§8.3.2 table: 24–28). Setting this above 24 adds noticeable
+	// range (§8.3.2 table: 24-28). Setting this above 24 adds noticeable
 	// latency for legitimate senders; operators should reserve it.
 	DifficultyHostile = 26
 
 	// DomainAgeGateDays is the "new domain" window from REPUTATION.md
-	// §2.1 — domains younger than this get more aggressive scrutiny.
+	// §2.1 - domains younger than this get more aggressive scrutiny.
 	DomainAgeGateDays = 30
 )
 
@@ -149,7 +149,7 @@ func IssueChallenge(difficulty int, ttl time.Duration) (*Challenge, error) {
 }
 
 // PrefixBase64 returns the challenge prefix encoded with standard
-// base64 — the wire format the handshake layer and VECTORS.md §4.3
+// base64 - the wire format the handshake layer and VECTORS.md §4.3
 // use for the preimage.
 func (c *Challenge) PrefixBase64() string {
 	if c == nil {
@@ -163,7 +163,7 @@ func (c *Challenge) PrefixBase64() string {
 // -----------------------------------------------------------------------------
 
 // ChallengeLedger tracks which challenges have been issued, which have
-// been redeemed (preventing replay per REPUTATION.md §8.3.4 — "Each
+// been redeemed (preventing replay per REPUTATION.md §8.3.4 - "Each
 // challenge MUST be single-use"), and prunes expired entries so memory
 // does not grow without bound.
 //
@@ -202,7 +202,7 @@ func NewChallengeLedger(sweepInterval time.Duration) *ChallengeLedger {
 }
 
 // Record adds ch to the ledger. Returns an error if a challenge with
-// the same ID has already been recorded — IDs are expected to be
+// the same ID has already been recorded - IDs are expected to be
 // globally unique per the ULID recommendation in §8.3.1.
 func (l *ChallengeLedger) Record(ch *Challenge) error {
 	if l == nil || ch == nil {
@@ -229,7 +229,7 @@ func (l *ChallengeLedger) Record(ch *Challenge) error {
 //   - (nil, ErrChallengeReplayed) if the challenge has already been
 //     successfully redeemed.
 //
-// Redeem does not itself verify the PoW solution — the caller is
+// Redeem does not itself verify the PoW solution - the caller is
 // expected to pair Redeem with a solution verification step (e.g. the
 // handshake package's VerifySolution). Redeem is responsible for the
 // ledger bookkeeping that wraps the cryptographic check.
@@ -338,7 +338,7 @@ var (
 // -----------------------------------------------------------------------------
 
 // crockfordAlphabet is the Crockford base32 alphabet used by ULIDs.
-// We don't need bit-for-bit ULID compliance — just a collision-free
+// We don't need bit-for-bit ULID compliance - just a collision-free
 // 26-character identifier.
 const crockfordAlphabet = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
 

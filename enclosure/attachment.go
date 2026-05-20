@@ -34,7 +34,7 @@ const (
 )
 
 // MaxAttachmentBytes caps attachments at 100 MiB by default. This is
-// a sanity ceiling — the spec does not mandate a maximum — but it
+// a sanity ceiling - the spec does not mandate a maximum - but it
 // prevents a malicious sender from forcing a recipient to allocate
 // gigabytes of memory to decode a single base64 blob. Callers that
 // legitimately need larger attachments should pass their own limit
@@ -186,7 +186,7 @@ func ParseHash(hashTag string) (algorithm, hexValue string, err error) {
 // §7.2 step 10 ("Client verifies attachment hashes against decrypted
 // attachment content").
 //
-// VerifyHash does not consult a.Content or a.Size — the caller is
+// VerifyHash does not consult a.Content or a.Size - the caller is
 // expected to have already decoded the base64 plaintext and pass
 // those bytes directly. For a one-shot "decode + verify" helper, use
 // the Plaintext method.
@@ -230,7 +230,7 @@ func (a *Attachment) VerifyHash(plaintext []byte) error {
 // want a stronger hash algorithm pass HashAlgorithmSHA512.
 //
 // The returned Attachment is ready to be appended to an
-// Enclosure.Attachments slice — envelope.Compose will marshal it
+// Enclosure.Attachments slice - envelope.Compose will marshal it
 // alongside the rest of the enclosure and encrypt the whole JSON
 // under K_enclosure.
 func NewAttachment(id, filename, mimeType, algorithm string, plaintext []byte) (*Attachment, error) {
@@ -267,7 +267,7 @@ func NewAttachment(id, filename, mimeType, algorithm string, plaintext []byte) (
 // single attachment.
 //
 // The returned slice is freshly allocated and owned by the caller.
-// A hash mismatch returns a non-nil error and a nil byte slice —
+// A hash mismatch returns a non-nil error and a nil byte slice -
 // the caller MUST NOT treat the failed payload as valid content.
 //
 // Plaintext enforces MaxAttachmentBytes after base64 decoding to

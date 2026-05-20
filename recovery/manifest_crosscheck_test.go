@@ -94,7 +94,7 @@ func TestCrossCheckMissingDevice(t *testing.T) {
 
 // TestCrossCheckPubkeyMismatch confirms a contributor whose pubkey
 // does not match the directory entry triggers
-// CrossCheckPubkeyMismatch — the §5.2 stale-or-forged-manifest
+// CrossCheckPubkeyMismatch - the §5.2 stale-or-forged-manifest
 // signal.
 func TestCrossCheckPubkeyMismatch(t *testing.T) {
 	m := mkManifest([]recovery.RecoveryContributor{
@@ -138,7 +138,7 @@ func TestCrossCheckAlgorithmMismatch(t *testing.T) {
 
 // TestCrossCheckEmptyAlgorithmTolerated confirms an empty
 // algorithm on either side is treated as "not declared" rather than
-// a mismatch — the directory may pre-date the algorithm field
+// a mismatch - the directory may pre-date the algorithm field
 // (existing test fixtures do not always populate it), and the
 // manifest's algorithm is still validated when both sides set it.
 func TestCrossCheckEmptyAlgorithmTolerated(t *testing.T) {

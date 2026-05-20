@@ -11,9 +11,9 @@
 //
 // Specification references:
 //
-//   - ERRORS.md     — the authoritative registry of every code defined here.
-//   - DELIVERY.md §1 — the three protocol-level acknowledgment outcomes.
-//   - CLIENT.md §6.3 — submission status values returned by the home server.
-//   - DISCOVERY.md §4.6 — discovery status values returned by lookups.
-//   - DESIGN.md §11 — RFC 2119 normative language used throughout the suite.
+//   - ERRORS.md     - the authoritative registry of every code defined here.
+//   - DELIVERY.md §1 - the three protocol-level acknowledgment outcomes.
+//   - CLIENT.md §6.3 - submission status values returned by the home server.
+//   - DISCOVERY.md §4.6 - discovery status values returned by lookups.
+//   - DESIGN.md §11 - RFC 2119 normative language used throughout the suite.
 package semp

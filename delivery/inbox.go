@@ -10,7 +10,7 @@ import "sync"
 // string from `brief.to`). Each address has its own FIFO queue of
 // envelope payloads. Production deployments would back this with a
 // durable store, retention rules, fairness controls, and per-address
-// access control — none of which are present here.
+// access control - none of which are present here.
 // DefaultMaxQueueDepth is the default per-address maximum queue depth.
 const DefaultMaxQueueDepth = 10000
 

@@ -172,7 +172,7 @@ func TestBundleStorePruneSupersededFloorClamp(t *testing.T) {
 
 	b1 := mkBundle(t, "alice@example.com", "bundle-1", nil)
 	_ = store.PutCurrent(context.Background(), "alice@example.com", b1, now)
-	// Supersede 10 days ago — within both the 30-day spec floor and
+	// Supersede 10 days ago - within both the 30-day spec floor and
 	// the caller's 1-hour value. The caller's value is clamped UP
 	// to 30 days, so the bundle is NOT pruned.
 	b2 := mkBundle(t, "alice@example.com", "bundle-2", ptr("bundle-1"))

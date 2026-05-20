@@ -101,7 +101,7 @@ func TestRateLimitCounterMultipleTiers(t *testing.T) {
 	c := keys.NewInMemoryRateLimitCounter()
 	tiers := []keys.RateLimitTier{
 		{PeriodSeconds: 60, AmountAllowed: 10}, // 10/min
-		{PeriodSeconds: 1, AmountAllowed: 1},   // 1/sec — tighter
+		{PeriodSeconds: 1, AmountAllowed: 1},   // 1/sec - tighter
 	}
 	now := time.Date(2026, 5, 7, 12, 0, 0, 0, time.UTC)
 	if ok, _ := c.Allow(context.Background(), "k", tiers, now); !ok {

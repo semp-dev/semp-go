@@ -6,11 +6,11 @@
 //
 // Two state machine types are exported:
 //
-//   - handshake.Client       — drives the client side of a client handshake.
-//   - handshake.Server       — drives the server side of a client handshake.
-//   - handshake.Initiator    — drives a federation handshake from the side
+//   - handshake.Client       - drives the client side of a client handshake.
+//   - handshake.Server       - drives the server side of a client handshake.
+//   - handshake.Initiator    - drives a federation handshake from the side
 //                              that opened the connection.
-//   - handshake.Responder    — drives the receiving side of a federation
+//   - handshake.Responder    - drives the receiving side of a federation
 //                              handshake.
 //
 // Each state machine consumes inbound bytes through OnX methods and emits
@@ -20,8 +20,8 @@
 //
 // Specification references:
 //
-//   - HANDSHAKE.md       — full handshake protocol.
-//   - REPUTATION.md §8.3 — proof-of-work challenge construction and
+//   - HANDSHAKE.md       - full handshake protocol.
+//   - REPUTATION.md §8.3 - proof-of-work challenge construction and
 //                          verification.
-//   - SESSION.md §2.1    — session key derivation procedure (consumed here).
+//   - SESSION.md §2.1    - session key derivation procedure (consumed here).
 package handshake

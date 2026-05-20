@@ -19,7 +19,7 @@ import (
 // The dispatch loop recognizes a rekey message by the top-level `type`
 // field; the actual RekeyInit / RekeyAccepted / RekeyRejected body is
 // JSON-encoded, AEAD-sealed under the current K_enc_*2*, and base64-
-// encoded into Ciphertext. The AEAD's own tag serves as the MAC — the
+// encoded into Ciphertext. The AEAD's own tag serves as the MAC - the
 // spec's "MACed under the corresponding MAC key" language is satisfied
 // by including the MAC key in the AEAD additional data, which binds
 // the ciphertext to both keys simultaneously.
@@ -30,7 +30,7 @@ import (
 // open the message. Tampering with Direction causes decryption to
 // fail because the AAD changes.
 type SealedRekey struct {
-	// Type is always MessageType ("SEMP_REKEY") — the session dispatch
+	// Type is always MessageType ("SEMP_REKEY") - the session dispatch
 	// loop uses this to route sealed rekey messages through the rekey
 	// handler.
 	Type string `json:"type"`
@@ -40,7 +40,7 @@ type SealedRekey struct {
 	// explicit rather than implicit.
 	Sealed bool `json:"sealed"`
 
-	// Direction is "c2s" or "s2c" — selects which pair of session
+	// Direction is "c2s" or "s2c" - selects which pair of session
 	// keys to use.
 	Direction string `json:"direction"`
 
@@ -88,7 +88,7 @@ func SealRekeyMessage(suite crypto.Suite, s *Session, direction string, plaintex
 	// direction label (so an attacker can't relabel c2s as s2c), (b)
 	// the current session ID (so an attacker can't replay a sealed
 	// rekey from a different session), and (c) the MAC key (so
-	// cracking the AEAD alone is insufficient — the attacker would
+	// cracking the AEAD alone is insufficient - the attacker would
 	// also need the MAC key, satisfying the spec's "MACed under the
 	// MAC key" requirement).
 	ad := rekeyAAD(direction, s.ID, macKey)

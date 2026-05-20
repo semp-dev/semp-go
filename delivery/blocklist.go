@@ -56,7 +56,7 @@ type BlockEntry struct {
 
 // BlockList is a user's full block list, stored encrypted at rest per
 // DELIVERY.md §6.3. The list is server-readable only when explicitly
-// decrypted by the owning user's authenticated client device — the server
+// decrypted by the owning user's authenticated client device - the server
 // MUST NOT be able to read it in plaintext as a long-running background
 // process.
 type BlockList struct {
@@ -149,7 +149,7 @@ func (l *BlockList) Match(senderAddress, senderDomain, senderServer string, isGr
 			}
 			rank = rankDomain
 		default:
-			// Unknown entity type — ignore for forward compatibility.
+			// Unknown entity type - ignore for forward compatibility.
 			continue
 		}
 		if rank > bestRank {
@@ -171,7 +171,7 @@ func scopeApplies(scope Scope, isGroup bool) bool {
 	switch scope {
 	case "", ScopeAll:
 		// Empty scope is treated as ScopeAll for forward compatibility
-		// — a producer that omits the field gets the broadest match.
+		// - a producer that omits the field gets the broadest match.
 		return true
 	case ScopeDirect:
 		return !isGroup
@@ -196,7 +196,7 @@ type BlockListLookup interface {
 }
 
 // StaticBlockListLookup is a trivial in-memory BlockListLookup keyed by
-// recipient address. Useful for tests and the demo binaries — production
+// recipient address. Useful for tests and the demo binaries - production
 // deployments should plug in a real persistent store.
 type StaticBlockListLookup struct {
 	Lists map[string]*BlockList

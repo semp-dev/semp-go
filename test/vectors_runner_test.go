@@ -353,7 +353,7 @@ func bytesEq(a, b []byte) bool { return bytesEqual(a, b) }
 
 // handleHKDF dispatches HKDF-SHA-512 vectors against semp-go's KDF and
 // session-key derivation. Both `hkdf-baseline` (initial handshake) and
-// `hkdf-rekey` (mid-session rekey) share the same shape — they only
+// `hkdf-rekey` (mid-session rekey) share the same shape - they only
 // differ in salt construction, which the input documents.
 func handleHKDF(t *testing.T, entry vectorEntry) {
 	ikm := decodeHexF(t, jget(t, entry.Inputs, "ikm_hex"), "ikm_hex")

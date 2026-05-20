@@ -70,7 +70,7 @@ func (c Candidate) String() string {
 type FallbackError struct {
 	// Attempts is the per-candidate failure record in dial order.
 	// Each entry's Candidate is the candidate that was tried and
-	// Err is the error it produced. The slice is never empty —
+	// Err is the error it produced. The slice is never empty -
 	// Fallback only returns FallbackError after at least one dial
 	// attempt has failed.
 	Attempts []FallbackAttempt
@@ -219,7 +219,7 @@ func dialCandidates(ctx context.Context, candidates []Candidate) (Conn, int, err
 // is not in the recommended list retain their original relative order
 // and are placed after every recommended transport.
 //
-// Order is a pure function — it returns a fresh slice and does not
+// Order is a pure function - it returns a fresh slice and does not
 // mutate the input.
 func Order(candidates []Candidate) []Candidate {
 	if len(candidates) == 0 {
@@ -263,7 +263,7 @@ func Order(candidates []Candidate) []Candidate {
 // cache TTL."
 //
 // FallbackCache is safe for concurrent use. The zero value is not
-// usable — construct one via NewFallbackCache.
+// usable - construct one via NewFallbackCache.
 type FallbackCache struct {
 	mu      sync.Mutex
 	entries map[string]fallbackCacheEntry
@@ -332,7 +332,7 @@ func (c *FallbackCache) Lookup(domain string) (id ID, endpoint string, ok bool) 
 
 // Invalidate drops the cached entry for domain. Per TRANSPORT.md §5.6
 // the cache MUST be invalidated when discovery records for the domain
-// are refreshed — a domain that previously failed on QUIC may have
+// are refreshed - a domain that previously failed on QUIC may have
 // resolved the issue and the connecting party should not permanently
 // avoid a transport based on a single failure.
 func (c *FallbackCache) Invalidate(domain string) {
@@ -368,7 +368,7 @@ func (c *FallbackCache) Len() int {
 // if domain has a live cached entry, the candidate whose ID matches
 // the cached transport is moved to the head of the dial list so it
 // is attempted first. On success the cache is refreshed with the
-// candidate that actually dialed through — which may or may not be
+// candidate that actually dialed through - which may or may not be
 // the one the cache suggested, because the cache hint is a
 // preference, not a guarantee. On total failure the cache entry is
 // invalidated so the next call does not preferentially retry a
@@ -398,7 +398,7 @@ func CachedFallback(ctx context.Context, cache *FallbackCache, domain string, ca
 		return nil, err
 	}
 	// Remember the transport that ACTUALLY worked, not the cache
-	// hint — dialCandidates returns the index of the successful
+	// hint - dialCandidates returns the index of the successful
 	// candidate so we can cache the right one even when the first
 	// N candidates (including any stale cache hint) failed.
 	successful := ordered[idx]

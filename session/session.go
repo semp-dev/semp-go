@@ -61,7 +61,7 @@ type Session struct {
 
 	// keys holds the five derived session keys. Unexported so callers go
 	// through MAC and AEAD accessors that operate on the bytes without
-	// ever returning them to the caller — this prevents accidental
+	// ever returning them to the caller - this prevents accidental
 	// serialization or logging of secret material.
 	keys *crypto.SessionKeys
 
@@ -240,7 +240,7 @@ func (s *Session) CanRekeyWithGrace(now time.Time, grace time.Duration) (bool, s
 //   - increments RekeyCount and sets LastRekeyAt.
 //
 // The caller is responsible for erasing the PRIOR keys before passing
-// the new ones in — SetKeys does not erase the previous value because
+// the new ones in - SetKeys does not erase the previous value because
 // different callers have different erase policies (e.g. tests prefer
 // to inspect both sets).
 func (s *Session) ApplyRekey(newID string, newKeys *crypto.SessionKeys, now time.Time) {
@@ -304,7 +304,7 @@ func (s *Session) AcceptsID(sessionID string, now time.Time) bool {
 // match returns true unconditionally. A negative grace is treated
 // as zero.
 //
-// Most callers do NOT want this variant — the TransitionWindow is
+// Most callers do NOT want this variant - the TransitionWindow is
 // already a peer-aware budget tied to the rekey roundtrip. The
 // helper exists for receivers that want to absorb peer-clock skew
 // at the session-id boundary specifically (rare in practice).

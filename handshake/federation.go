@@ -241,7 +241,7 @@ func (TrustingDomainVerifier) Verify(_ context.Context, _ string, _ DomainProof,
 //
 // ResolveCollision returns the winning session_id (the one that proceeds).
 // Both peers, given the same pair of IDs, MUST agree on the winner without
-// any external coordination — strings.Compare provides exactly this property.
+// any external coordination - strings.Compare provides exactly this property.
 //
 // Reference: SESSION.md §2.5.2.
 func ResolveCollision(idA, idB string) string {
@@ -886,7 +886,7 @@ type ResponderConfig struct {
 	Store keys.Store
 
 	// Verifier validates the initiator's DomainProof. Defaults to
-	// TrustingDomainVerifier if nil — TESTS ONLY.
+	// TrustingDomainVerifier if nil - TESTS ONLY.
 	Verifier DomainVerifier
 
 	// LocalDomain is the responder's own domain.
@@ -1018,7 +1018,7 @@ func (r *Responder) OnInit(data []byte) ([]byte, error) {
 		Method: init.DomainProof.Method,
 	}
 	if err := r.verifier.Verify(context.Background(), init.ServerDomain, init.DomainProof, init.Nonce); err != nil {
-		// We still need to send a response — the spec requires explicit
+		// We still need to send a response - the spec requires explicit
 		// rejection rather than silent close. The caller decides whether
 		// to use this response or convert it to a Rejected.
 		verificationResult = DomainVerificationResult{

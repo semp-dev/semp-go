@@ -92,7 +92,7 @@ type Verifier struct {
 // (ENVELOPE.md §9.1 step 1).
 //
 // canonicalBytes MUST be the canonical serialization produced by
-// envelope.Envelope.CanonicalBytes() — i.e. with the signature and
+// envelope.Envelope.CanonicalBytes() - i.e. with the signature and
 // session MAC fields elided. The verifier does NOT recompute canonical
 // bytes from the seal it is verifying; that is the caller's responsibility
 // because the canonical bytes depend on the entire envelope, not just the

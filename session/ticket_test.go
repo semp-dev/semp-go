@@ -107,7 +107,7 @@ func TestStatelessTicketGraceWindow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Issue: %v", err)
 	}
-	// 5 minutes past expiry — well inside the 15-min Default grace.
+	// 5 minutes past expiry - well inside the 15-min Default grace.
 	withinGrace := expiresAt.Add(5 * time.Minute)
 	if _, _, _, err := issuer.Open(context.Background(), ticket, withinGrace); err != nil {
 		t.Errorf("Open inside grace window: %v", err)

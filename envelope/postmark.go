@@ -15,7 +15,7 @@ import (
 type Postmark struct {
 	// ID is an opaque routing identifier scoped to this delivery
 	// transaction. ULID RECOMMENDED. Used for hop-level deduplication and
-	// loop detection only — NOT a persistent global message ID. The
+	// loop detection only - NOT a persistent global message ID. The
 	// persistent identifier lives in brief.MessageID.
 	ID string `json:"id"`
 
@@ -24,7 +24,7 @@ type Postmark struct {
 	// `no_session` (ENVELOPE.md §9.1).
 	SessionID string `json:"session_id"`
 
-	// FromDomain is the sender's domain only — no local part, no display
+	// FromDomain is the sender's domain only - no local part, no display
 	// name. The full sender address lives in the encrypted brief.
 	FromDomain string `json:"from_domain"`
 
@@ -46,7 +46,7 @@ type Postmark struct {
 	// Emitted as `extensions:{}` when empty. The canonical envelope
 	// form per ENVELOPE.md §4.3 lists the elisions explicitly
 	// (signature/session_mac blanked, hop_count and padding omitted)
-	// and treats every other field as preserved verbatim — including
+	// and treats every other field as preserved verbatim - including
 	// empty maps. Cross-implementation interop checks (semp-spec
 	// vectors `envelope-canonical-*`) hash the full canonical bytes,
 	// so a producer that emits `extensions:{}` and one that omits the

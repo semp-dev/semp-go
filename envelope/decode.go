@@ -14,7 +14,7 @@ import (
 //   - Version MUST be present and non-empty.
 //   - Postmark, Seal, Brief, and Enclosure MUST be present.
 //
-// Decode does NOT verify the seal — callers must invoke
+// Decode does NOT verify the seal - callers must invoke
 // seal.Verifier.VerifySignature (and VerifySessionMAC for receiving
 // servers) on the result before trusting any field.
 //

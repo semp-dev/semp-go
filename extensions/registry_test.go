@@ -238,7 +238,7 @@ func TestValidateKeyDoesNotPanicOnWeirdness(t *testing.T) {
 	}
 	for _, in := range inputs {
 		// We just want to make sure ValidateKey returns (nil or
-		// error) without panicking — errors.New is a no-op.
+		// error) without panicking - errors.New is a no-op.
 		_ = errors.New(in)
 		_ = extensions.ValidateKey(in)
 	}

@@ -19,7 +19,7 @@ import (
 // TestComputeHashSHA256MatchesStdlib confirms the default algorithm
 // is sha256 and that its output matches crypto/sha256 byte-for-byte.
 // If this test breaks, either the algorithm changed or the wire
-// format is wrong — both are big deals.
+// format is wrong - both are big deals.
 func TestComputeHashSHA256MatchesStdlib(t *testing.T) {
 	plaintext := []byte("The quick brown fox jumps over the lazy dog.")
 	tag, err := enclosure.ComputeHash("", plaintext)

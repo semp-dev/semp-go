@@ -28,7 +28,7 @@ import (
 func TestClientHandshakeRoundTripSuitePQ(t *testing.T) {
 	suite := crypto.SuitePQ
 	if suite == nil {
-		t.Fatal("SuitePQ is nil — Kyber768 wiring broken")
+		t.Fatal("SuitePQ is nil - Kyber768 wiring broken")
 	}
 	store := newMemStore()
 
@@ -199,7 +199,7 @@ func TestEnvelopeSealUnderSuitePQ(t *testing.T) {
 	}
 
 	// Run a quick handshake round-trip to derive a real K_env_mac
-	// under the hybrid KEM — we don't want to fabricate one because
+	// under the hybrid KEM - we don't want to fabricate one because
 	// the goal of this test is to prove the hybrid-derived key
 	// flows through the envelope pipeline.
 	store := newMemStore()

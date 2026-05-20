@@ -2,11 +2,11 @@
 // envelope. The seal carries two independent integrity proofs over the same
 // canonical envelope bytes:
 //
-//   - Signature   — produced with the sender's domain key, verifiable by any
+//   - Signature   - produced with the sender's domain key, verifiable by any
 //                   routing server using the sender's published domain key.
 //                   This is the routing-layer integrity proof.
 //
-//   - SessionMAC  — produced with K_env_mac derived during the handshake,
+//   - SessionMAC  - produced with K_env_mac derived during the handshake,
 //                   verifiable only by the receiving server. This is the
 //                   delivery-layer session enforcement proof.
 //

@@ -176,7 +176,7 @@ func verifyForwardingChain(ctx context.Context, suite crypto.Suite, enc *enclosu
 	// Note: the forwarder's address is NOT inside enc directly; it
 	// lives in the outer brief.From, which OpenAndVerify already
 	// looked up. We pass it through via the resolver's first
-	// argument — but to keep this function pure, we look it up
+	// argument - but to keep this function pure, we look it up
 	// using ff.OriginalSenderAddress as a fallback discriminant.
 	// In practice the caller's resolver SHOULD be able to find the
 	// key by key_id alone given the cached domain; we pass an empty

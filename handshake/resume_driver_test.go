@@ -63,7 +63,7 @@ func TestIsResumptionFailedRecognizesSpecCodes(t *testing.T) {
 
 // TestIsResumptionFailedRejectsOtherCodes confirms a rejection with
 // a non-fallback reason returns false (the resume driver MUST NOT
-// silently fall back on, e.g., policy_forbidden — that would mask
+// silently fall back on, e.g., policy_forbidden - that would mask
 // a substantive policy decision).
 func TestIsResumptionFailedRejectsOtherCodes(t *testing.T) {
 	cases := []string{
@@ -152,7 +152,7 @@ func TestRunClientResumeRejectsBadArgs(t *testing.T) {
 // §2.8.5 fallback path: when the resume exchange returns
 // resumption_failed, the function calls the fresh-stream and
 // fresh-client factories. The full-handshake call itself errors
-// here (we feed it nil bytes) — that is fine; we only verify the
+// here (we feed it nil bytes) - that is fine; we only verify the
 // fallback was triggered, not that the full handshake succeeded.
 func TestRunClientResumeOrFullFallsBackOnResumptionFailed(t *testing.T) {
 	// Note: building a working Resume->OnRejected flow requires the

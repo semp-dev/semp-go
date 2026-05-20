@@ -14,7 +14,7 @@ import (
 // NewObservation constructs an Observation with the wire-level fields
 // populated from the store's current counters for subject. The caller
 // supplies the ID, window, assessment, and any evidence hint; the
-// store fills metrics. Signature is left zero — the caller signs the
+// store fills metrics. Signature is left zero - the caller signs the
 // observation with SignObservation before publishing.
 //
 // NewObservation is a convenience: operators that build observations
@@ -43,7 +43,7 @@ func (s *ObservationStore) NewObservation(observer, subject, id string, window W
 
 // canonicalObservationBytes returns the canonical JSON form of obs
 // with signature.value elided. Same pattern as discovery.SignResponse
-// — the algorithm and key_id fields are preserved so an attacker can't
+// - the algorithm and key_id fields are preserved so an attacker can't
 // swap them without invalidating the signature.
 func canonicalObservationBytes(obs *Observation) ([]byte, error) {
 	if obs == nil {

@@ -5,7 +5,7 @@
 // WHOIS-based domain age signal used for new-domain caution.
 //
 // Reputation is observable, transferable, and cryptographically verifiable
-// — IP addresses are not part of the trust model. Operators decide how to
+// - IP addresses are not part of the trust model. Operators decide how to
 // weight signals through configurable policy.
 //
 // Specification reference: REPUTATION.md.

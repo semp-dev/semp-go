@@ -56,7 +56,7 @@ func FuzzAddressParse(f *testing.F) {
 		}
 
 		// Validate should never panic; we don't care whether it
-		// accepts or rejects the address — we just want the call to
+		// accepts or rejects the address - we just want the call to
 		// return.
 		_ = a.Validate()
 	})

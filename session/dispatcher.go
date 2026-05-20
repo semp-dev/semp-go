@@ -57,7 +57,7 @@ type DispatchHandlers struct {
 
 	// OnHandlerError is invoked on a non-fatal error from a registered
 	// handler. The dispatch loop continues; the caller decides whether
-	// to close the stream. Default is "swallow" — handler errors are
+	// to close the stream. Default is "swallow" - handler errors are
 	// non-fatal by design.
 	OnHandlerError func(err error, msgType string)
 }
@@ -71,7 +71,7 @@ type DispatchHandlers struct {
 // event loop) call this with a configured [DispatchHandlers]; the
 // per-type handlers themselves are caller-supplied.
 //
-// Dispatch is transport-agnostic — it consumes any [MessageStream]
+// Dispatch is transport-agnostic - it consumes any [MessageStream]
 // and never owns the underlying connection. The caller closes the
 // stream when Dispatch returns.
 func Dispatch(ctx context.Context, stream MessageStream, h DispatchHandlers) error {

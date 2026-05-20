@@ -64,7 +64,7 @@ func canonicalTrustObservationsBytes(resp *TrustObservations) ([]byte, error) {
 // SignTrustObservations computes an Ed25519 signature over the
 // canonical form of resp with signature.value elided, and populates
 // resp.Signature. The per-observation signatures inside
-// resp.Observations are NOT re-signed — they retain whatever
+// resp.Observations are NOT re-signed - they retain whatever
 // signatures they had when the caller assembled the response.
 //
 // The envelope-level signature lets a fetcher verify the whole
@@ -102,7 +102,7 @@ func SignTrustObservations(signer crypto.Signer, privKey []byte, observerKeyID k
 
 // VerifyTrustObservations verifies the envelope-level signature
 // against observerPub. It does NOT verify the per-observation
-// signatures inside resp.Observations — callers should walk those
+// signatures inside resp.Observations - callers should walk those
 // and call VerifyObservation on each, because different observations
 // in the same envelope MAY be signed under different key_ids (e.g.
 // after a key rotation).
@@ -172,7 +172,7 @@ func NewInMemoryObservationSource() *InMemoryObservationSource {
 }
 
 // Put replaces the observation list for subject. The caller owns
-// signing — Put does NOT verify signatures and does NOT reject
+// signing - Put does NOT verify signatures and does NOT reject
 // unsigned observations. Use this after SignObservation has been
 // called on each record.
 func (s *InMemoryObservationSource) Put(subject string, observations []Observation) {
@@ -226,7 +226,7 @@ func (s *InMemoryObservationSource) Len() int {
 type FetcherConfig struct {
 	// HTTPClient is the underlying *http.Client. Zero picks a
 	// client with a 10-second timeout, which is appropriate for
-	// gossip fetches — they are not latency-critical.
+	// gossip fetches - they are not latency-critical.
 	HTTPClient *http.Client
 
 	// Signer is the crypto.Suite signer used to verify response and
@@ -234,7 +234,7 @@ type FetcherConfig struct {
 	Signer crypto.Signer
 
 	// ObserverPublicKey is the public signing key of the observer
-	// whose publication we are fetching. Required — an unsigned
+	// whose publication we are fetching. Required - an unsigned
 	// response MUST be discarded per REPUTATION.md §5.2.
 	ObserverPublicKey []byte
 
@@ -310,7 +310,7 @@ func Fetch(ctx context.Context, cfg FetcherConfig, observerBaseURL, subject stri
 	// rotation), but in the common case all observations share the
 	// ObserverPublicKey. Drop any observation whose signature does
 	// not verify under cfg.ObserverPublicKey rather than failing
-	// the whole response — the envelope signature already bound the
+	// the whole response - the envelope signature already bound the
 	// observation set together, so a verified envelope with an
 	// unverifiable inner observation indicates either a rotation
 	// gap or a forged inner record.

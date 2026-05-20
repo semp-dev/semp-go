@@ -30,10 +30,10 @@ const (
 // servers MUST NOT enforce stricter limits below these without
 // breaking interoperability.
 const (
-	MaxBytesPostmark  = 4 * 1024  // 4 KB  — parsed by every routing server
-	MaxBytesSeal      = 4 * 1024  // 4 KB  — parsed by every routing server
-	MaxBytesBrief     = 16 * 1024 // 16 KB — parsed by recipient server + client
-	MaxBytesEnclosure = 64 * 1024 // 64 KB — parsed by recipient client only
+	MaxBytesPostmark  = 4 * 1024  // 4 KB  - parsed by every routing server
+	MaxBytesSeal      = 4 * 1024  // 4 KB  - parsed by every routing server
+	MaxBytesBrief     = 16 * 1024 // 16 KB - parsed by recipient server + client
+	MaxBytesEnclosure = 64 * 1024 // 64 KB - parsed by recipient client only
 
 	// MaxBytesHandshake is the default limit applied to
 	// `init.extensions` and `response.extensions` objects. The spec
@@ -65,7 +65,7 @@ const MaxKeyLength = 128
 // MaxBytesFor returns the maximum permitted serialized size of an
 // `extensions` object at the given layer. An unknown layer is
 // treated as the most permissive value (MaxBytesEnclosure) so new
-// layer identifiers don't accidentally cause false positives —
+// layer identifiers don't accidentally cause false positives -
 // callers that want strict checking pass a known Layer constant.
 func MaxBytesFor(layer Layer) int {
 	switch layer {
@@ -154,7 +154,7 @@ func (e *KeyError) Unwrap() error { return e.Err }
 // EXTENSIONS.md §4.2 exactly: marshal to canonical JSON, compare
 // byte length to the layer ceiling.
 //
-// An empty or nil map returns nil — the empty JSON object `{}` is
+// An empty or nil map returns nil - the empty JSON object `{}` is
 // 2 bytes and fits every layer. Malformed maps that json.Marshal
 // rejects return the underlying error wrapped with context.
 func ValidateSize(layer Layer, m Map) error {
@@ -177,7 +177,7 @@ func ValidateSize(layer Layer, m Map) error {
 //
 //  1. Every key passes ValidateKey.
 //  2. Every required extension appears in registry (for core
-//     semp.dev/ keys) — vendor and x- keys are allowed to be
+//     semp.dev/ keys) - vendor and x- keys are allowed to be
 //     required even when not in the registry because the registry
 //     is authoritative only for the semp.dev/ namespace.
 //  3. The serialized size fits the layer ceiling.
@@ -194,7 +194,7 @@ func Validate(registry *Registry, layer Layer, m Map) error {
 		return nil
 	}
 	// Walk keys in sorted order so error reporting is deterministic
-	// — otherwise two servers would report different "first failing
+	// - otherwise two servers would report different "first failing
 	// key" for the same malformed input, which complicates triage.
 	keys := make([]string, 0, len(m))
 	for k := range m {
@@ -213,7 +213,7 @@ func Validate(registry *Registry, layer Layer, m Map) error {
 		// Required extension: a recipient that does not understand
 		// it MUST reject the containing message per EXTENSIONS.md
 		// §3, regardless of namespace. We check the registry for
-		// every required key (semp.dev, vendor.*, x-*) — if it
+		// every required key (semp.dev, vendor.*, x-*) - if it
 		// isn't there, we reject. The earlier semp.dev/-only scope
 		// was a privilege the spec does not grant: vendor keys
 		// gain interop value precisely because both sides must
@@ -241,18 +241,18 @@ func Validate(registry *Registry, layer Layer, m Map) error {
 
 // marshalExtensions returns the canonical-ish byte form used to
 // measure `extensions` object size. We use encoding/json with sorted
-// keys via an intermediate map[string]Entry — the actual canonical
+// keys via an intermediate map[string]Entry - the actual canonical
 // serializer in canonical also sorts keys, so this measurement
 // matches what the seal signer produces to within a few bytes
 // (whitespace differences only). Since the per-layer ceilings have
-// 4–64 KB of headroom over any realistic payload, the small
+// 4-64 KB of headroom over any realistic payload, the small
 // difference is in the noise.
 func marshalExtensions(m Map) ([]byte, error) {
 	if len(m) == 0 {
 		return []byte("{}"), nil
 	}
 	// Sort keys so the produced bytes are deterministic across
-	// runs and platforms — encoding/json on a map does not
+	// runs and platforms - encoding/json on a map does not
 	// guarantee key order.
 	keys := make([]string, 0, len(m))
 	for k := range m {
@@ -269,7 +269,7 @@ func marshalExtensions(m Map) ([]byte, error) {
 			v Entry
 		}{k: k, v: m[k]})
 	}
-	// Use encoding/json directly — we can't marshal the anonymous
+	// Use encoding/json directly - we can't marshal the anonymous
 	// slice into a JSON object, so reconstruct manually with a
 	// small buffer.
 	var out []byte

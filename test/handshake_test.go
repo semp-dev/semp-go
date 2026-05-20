@@ -43,7 +43,7 @@ func TestClientHandshakeRoundTrip(t *testing.T) {
 	suite := crypto.SuiteBaseline
 	store := newMemStore()
 
-	// Sender (alice) — generate identity keypair, register it.
+	// Sender (alice) - generate identity keypair, register it.
 	identityPub, identityPriv, err := suite.Signer().GenerateKeyPair()
 	if err != nil {
 		t.Fatalf("identity keypair: %v", err)
@@ -51,7 +51,7 @@ func TestClientHandshakeRoundTrip(t *testing.T) {
 	identityFP := store.putUserKey("alice@example.com", keys.TypeIdentity, identityPub)
 	store.putPrivateKey(identityFP, identityPriv)
 
-	// Server — generate domain keypair, publish public key in the store.
+	// Server - generate domain keypair, publish public key in the store.
 	domainPub, domainPriv, err := suite.Signer().GenerateKeyPair()
 	if err != nil {
 		t.Fatalf("domain keypair: %v", err)
@@ -184,7 +184,7 @@ func TestHandshakeRejectsTamperedResponse(t *testing.T) {
 		t.Fatalf("server.OnInit: %v", err)
 	}
 
-	// Flip a byte inside the response — somewhere likely to break the
+	// Flip a byte inside the response - somewhere likely to break the
 	// signature without producing invalid JSON.
 	tampered := append([]byte{}, respBytes...)
 	// Walk to the first ASCII letter past the opening brace and flip it.
@@ -272,7 +272,7 @@ func TestHandshakeWithChallenge(t *testing.T) {
 	params := mustMarshalJSON(t, handshake.PoWChallengeParams{
 		Algorithm:  handshake.PoWAlgorithm,
 		Prefix:     base64.StdEncoding.EncodeToString(prefix),
-		Difficulty: 8, // ~256 iterations on average — fast enough for tests
+		Difficulty: 8, // ~256 iterations on average - fast enough for tests
 	})
 	policy := &challengeGatePolicy{
 		challenge: &handshake.Challenge{

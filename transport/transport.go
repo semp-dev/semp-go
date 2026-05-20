@@ -39,7 +39,7 @@ type Transport interface {
 }
 
 // Conn is a single bidirectional message channel between two SEMP peers.
-// Implementations MUST guarantee in-order delivery of complete messages —
+// Implementations MUST guarantee in-order delivery of complete messages -
 // the SEMP layer never reassembles fragments above this interface.
 type Conn interface {
 	// Send transmits a single SEMP message. The transport binding is

@@ -10,7 +10,7 @@ import (
 const MinDomainAge = 30 * 24 * time.Hour
 
 // WHOIS is the interface that supplies domain registration age. Operators
-// supply their own implementation — there is no de facto WHOIS library
+// supply their own implementation - there is no de facto WHOIS library
 // that is both reliable and free of rate limits, so this is intentionally
 // pluggable.
 type WHOIS interface {

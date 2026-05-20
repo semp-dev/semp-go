@@ -12,7 +12,7 @@
 // Transport.Dial constructs an *http.Client whose Transport field is
 // an *http3.Transport (QUIC-backed HTTP/3 round-tripper) and passes
 // it into h2.Dial. The returned transport.Conn is identical to the
-// h2 Conn — strictly turn-based, Send → Recv → Send.
+// h2 Conn - strictly turn-based, Send → Recv → Send.
 //
 // # TLS
 //

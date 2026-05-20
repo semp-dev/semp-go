@@ -317,7 +317,7 @@ func (f *Forwarder) forwardOnSession(ctx context.Context, fs *forwarderSession, 
 	// the federation initiator are the SAME server in this
 	// architecture, so "re-signing with our domain key" is
 	// functionally identical to "the sender's domain signed this
-	// envelope" — the provenance proof is unchanged.
+	// envelope" - the provenance proof is unchanged.
 	if err := envelope.Sign(env, f.Suite, f.LocalDomainPrivateKey, fs.sess.EnvMAC()); err != nil {
 		return nil, false, fmt.Errorf("delivery: re-sign forwarded envelope: %w", err)
 	}

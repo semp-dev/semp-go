@@ -21,7 +21,7 @@ import (
 //   - Treat encrypted_payload as opaque (per §4.2 the server MUST
 //     NOT decrypt or attempt to decrypt the payload).
 //   - Verify the signature against the user's current identity key
-//     before storing — done outside this interface by the upload
+//     before storing - done outside this interface by the upload
 //     handler; the Store itself is signature-agnostic and persists
 //     whatever bytes it is handed.
 //   - Apply the §4.4 retention rules: current bundle retained

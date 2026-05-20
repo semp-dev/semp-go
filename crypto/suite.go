@@ -151,7 +151,7 @@ func Negotiate(offered []SuiteID, accepted []SuiteID) (SuiteID, error) {
 			continue
 		}
 		if LookupSuite(id) == nil {
-			// Mutually offered but not yet implemented in this build —
+			// Mutually offered but not yet implemented in this build -
 			// keep looking for a weaker but available suite.
 			continue
 		}

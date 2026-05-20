@@ -285,12 +285,12 @@ func TestFallbackSequentialNotConcurrent(t *testing.T) {
 		t.Fatalf("Fallback: %v", err)
 	}
 	if overlapSeen.Load() {
-		t.Error("second candidate was dialed while first was still running — concurrent attempt detected")
+		t.Error("second candidate was dialed while first was still running - concurrent attempt detected")
 	}
 }
 
 // TestFallbackPerCandidateTimeout confirms that a stalled candidate
-// doesn't block forever — the fallback timeout moves us on.
+// doesn't block forever - the fallback timeout moves us on.
 func TestFallbackPerCandidateTimeout(t *testing.T) {
 	// Override the fallback timeout via a stalled candidate that
 	// respects its per-call ctx. We use a tiny overall parent context
@@ -301,7 +301,7 @@ func TestFallbackPerCandidateTimeout(t *testing.T) {
 
 	// Give the caller context 30s so it's not the bottleneck.
 	// The stalled candidate will only give up when its per-dial
-	// context-with-timeout hits FallbackTimeout — which is 10s.
+	// context-with-timeout hits FallbackTimeout - which is 10s.
 	// We shortcut by using a short parent deadline instead: the
 	// parent ctx deadline gets inherited into the per-dial timeout,
 	// so the stalled candidate returns as soon as the parent fires.
@@ -504,7 +504,7 @@ func TestCachedFallbackInvalidatesOnTotalFailure(t *testing.T) {
 }
 
 // TestCachedFallbackRemembersActualSuccess confirms the cache records
-// whichever candidate actually worked — even if the cache hint was
+// whichever candidate actually worked - even if the cache hint was
 // stale and the successful candidate was further down the list.
 func TestCachedFallbackRemembersActualSuccess(t *testing.T) {
 	cache := transport.NewFallbackCache(time.Minute, nil)

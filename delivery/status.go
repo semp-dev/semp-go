@@ -76,7 +76,7 @@ const MaxStatusMessageBytes = 256
 // VisibilityNobody.
 //
 // All comparisons are case-insensitive. Empty sender identifiers
-// disable matching for the corresponding entry type — a status policy
+// disable matching for the corresponding entry type - a status policy
 // cannot match a sender whose domain we do not know.
 func MatchVisibility(v *Visibility, senderAddress, senderDomain, senderServer string) bool {
 	if v == nil {
@@ -90,7 +90,7 @@ func MatchVisibility(v *Visibility, senderAddress, senderDomain, senderServer st
 	case VisibilityDomains, VisibilityServers, VisibilityUsers:
 		// fall through to allow-list walk below.
 	default:
-		// Unknown mode — fail closed.
+		// Unknown mode - fail closed.
 		return false
 	}
 	address := strings.ToLower(senderAddress)

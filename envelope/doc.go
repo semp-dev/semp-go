@@ -5,14 +5,14 @@
 // envelope rejection reason code set used by receiving servers.
 //
 // This package is the natural top-level entry point for code that needs to
-// work with whole envelopes — composing them on the sender side, parsing
+// work with whole envelopes - composing them on the sender side, parsing
 // them on the receiver side, exporting them as `.semp` files at rest.
 //
 // Specification references:
 //
-//   - ENVELOPE.md  — top-level envelope schema, encryption flow, decryption
+//   - ENVELOPE.md  - top-level envelope schema, encryption flow, decryption
 //                    flow, server responsibilities, rejection reason codes.
-//   - MIME.md      — `application/semp-envelope` media type and `.semp` file
+//   - MIME.md      - `application/semp-envelope` media type and `.semp` file
 //                    format.
-//   - ERRORS.md §3 — envelope reason codes registry.
+//   - ERRORS.md §3 - envelope reason codes registry.
 package envelope

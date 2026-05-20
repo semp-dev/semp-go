@@ -11,7 +11,7 @@ package brief
 //
 // Returned copies:
 //
-//  1. If b.BCC is empty, the result is []*Brief{b} — a single copy,
+//  1. If b.BCC is empty, the result is []*Brief{b} - a single copy,
 //     returned unchanged. Callers may treat the returned slice as the
 //     authoritative set whether or not there were BCC recipients.
 //
@@ -28,7 +28,7 @@ package brief
 //       recipient list as everyone else.
 //
 // The returned Briefs share the underlying Extensions map and Address
-// slices with the input by value — callers that want to mutate each
+// slices with the input by value - callers that want to mutate each
 // copy independently should clone first.
 //
 // Reference: CLIENT.md §3.5, ENVELOPE.md §5.3.

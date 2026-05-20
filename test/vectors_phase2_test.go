@@ -2,7 +2,7 @@ package test
 
 // Phase 2 vector handlers.
 //
-// Wave 2A here covers single-signature documents — every category
+// Wave 2A here covers single-signature documents - every category
 // where the construction is "blank one signature field, canonicalize,
 // prepend a domain-separation prefix, Ed25519-verify against a pinned
 // public key". The pattern is uniform enough that a single
@@ -200,8 +200,8 @@ func pubKeyFromInputs(t *testing.T, entry vectorEntry, candidates ...string) ed2
 // canonicalIntermediateMatches optionally verifies that semp-go's
 // canonical bytes for the blanked document equal the generator's
 // pinned `intermediates.canonical_with_blanked_signature_utf8`. The
-// vector format makes this OPTIONAL — many entries omit
-// intermediates — but where it IS pinned, mismatch is a clear
+// vector format makes this OPTIONAL - many entries omit
+// intermediates - but where it IS pinned, mismatch is a clear
 // canonicalization-drift signal worth surfacing distinctly from a
 // signature failure.
 func canonicalIntermediateMatches(t *testing.T, entry vectorEntry, blanked []byte) {
@@ -281,8 +281,8 @@ func pickDiscoverySigned(t *testing.T, entry vectorEntry) signedDocSpec {
 // ---------------------------------------------------------------------------
 // handshake-messages: 5 entries, two shapes
 //
-//	canonical-only entries (init, confirm) — verify canonical bytes only
-//	signed entries (response, accepted, rejected) — verify Ed25519
+//	canonical-only entries (init, confirm) - verify canonical bytes only
+//	signed entries (response, accepted, rejected) - verify Ed25519
 //
 // The signature field is `server_signature` (top-level base64 string),
 // with one wrinkle: the "rejected" entry uses the same field name, but
@@ -359,9 +359,9 @@ func handleHandshakeMessagesPQ(t *testing.T, entry vectorEntry) {
 // ---------------------------------------------------------------------------
 // session-resumption: 3 entries
 //
-//	resume-request-canonical  — canonical-only; client_signature blanked
-//	resume-accepted-signed    — Ed25519; server_signature
-//	resume-key-derivation     — KDF round-trip; deferred to Wave 2D
+//	resume-request-canonical  - canonical-only; client_signature blanked
+//	resume-accepted-signed    - Ed25519; server_signature
+//	resume-key-derivation     - KDF round-trip; deferred to Wave 2D
 //
 // The request is canonical-only because the client signature isn't
 // applied at this layer (per HANDSHAKE.md §2.8); the canonical bytes
@@ -447,9 +447,9 @@ func handleSessionResumption(t *testing.T, entry vectorEntry) {
 // ---------------------------------------------------------------------------
 // recovery-shamir: three entries
 //
-//	shamir-split-and-combine          — GF(256) Shamir; Wave 2D
-//	shamir-recovery-set-manifest-signed — Ed25519; signature.value
-//	shamir-share-record-signed        — multiple records; device_signature.value
+//	shamir-split-and-combine          - GF(256) Shamir; Wave 2D
+//	shamir-recovery-set-manifest-signed - Ed25519; signature.value
+//	shamir-share-record-signed        - multiple records; device_signature.value
 
 func handleRecoveryShamir(t *testing.T, entry vectorEntry) {
 	switch entry.ID {
@@ -517,8 +517,8 @@ func handleRecoveryShamir(t *testing.T, entry vectorEntry) {
 // ---------------------------------------------------------------------------
 // first-contact-token: 2 entries
 //
-//	first-contact-token-valid          — verify PoW + postmark binding
-//	first-contact-token-replay-rejected — rejection demo (must_reject)
+//	first-contact-token-valid          - verify PoW + postmark binding
+//	first-contact-token-replay-rejected - rejection demo (must_reject)
 //
 // The token itself isn't Ed25519-signed; its integrity comes from the
 // PoW solution + postmark binding (HANDSHAKE.md §2.2a.4). Re-running
@@ -663,7 +663,7 @@ func validateReasonCode(t *testing.T, sampleIdx int, raw json.RawMessage) {
 }
 
 // requireSampleFields asserts every sample carries every name in
-// `required`, with the field present (the value MAY be null —
+// `required`, with the field present (the value MAY be null -
 // many decision tables use null to mean "no defined value for this
 // row"; that is an intentional encoding, not a generator bug).
 //
@@ -805,7 +805,7 @@ func handleSessionLifecycle(t *testing.T, entry vectorEntry) {
 // must-reject-index.json is a generated cross-reference; the runner
 // validates that every `pointer` of the form `<file>#<id>` resolves
 // to a vector entry with the matching `must_reject:true` flag. This
-// is a structural assertion only — it does not re-verify the
+// is a structural assertion only - it does not re-verify the
 // rejection outcome (those live in their respective files and are
 // covered by their own handlers).
 //
@@ -819,7 +819,7 @@ func handleMustRejectIndex(t *testing.T, entry vectorEntry) {
 	// flat index. Our dispatch already iterates entries, but the
 	// must-reject-index file exposes only summary/by_class/flat at
 	// the top level. The runner currently treats it as 0 entries
-	// (no `vectors` field), so this handler is effectively unused —
+	// (no `vectors` field), so this handler is effectively unused -
 	// reaching here would mean the file structure changed.
 	if len(entry.Inputs) > 0 || len(entry.Expected) > 0 {
 		t.Errorf("must-reject-index entry has unexpected fields: %s", entry.ID)
@@ -973,7 +973,7 @@ func handleSenderSignature(t *testing.T, entry vectorEntry) {
 		if err := json.Unmarshal(jgetRaw(t, entry.Inputs, "signed_enclosure_json"), &doc); err != nil {
 			t.Fatalf("signed_enclosure unmarshal: %v", err)
 		}
-		// Verify with claimed (wrong) key — must fail.
+		// Verify with claimed (wrong) key - must fail.
 		claimed := pubKeyFromInputs(t, entry, "claimed_identity_public_key_hex")
 		spec1 := signedDocSpec{
 			SignedJSON:    deepCopyMap(doc),
@@ -985,7 +985,7 @@ func handleSenderSignature(t *testing.T, entry vectorEntry) {
 		if ok {
 			t.Error("wrong claimed key unexpectedly verified")
 		}
-		// Verify with actual signer key — must pass (sanity check).
+		// Verify with actual signer key - must pass (sanity check).
 		actual := pubKeyFromInputs(t, entry, "actual_signer_public_key_hex")
 		spec2 := signedDocSpec{
 			SignedJSON:    deepCopyMap(doc),

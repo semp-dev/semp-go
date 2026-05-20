@@ -123,7 +123,7 @@ func SolveChallenge(prefix []byte, challengeID string, difficulty int, deadline 
 // difficulty leading zero bits and that it matches the claimed hash.
 //
 // VerifySolution does NOT check challenge replay (whether challenge_id has
-// been redeemed before) — that is the responsibility of the calling server,
+// been redeemed before) - that is the responsibility of the calling server,
 // which holds the challenge ledger. Per REPUTATION.md §8.3.4 servers MUST
 // reject duplicate challenge_id submissions even when the solution is
 // arithmetically valid.

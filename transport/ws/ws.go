@@ -88,8 +88,8 @@ func (*Transport) Profiles() transport.Profile { return transport.ProfileBoth }
 // `semp.v1` subprotocol. The endpoint MUST be a wss:// URL unless
 // AllowInsecure is set in Config.
 //
-// The returned Conn is safe for concurrent Send and Recv calls — the
-// underlying *websocket.Conn permits this — but callers SHOULD serialize
+// The returned Conn is safe for concurrent Send and Recv calls - the
+// underlying *websocket.Conn permits this - but callers SHOULD serialize
 // Sends from a single goroutine to keep handshake message ordering
 // predictable.
 func (t *Transport) Dial(ctx context.Context, endpoint string) (transport.Conn, error) {

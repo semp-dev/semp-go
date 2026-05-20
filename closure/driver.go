@@ -19,7 +19,7 @@ type FinalizationEffectFunc func(ctx context.Context, userID string) error
 // FinalizationEffects bundles the nine §4.2 steps the Driver runs
 // at finalization time. Operators wire their own subsystems into
 // each hook; the library does not impose a particular
-// implementation. Any nil hook is skipped silently — operators that
+// implementation. Any nil hook is skipped silently - operators that
 // do not implement a particular step (for example, an installation
 // without a recovery bundle store) leave that hook nil.
 //
@@ -30,7 +30,7 @@ type FinalizationEffectFunc func(ctx context.Context, userID string) error
 //
 // The spec's "atomically (from the perspective of subsequent
 // operations)" wording is satisfied at the operator's persistence
-// layer — the Driver runs the effects in deterministic order; the
+// layer - the Driver runs the effects in deterministic order; the
 // operator's database / coordination layer enforces visibility
 // transactionality if required. Library-level Driver does not
 // attempt cross-subsystem transactions.
@@ -258,7 +258,7 @@ func (d *Driver) Cancel(ctx context.Context, userID string) (bool, error) {
 
 // Pending returns a defensive copy of the request currently
 // pending for userID, or nil if none. Reads through the Store; a
-// transient Store error returns nil and is silently swallowed —
+// transient Store error returns nil and is silently swallowed -
 // callers that need the error path use the context-aware
 // PendingCtx variant.
 func (d *Driver) Pending(userID string) *Record {
@@ -285,7 +285,7 @@ func (d *Driver) PendingCtx(ctx context.Context, userID string) (*Record, error)
 //
 // Per §4.1, finalization MUST NOT occur before the FinalizationAt
 // timestamp; Tick respects this strictly. Per §4.2 finalization is
-// irreversible once the grace deadline passes — the pending entry
+// irreversible once the grace deadline passes - the pending entry
 // is removed and the finalized timestamp recorded regardless of
 // per-step effect errors.
 func (d *Driver) Tick(ctx context.Context) (int, error) {

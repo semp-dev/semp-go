@@ -13,7 +13,7 @@ import (
 // key material for encryption.
 //
 // Verifier does NOT contact any external source of truth for domain
-// keys — it trusts the DomainKey embedded in each ResponseResult as
+// keys - it trusts the DomainKey embedded in each ResponseResult as
 // the canonical domain signing key for that result's domain. In a
 // real deployment the client would cross-check each domain key
 // against DNS/DANE or its own pinned copy per KEY.md §5.5 before

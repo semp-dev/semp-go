@@ -200,7 +200,7 @@ func TestSyncMessageVerifyNilInputs(t *testing.T) {
 
 // TestSyncMessageMultipleOperations confirms a message with
 // multiple operations (add + remove + modify) signs and verifies
-// correctly — each operation is covered by the single signature.
+// correctly - each operation is covered by the single signature.
 func TestSyncMessageMultipleOperations(t *testing.T) {
 	pub, priv, fp := newDeviceKeypair(t)
 	msg := sampleSyncMessage()

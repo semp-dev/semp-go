@@ -184,7 +184,7 @@ func TestPolicyStateEqualVersionEarlierTimestampRejected(t *testing.T) {
 }
 
 // TestPolicyStateUnsupportedKindRejected confirms an op carrying a
-// kind not registered in NewPolicyState fails atomically — no other
+// kind not registered in NewPolicyState fails atomically - no other
 // operation in the same message is applied.
 func TestPolicyStateUnsupportedKindRejected(t *testing.T) {
 	state, _ := delivery.NewPolicyState("alice@example.com",

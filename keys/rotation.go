@@ -12,7 +12,7 @@ import (
 // configure one RotationPolicy per key type per domain; the
 // RotationDriver evaluates each policy on every tick.
 //
-// The spec does not prescribe rotation timing — this is an operator
+// The spec does not prescribe rotation timing - this is an operator
 // ergonomics layer that automates what the protocol already supports:
 //
 //   - A rotated key gets a Revocation with ReasonSuperseded and the
@@ -50,7 +50,7 @@ type RotationPolicy struct {
 	// the OLD key remains usable for decryption. After RotateEvery +
 	// RetireAfter, the old key's Expires is set so the decryption
 	// candidate list stops trying it. Zero means "never retire"
-	// (the old key stays forever — useful for long-archive scenarios
+	// (the old key stays forever - useful for long-archive scenarios
 	// where messages encrypted years ago must remain decryptable).
 	RetireAfter time.Duration
 }
@@ -95,7 +95,7 @@ type RotationResult struct {
 // is intended to be called periodically (e.g. once a day via a cron
 // job or a background goroutine) rather than on every request.
 //
-// The driver is stateless — it reads the current key records from
+// The driver is stateless - it reads the current key records from
 // the store, compares their Created timestamps against the policy
 // deadlines, and acts. If it crashes partway through, the next run
 // picks up where it left off because the store's state is the source
@@ -152,7 +152,7 @@ func (d *RotationDriver) evaluate(ctx context.Context, p RotationPolicy) Rotatio
 	}
 
 	if current == nil {
-		// No key exists yet. Generate the first one — this is not a
+		// No key exists yet. Generate the first one - this is not a
 		// "rotation" per se, but the driver handles initial key
 		// creation as a degenerate case so operators don't need a
 		// separate bootstrap flow.
@@ -288,7 +288,7 @@ func (d *RotationDriver) maybeRetire(ctx context.Context, p RotationPolicy, now 
 		// The Store returned *Record by reference; for in-memory
 		// stores (memstore) this mutates the live record. For
 		// persistent stores, callers should extend their Store with
-		// an UpdateExpires method — the driver sets the field and
+		// an UpdateExpires method - the driver sets the field and
 		// calls PutRecord so implementations that treat PutRecord
 		// as upsert-by-KeyID will pick it up.
 		r.Expires = now
