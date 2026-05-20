@@ -8,7 +8,9 @@ import (
 	"strings"
 )
 
-// SRVRecord is a parsed _semp._tcp.<domain> SRV record (DISCOVERY.md §2.1).
+// SRVRecord is a parsed SEMP SRV record (_semp._tcp.<domain> or the
+// optional _semp._udp.<domain> per DISCOVERY.md §2.1 / §3 QUIC
+// transport selection).
 type SRVRecord struct {
 	Priority uint16
 	Weight   uint16
@@ -68,12 +70,36 @@ func LookupSRV(ctx context.Context, domain string) ([]SRVRecord, error) {
 // LookupSRVWith is the injectable variant of LookupSRV. It lets
 // callers (including tests) supply their own DNSLookup implementation.
 func LookupSRVWith(ctx context.Context, lookup DNSLookup, domain string) ([]SRVRecord, error) {
+	return lookupSRVProto(ctx, lookup, "tcp", domain)
+}
+
+// LookupSRVUDP queries the optional _semp._udp.<domain> SRV records
+// per DISCOVERY.md §2.1. Operators MAY publish this record when they
+// want to advertise a distinct UDP target for QUIC (different
+// host/port than the TCP target). When _semp._udp is present a
+// client selecting QUIC MUST prefer it over the _semp._tcp target.
+// When absent, the QUIC endpoint defaults to the _semp._tcp target's
+// host:port - most deployments need only the TCP record.
+//
+// Returns an empty slice (and a wrapped lookup error) when no _udp
+// record is published; callers should treat empty as "fall back to
+// the _tcp target".
+func LookupSRVUDP(ctx context.Context, domain string) ([]SRVRecord, error) {
+	return LookupSRVUDPWith(ctx, DefaultDNSLookup(), domain)
+}
+
+// LookupSRVUDPWith is the injectable variant of LookupSRVUDP.
+func LookupSRVUDPWith(ctx context.Context, lookup DNSLookup, domain string) ([]SRVRecord, error) {
+	return lookupSRVProto(ctx, lookup, "udp", domain)
+}
+
+func lookupSRVProto(ctx context.Context, lookup DNSLookup, proto, domain string) ([]SRVRecord, error) {
 	if lookup == nil {
 		return nil, errors.New("discovery: nil DNS lookup")
 	}
-	_, recs, err := lookup.LookupSRV(ctx, "semp", "tcp", domain)
+	_, recs, err := lookup.LookupSRV(ctx, "semp", proto, domain)
 	if err != nil {
-		return nil, fmt.Errorf("discovery: SRV lookup for _semp._tcp.%s: %w", domain, err)
+		return nil, fmt.Errorf("discovery: SRV lookup for _semp._%s.%s: %w", proto, domain, err)
 	}
 	out := make([]SRVRecord, 0, len(recs))
 	for _, r := range recs {
@@ -90,6 +116,34 @@ func LookupSRVWith(ctx context.Context, lookup DNSLookup, domain string) ([]SRVR
 		})
 	}
 	return out, nil
+}
+
+// QUICTarget returns the SRV record a QUIC-capable client should use
+// for domain. If _semp._udp.<domain> is published, its first record
+// wins (operator-specified distinct UDP target). Otherwise the
+// _semp._tcp target's host:port is reused as the QUIC endpoint per
+// DISCOVERY.md §2.1.
+//
+// Returns nil when neither record exists.
+func QUICTarget(ctx context.Context, domain string) (*SRVRecord, error) {
+	return QUICTargetWith(ctx, DefaultDNSLookup(), domain)
+}
+
+// QUICTargetWith is the injectable variant of QUICTarget.
+func QUICTargetWith(ctx context.Context, lookup DNSLookup, domain string) (*SRVRecord, error) {
+	if udp, err := LookupSRVUDPWith(ctx, lookup, domain); err == nil && len(udp) > 0 {
+		r := udp[0]
+		return &r, nil
+	}
+	tcp, err := LookupSRVWith(ctx, lookup, domain)
+	if err != nil {
+		return nil, err
+	}
+	if len(tcp) == 0 {
+		return nil, nil
+	}
+	r := tcp[0]
+	return &r, nil
 }
 
 // LookupTXT queries DNS for the _semp._tcp.<domain> TXT capability
@@ -115,7 +169,7 @@ func LookupTXTWith(ctx context.Context, lookup DNSLookup, domain string) (*TXTCa
 	for _, raw := range txts {
 		cap, err := ParseTXTCapabilities(raw)
 		if err != nil {
-			// Malformed or not a SEMP record — try the next TXT
+			// Malformed or not a SEMP record - try the next TXT
 			// record at this name.
 			continue
 		}

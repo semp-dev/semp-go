@@ -24,13 +24,47 @@ const WellKnownMaxBytes int64 = 64 * 1024
 // Configuration is the parsed body of the well-known configuration URI
 // (DISCOVERY.md §3.1).
 type Configuration struct {
-	Type       string             `json:"type"`
-	Version    string             `json:"version"`
-	Domain     string             `json:"domain"`
-	Endpoints  ConfigEndpoints    `json:"endpoints"`
-	Suites     []string           `json:"suites"`
-	Limits     ConfigLimits       `json:"limits"`
-	Extensions []ConfigExtension  `json:"extensions,omitempty"`
+	Type        string             `json:"type"`
+	Version     string             `json:"version"`
+	Domain      string             `json:"domain"`
+	Endpoints   ConfigEndpoints    `json:"endpoints"`
+	Suites      []string           `json:"suites"`
+	Limits      ConfigLimits       `json:"limits"`
+	Extensions  []ConfigExtension  `json:"extensions,omitempty"`
+	Reciprocity *ReciprocityPolicy `json:"reciprocity,omitempty"`
+}
+
+// ReciprocityMode names a trust-gossip reciprocity policy mode per
+// DISCOVERY.md §3.1.5 / DELIVERY.md §12.1. A peer that enforces
+// reciprocity MUST disclose its policy here so prospective
+// consumers can determine eligibility before fetching.
+type ReciprocityMode string
+
+const (
+	// ReciprocityNone: the peer does not require reciprocity. Any
+	// consumer MAY fetch trust gossip regardless of whether it
+	// publishes its own observations.
+	ReciprocityNone ReciprocityMode = "none"
+
+	// ReciprocityLenient: the peer prefers reciprocity but does not
+	// refuse non-publishing consumers. It MAY weight observations
+	// from non-publishing consumers lower.
+	ReciprocityLenient ReciprocityMode = "lenient"
+
+	// ReciprocityStrict: the peer refuses to serve trust gossip to
+	// consumers that do not publish observations meeting
+	// MinimumPublishVolume across the EvaluationWindowDays.
+	ReciprocityStrict ReciprocityMode = "strict"
+)
+
+// ReciprocityPolicy is the §3.1.5 disclosure shape. A peer that
+// enforces reciprocity MUST disclose its policy in its
+// configuration document so consumers can capability-negotiate
+// before fetching.
+type ReciprocityPolicy struct {
+	Mode                 ReciprocityMode `json:"mode"`
+	MinimumPublishVolume int             `json:"minimum_publish_volume,omitempty"`
+	EvaluationWindowDays int             `json:"evaluation_window_days,omitempty"`
 }
 
 // ConfigEndpoints groups all discoverable endpoints (DISCOVERY.md §3.1.1).
@@ -70,7 +104,7 @@ func FetchConfiguration(ctx context.Context, domain string) (*Configuration, err
 // FetchConfiguration. The `url` argument lets tests point at an
 // httptest server regardless of the usual https:// requirement.
 //
-// The URL's scheme is NOT enforced here — production code should
+// The URL's scheme is NOT enforced here - production code should
 // only ever pass an https:// URL, but tests need to pass http:// to
 // httptest-spun servers.
 func FetchConfigurationWith(ctx context.Context, client *http.Client, url string) (*Configuration, error) {
@@ -93,7 +127,7 @@ func FetchConfigurationWith(ctx context.Context, client *http.Client, url string
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("discovery: well-known URI %s returned %d", url, resp.StatusCode)
 	}
-	// Permissive on content-type — some servers return application/octet-stream
+	// Permissive on content-type - some servers return application/octet-stream
 	// for .json paths. We still require JSON on the wire, but we don't
 	// reject the response for Content-Type alone.
 	ct := resp.Header.Get("Content-Type")
