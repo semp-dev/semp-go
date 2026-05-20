@@ -8,11 +8,11 @@ import (
 	"time"
 )
 
-// LockoutRegistry tracks §6.1 forwarding-window lockouts: the old
+// LockoutRegistry tracks §6.1 notice-window lockouts: the old
 // provider MUST NOT reassign a migrated local-part while its
-// forwarding window has not been reached. The §4.2 obligation also
+// notice window has not been reached. The §4.2 obligation also
 // reads "MUST NOT countersign a second migration record for the
-// same old address while a prior record is in its forwarding
+// same old address while a prior record is in its notice
 // window"; AcceptSubmission consults this registry before
 // countersigning to detect the duplicate-submission case.
 //
@@ -38,7 +38,7 @@ type LockoutRegistry interface {
 	IsLockedOut(ctx context.Context, localpart string, now time.Time) (recordID string, until time.Time, locked bool, err error)
 
 	// Release removes the reservation for localpart unconditionally.
-	// Operators call Release when the forwarding window has
+	// Operators call Release when the notice window has
 	// elapsed and they choose to make the local-part available
 	// for reassignment per §6.2. Release on a missing entry is a
 	// no-op.
@@ -75,7 +75,7 @@ func NewInMemoryLockoutRegistry() LockoutRegistry {
 
 // Reserve inserts an entry; returns ErrLocalPartLockedOut on
 // collision with an unexpired entry. An expired entry is
-// transparently overwritten — equivalent to the §6.2 "after the
+// transparently overwritten - equivalent to the §6.2 "after the
 // window the local-part MAY be reassigned" rule, just realized
 // lazily on next Reserve rather than on a janitor sweep.
 func (r *inMemoryLockoutRegistry) Reserve(_ context.Context, localpart string, until time.Time, recordID string) error {

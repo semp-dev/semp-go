@@ -6,14 +6,19 @@ import (
 )
 
 // MigrationNotice is the §5.3 body field attached to a
-// `policy_forbidden` rejection emitted by the old provider after
-// the forwarding window has elapsed. It tells the sender's client
-// where the recipient migrated to so the user can update their
-// correspondent record.
+// policy_forbidden rejection emitted by the old provider during
+// the migration notice window. It tells the sender's client where
+// the recipient migrated to so the user can update their
+// correspondent record and compose a fresh envelope to the new
+// address.
+//
+// After the notice window elapses the old provider stops attaching
+// the notice and handles envelopes to the old address the same way
+// it handles envelopes to non-existent addresses.
 //
 // Per §5.3 the sending client MUST surface the notice to the user
 // and MUST NOT automatically redirect correspondence without user
-// confirmation per CLIENT.md §3.3.
+// confirmation per draft-gokce-semp-client §8.4.
 type MigrationNotice struct {
 	NewAddress         string `json:"new_address"`
 	MigrationRecordID  string `json:"migration_record_id"`
@@ -48,14 +53,15 @@ func BuildMigrationNotice(record *MigrationRecord, urlPattern string) (Migration
 }
 
 // MigrationNoticeRejection is the §5.3 envelope-rejection wire
-// shape emitted when the old provider receives an envelope after
-// the forwarding window has elapsed. It is a thin wrapper around
-// the standard envelope rejection with a typed migration_notice
-// body. The home server's HTTP layer marshals this to the
-// SEMP_ENVELOPE step=rejected response.
+// shape emitted when the old provider receives an envelope during
+// the migration notice window. It is a thin wrapper around the
+// standard envelope rejection with a typed migration_notice body.
+// The home server's HTTP layer marshals this to the SEMP_ENVELOPE
+// step=rejected response.
 type MigrationNoticeRejection struct {
 	Type            string          `json:"type"`
 	Step            string          `json:"step"`
+	Version         string          `json:"version"`
 	ReasonCode      string          `json:"reason_code"`
 	Reason          string          `json:"reason"`
 	MigrationNotice MigrationNotice `json:"migration_notice"`
@@ -71,6 +77,7 @@ func NewMigrationNoticeRejection(notice MigrationNotice, reason string) Migratio
 	return MigrationNoticeRejection{
 		Type:            "SEMP_ENVELOPE",
 		Step:            "rejected",
+		Version:         "1.0.0",
 		ReasonCode:      "policy_forbidden",
 		Reason:          reason,
 		MigrationNotice: notice,

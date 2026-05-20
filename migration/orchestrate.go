@@ -17,8 +17,8 @@ import (
 // steps 3-7. The user supplies their old + new identity keys; the
 // new provider supplies its domain key.
 //
-// For Mode == ModeUnilateral, ForwardingWindow is ignored and
-// ForwardingWindowUntil on the resulting record is nil. The old-
+// For Mode == ModeUnilateral, NoticeWindow is ignored and
+// NoticeWindowUntil on the resulting record is nil. The old-
 // domain signature slot is left empty and BuildSubmission's output
 // is the final published form (no countersign step).
 type SubmitInput struct {
@@ -54,10 +54,10 @@ type SubmitInput struct {
 
 	Mode Mode
 
-	// ForwardingWindow applies to ModeCooperative only. Must satisfy
-	// MinForwardingWindow <= window <= MaxForwardingWindow per §5.1;
+	// NoticeWindow applies to ModeCooperative only. Must satisfy
+	// MinNoticeWindow <= window <= MaxNoticeWindow per §5.1;
 	// values outside the bounds return an error.
-	ForwardingWindow time.Duration
+	NoticeWindow time.Duration
 
 	MigratedAt time.Time
 
@@ -103,13 +103,13 @@ func BuildSubmission(in SubmitInput) (*MigrationRecord, error) {
 	}
 	switch in.Mode {
 	case ModeCooperative:
-		if in.ForwardingWindow < MinForwardingWindow {
-			return nil, fmt.Errorf("migration: forwarding window %s below minimum %s",
-				in.ForwardingWindow, MinForwardingWindow)
+		if in.NoticeWindow < MinNoticeWindow {
+			return nil, fmt.Errorf("migration: notice window %s below minimum %s",
+				in.NoticeWindow, MinNoticeWindow)
 		}
-		if in.ForwardingWindow > MaxForwardingWindow {
-			return nil, fmt.Errorf("migration: forwarding window %s above maximum %s",
-				in.ForwardingWindow, MaxForwardingWindow)
+		if in.NoticeWindow > MaxNoticeWindow {
+			return nil, fmt.Errorf("migration: notice window %s above maximum %s",
+				in.NoticeWindow, MaxNoticeWindow)
 		}
 		if in.OldDomainKeyID == "" {
 			return nil, errors.New("migration: cooperative mode requires OldDomainKeyID (looked up from old provider's discovery configuration)")
@@ -142,8 +142,8 @@ func BuildSubmission(in SubmitInput) (*MigrationRecord, error) {
 		Mode:                 in.Mode,
 	}
 	if in.Mode == ModeCooperative {
-		until := in.MigratedAt.Add(in.ForwardingWindow)
-		r.ForwardingWindowUntil = &until
+		until := in.MigratedAt.Add(in.NoticeWindow)
+		r.NoticeWindowUntil = &until
 	}
 
 	// Pre-populate Algorithm + KeyID on every slot so the chained-
@@ -200,16 +200,16 @@ type AcceptInput struct {
 	// bound.
 	OldIdentityCreated time.Time
 
-	// ForwardingPolicy is the operator's per-window-bound check.
+	// NoticePolicy is the operator's per-window-bound check.
 	// Returns nil if the requested window is acceptable; an
 	// operator-defined error otherwise (typically wrapping
-	// ErrForwardingWindowRefused). When nil, the policy accepts any
+	// ErrNoticeWindowRefused). When nil, the policy accepts any
 	// window within Min/Max bounds (already enforced by Validate).
-	ForwardingPolicy func(window time.Duration) error
+	NoticePolicy func(window time.Duration) error
 
 	// Reservations, when non-nil, registers the §6.1 lockout for
 	// the migrated local-part after countersigning succeeds. The
-	// reservation runs through ForwardingWindowUntil.
+	// reservation runs through NoticeWindowUntil.
 	Reservations LockoutRegistry
 }
 
@@ -223,22 +223,22 @@ type AcceptInput struct {
 //     countersigning.
 //   - Refuses to modify the record after the user has signed it.
 //   - Countersigns with its domain key.
-//   - Holds the local-part in lockout for the forwarding window.
+//   - Holds the local-part in lockout for the notice window.
 //
 // AcceptSubmission rejects:
 //   - Unilateral records (the old provider is not a participant in
 //     unilateral migration; the old endpoint MUST NOT countersign).
 //   - Records with a non-matching mode / shape (Validate failure).
 //   - Records whose three submitted signatures fail verification.
-//   - Records with a forwarding window that the operator's policy
-//     refuses (ForwardingPolicy returns non-nil).
+//   - Records with a notice window that the operator's policy
+//     refuses (NoticePolicy returns non-nil).
 //   - Records whose migrated_at fails the §3.4 / §7.1 step 6 bound
 //     check (in the past beyond clock-skew tolerance, or before
 //     OldIdentityCreated).
 //   - Records whose old local-part already has a prior lockout
 //     reservation (§4.2 "MUST NOT countersign a second migration
 //     record for the same old address while a prior record is in
-//     its forwarding window").
+//     its notice window").
 func AcceptSubmission(ctx context.Context, in AcceptInput) (*MigrationRecord, error) {
 	if in.Suite == nil {
 		return nil, errors.New("migration: nil suite")
@@ -272,17 +272,17 @@ func AcceptSubmission(ctx context.Context, in AcceptInput) (*MigrationRecord, er
 		return nil, fmt.Errorf("migration: migrated_at bound: %w", err)
 	}
 
-	// Forwarding window policy: bound-check is built into
+	// Notice window policy: bound-check is built into
 	// MigrationRecord.Validate, but the operator may impose
 	// stricter rules (for example, declining > 365 days even
 	// though the spec permits 730).
-	if in.Record.ForwardingWindowUntil == nil {
-		return nil, errors.New("migration: cooperative record requires forwarding_window_until")
+	if in.Record.NoticeWindowUntil == nil {
+		return nil, errors.New("migration: cooperative record requires notice_window_until")
 	}
-	window := in.Record.ForwardingWindowUntil.Sub(in.Record.MigratedAt)
-	if in.ForwardingPolicy != nil {
-		if err := in.ForwardingPolicy(window); err != nil {
-			return nil, fmt.Errorf("migration: forwarding policy: %w", err)
+	window := in.Record.NoticeWindowUntil.Sub(in.Record.MigratedAt)
+	if in.NoticePolicy != nil {
+		if err := in.NoticePolicy(window); err != nil {
+			return nil, fmt.Errorf("migration: notice policy: %w", err)
 		}
 	}
 
@@ -291,7 +291,7 @@ func AcceptSubmission(ctx context.Context, in AcceptInput) (*MigrationRecord, er
 	if err := verifyOldIdentitySignature(in.Suite.Signer(), in.OldIdentityPub, in.Record); err != nil {
 		return nil, fmt.Errorf("migration: verify old_identity_signature: %w", err)
 	}
-	// new_identity_pub for the canonical-bytes verification — extract
+	// new_identity_pub for the canonical-bytes verification - extract
 	// from the record body (it embeds new_identity_public_key).
 	newIdentityPub, err := decodeNewIdentityPublicKey(in.Record)
 	if err != nil {
@@ -308,13 +308,13 @@ func AcceptSubmission(ctx context.Context, in AcceptInput) (*MigrationRecord, er
 	// concurrent submission for the same old address fails with
 	// the typed error. Per §4.2 the old provider "MUST NOT
 	// countersign a second migration record for the same old
-	// address while a prior record is in its forwarding window".
+	// address while a prior record is in its notice window".
 	if in.Reservations != nil {
 		localpart, err := localpartOf(in.Record.OldAddress)
 		if err != nil {
 			return nil, fmt.Errorf("migration: parse old_address: %w", err)
 		}
-		if err := in.Reservations.Reserve(ctx, localpart, *in.Record.ForwardingWindowUntil, in.Record.RecordID); err != nil {
+		if err := in.Reservations.Reserve(ctx, localpart, *in.Record.NoticeWindowUntil, in.Record.RecordID); err != nil {
 			return nil, fmt.Errorf("migration: reserve lockout: %w", err)
 		}
 	}
@@ -415,7 +415,7 @@ func newRecordID() (string, error) {
 // The actual implementation in sign.go applies clockskew.Default
 // for the future-skew check.)
 
-// ErrForwardingWindowRefused is the conventional sentinel an
-// operator's ForwardingPolicy returns when the requested window
+// ErrNoticeWindowRefused is the conventional sentinel an
+// operator's NoticePolicy returns when the requested window
 // is outside their per-deployment policy.
-var ErrForwardingWindowRefused = errors.New("migration: operator policy refused this forwarding window")
+var ErrNoticeWindowRefused = errors.New("migration: operator policy refused this notice window")

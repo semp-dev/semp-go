@@ -160,7 +160,7 @@ func verifyPass(signer crypto.Signer, pub []byte, r *MigrationRecord, passIdx in
 // every signature slot so the canonical bytes for each later
 // signing pass match what the slot verifier will reconstruct. Each
 // later signature commits to the prior signatures' final state per
-// §3.3, including their Algorithm and KeyID — if those fields
+// §3.3, including their Algorithm and KeyID - if those fields
 // changed between passes (because pass N populated them after
 // pass N-1 had already signed), the chain would not verify.
 //
@@ -375,20 +375,20 @@ func (r *MigrationRecord) Validate() error {
 	}
 	switch r.Mode {
 	case ModeCooperative:
-		if r.ForwardingWindowUntil == nil {
-			return errors.New("migration: cooperative mode MUST set forwarding_window_until")
+		if r.NoticeWindowUntil == nil {
+			return errors.New("migration: cooperative mode MUST set notice_window_until")
 		}
-		w := r.ForwardingWindowUntil.Sub(r.MigratedAt)
-		if w < MinForwardingWindow {
-			return fmt.Errorf("migration: cooperative forwarding window %s below minimum %s",
-				w, MinForwardingWindow)
+		w := r.NoticeWindowUntil.Sub(r.MigratedAt)
+		if w < MinNoticeWindow {
+			return fmt.Errorf("migration: cooperative notice window %s below minimum %s",
+				w, MinNoticeWindow)
 		}
-		if w > MaxForwardingWindow {
-			return fmt.Errorf("migration: cooperative forwarding window %s exceeds maximum %s",
-				w, MaxForwardingWindow)
+		if w > MaxNoticeWindow {
+			return fmt.Errorf("migration: cooperative notice window %s exceeds maximum %s",
+				w, MaxNoticeWindow)
 		}
 	case ModeUnilateral:
-		// forwarding_window_until is OPTIONAL in unilateral mode;
+		// notice_window_until is OPTIONAL in unilateral mode;
 		// callers may set it if they want to advertise a window
 		// from the old provider's residual cooperation, or leave
 		// it nil.

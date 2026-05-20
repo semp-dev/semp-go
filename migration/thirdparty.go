@@ -10,7 +10,7 @@ import (
 
 // ThirdPartyHook is one of the §7 policy hooks a third-party
 // domain runs after verifying a migration record. Each hook is
-// SHOULD/MAY at the spec level — operators decide whether to
+// SHOULD/MAY at the spec level - operators decide whether to
 // preserve known-correspondent status, carry over reputation, or
 // migrate block-list entries. A nil hook is silently skipped.
 type ThirdPartyHook func(ctx context.Context, record *MigrationRecord) error

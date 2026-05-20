@@ -38,7 +38,7 @@ func TestCooperativeMigrationRoundTrip(t *testing.T) {
 		NewIdentityKeyID:      newIDFP,
 		NewIdentityPublicKey:  base64.StdEncoding.EncodeToString(newIDPub),
 		MigratedAt:            migratedAt,
-		ForwardingWindowUntil: &until,
+		NoticeWindowUntil: &until,
 		Mode:                  migration.ModeCooperative,
 	}
 	migration.PrepareSignatures(r, oldIDFP, newIDFP, newDomFP, oldDomFP)
@@ -112,7 +112,7 @@ func TestSignOrderEnforced(t *testing.T) {
 		NewIdentityKeyID:      newIDFP,
 		NewIdentityPublicKey:  base64.StdEncoding.EncodeToString(newIDPub),
 		MigratedAt:            migratedAt,
-		ForwardingWindowUntil: &until,
+		NoticeWindowUntil: &until,
 		Mode:                  migration.ModeCooperative,
 	}
 	migration.PrepareSignatures(r, oldIDFP, newIDFP, newDomFP, "old-dom-fp")
@@ -178,7 +178,7 @@ func TestVerifyTamperBreaksLaterSignatures(t *testing.T) {
 		NewIdentityKeyID:      newIDFP,
 		NewIdentityPublicKey:  base64.StdEncoding.EncodeToString(newIDPub),
 		MigratedAt:            migratedAt,
-		ForwardingWindowUntil: &until,
+		NoticeWindowUntil: &until,
 		Mode:                  migration.ModeCooperative,
 	}
 	migration.PrepareSignatures(r, oldIDFP, newIDFP, newDomFP, oldDomFP)
@@ -197,8 +197,8 @@ func TestVerifyTamperBreaksLaterSignatures(t *testing.T) {
 	}
 }
 
-// TestForwardingWindowBounds covers the §5.1 hard bounds.
-func TestForwardingWindowBounds(t *testing.T) {
+// TestNoticeWindowBounds covers the §5.1 hard bounds.
+func TestNoticeWindowBounds(t *testing.T) {
 	now := time.Now().UTC()
 	cases := []struct {
 		name   string
@@ -206,10 +206,10 @@ func TestForwardingWindowBounds(t *testing.T) {
 		ok     bool
 	}{
 		{"below minimum", 7 * 24 * time.Hour, false},
-		{"at minimum", migration.MinForwardingWindow, true},
-		{"recommended", migration.RecommendedForwardingWindow, true},
-		{"at maximum", migration.MaxForwardingWindow, true},
-		{"above maximum", migration.MaxForwardingWindow + 24*time.Hour, false},
+		{"at minimum", migration.MinNoticeWindow, true},
+		{"recommended", migration.RecommendedNoticeWindow, true},
+		{"at maximum", migration.MaxNoticeWindow, true},
+		{"above maximum", migration.MaxNoticeWindow + 24*time.Hour, false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -224,7 +224,7 @@ func TestForwardingWindowBounds(t *testing.T) {
 				NewIdentityKeyID:      "new-fp",
 				NewIdentityPublicKey:  "AAA=",
 				MigratedAt:            now,
-				ForwardingWindowUntil: &until,
+				NoticeWindowUntil: &until,
 				Mode:                  migration.ModeCooperative,
 			}
 			err := r.Validate()

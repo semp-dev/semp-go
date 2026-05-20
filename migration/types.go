@@ -26,8 +26,12 @@ type Mode string
 // Migration modes.
 const (
 	// ModeCooperative: the old provider participates and signs the
-	// record. Forwarding is offered for the duration of
-	// forwarding_window_until per §5.
+	// record. During the notice window the old provider returns
+	// policy_forbidden with a migration_notice body for envelopes
+	// addressed to the old address and includes a migration_to field
+	// on key fetches. The old provider does not forward envelopes;
+	// any user-initiated forwarding by a still-authenticated client
+	// uses the ordinary forwarding primitive in ENVELOPE.md §6.6.
 	ModeCooperative Mode = "cooperative"
 
 	// ModeUnilateral: the user migrates without the old provider's
@@ -35,21 +39,21 @@ const (
 	ModeUnilateral Mode = "unilateral"
 )
 
-// Forwarding window bounds per MIGRATION.md §5.1. The library
-// exposes the spec's MUST-NOT bounds; operators MAY accept any
-// window in the open interval (MinForwardingWindow,
-// MaxForwardingWindow] depending on policy.
+// Notice window bounds per MIGRATION.md §5.1. The library exposes
+// the spec's MUST-NOT bounds; operators MAY accept any window in
+// the open interval (MinNoticeWindow, MaxNoticeWindow] depending on
+// policy.
 const (
-	// MinForwardingWindow is the spec's hard lower bound.
-	// Conformant old providers MUST NOT accept windows below this.
-	MinForwardingWindow = 30 * 24 * time.Hour
+	// MinNoticeWindow is the spec's hard lower bound. Conformant old
+	// providers MUST NOT accept windows below this.
+	MinNoticeWindow = 30 * 24 * time.Hour
 
-	// RecommendedForwardingWindow is the §5.1 recommended default.
-	RecommendedForwardingWindow = 180 * 24 * time.Hour
+	// RecommendedNoticeWindow is the §5.1 recommended default.
+	RecommendedNoticeWindow = 180 * 24 * time.Hour
 
-	// MaxForwardingWindow is the spec's upper bound. Old providers
-	// MAY decline windows above this.
-	MaxForwardingWindow = 730 * 24 * time.Hour
+	// MaxNoticeWindow is the spec's upper bound. Old providers MAY
+	// decline windows above this.
+	MaxNoticeWindow = 730 * 24 * time.Hour
 )
 
 // Signature is the reusable signature block shared by all four
@@ -62,8 +66,8 @@ type Signature struct {
 
 // MigrationRecord is a SEMP_MIGRATION record per MIGRATION.md §3.1.
 //
-// ForwardingWindowUntil is a *time.Time so the JSON form can carry
-// an explicit null when no forwarding is offered (typical for
+// NoticeWindowUntil is a *time.Time so the JSON form can carry an
+// explicit null when no notice window is offered (typical for
 // unilateral mode where the old provider is non-cooperative). A
 // zero time.Time would marshal as "0001-01-01T00:00:00Z" rather
 // than null, which the spec's "Yes / nullable" type does not
@@ -73,17 +77,17 @@ type Signature struct {
 // unilateral mode where the old provider does not participate. The
 // spec marks it required only when mode == cooperative.
 type MigrationRecord struct {
-	Type                   string     `json:"type"`
-	Version                string     `json:"version"`
-	RecordID               string     `json:"record_id"`
-	OldAddress             string     `json:"old_address"`
-	NewAddress             string     `json:"new_address"`
-	OldIdentityKeyID       string     `json:"old_identity_key_id"`
-	NewIdentityKeyID       string     `json:"new_identity_key_id"`
-	NewIdentityPublicKey   string     `json:"new_identity_public_key"` // base64
-	MigratedAt             time.Time  `json:"migrated_at"`
-	ForwardingWindowUntil  *time.Time `json:"forwarding_window_until"`
-	Mode                   Mode       `json:"mode"`
+	Type                 string     `json:"type"`
+	Version              string     `json:"version"`
+	RecordID             string     `json:"record_id"`
+	OldAddress           string     `json:"old_address"`
+	NewAddress           string     `json:"new_address"`
+	OldIdentityKeyID     string     `json:"old_identity_key_id"`
+	NewIdentityKeyID     string     `json:"new_identity_key_id"`
+	NewIdentityPublicKey string     `json:"new_identity_public_key"` // base64
+	MigratedAt           time.Time  `json:"migrated_at"`
+	NoticeWindowUntil    *time.Time `json:"notice_window_until"`
+	Mode                 Mode       `json:"mode"`
 
 	OldIdentitySignature Signature  `json:"old_identity_signature"`
 	NewIdentitySignature Signature  `json:"new_identity_signature"`
@@ -91,12 +95,8 @@ type MigrationRecord struct {
 	OldDomainSignature   *Signature `json:"old_domain_signature,omitempty"`
 
 	// Extensions carries optional extension entries per
-	// EXTENSIONS.md §2.1 / MIGRATION.md §3.1 / §3.2. Every signature
-	// in the §3.3 chain covers Extensions, so any content captured
-	// here is attested by all four signers — including the old
-	// provider's countersignature when one of those entries is a
-	// delegation the old provider will later honor (the §5.2
-	// forwarding_authorization use case, whose exact key + shape
-	// are deferred to a future revision).
+	// EXTENSIONS.md §2.1 / MIGRATION.md §3.1. Every signature in the
+	// §3.3 chain covers Extensions, so any content captured here is
+	// attested by all four signers.
 	Extensions extensions.Map `json:"extensions,omitempty"`
 }

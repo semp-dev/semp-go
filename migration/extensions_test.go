@@ -34,7 +34,7 @@ func TestRecordWithExtensionsRoundTrip(t *testing.T) {
 		NewIdentityKeyID:      newIDFP,
 		NewIdentityPublicKey:  base64.StdEncoding.EncodeToString(newIDPub),
 		MigratedAt:            migratedAt,
-		ForwardingWindowUntil: &until,
+		NoticeWindowUntil: &until,
 		Mode:                  migration.ModeCooperative,
 		Extensions: extensions.Map{
 			"semp.dev/example-delegation": extensions.Entry{
@@ -68,7 +68,7 @@ func TestRecordWithExtensionsRoundTrip(t *testing.T) {
 // TestExtensionsTamperBreaksAllSignatures confirms a post-hoc
 // modification of the extensions map invalidates every signature
 // in the §3.3 chain. This pins the "all four signers cover
-// extensions" spec property — without it, the extensions slot
+// extensions" spec property - without it, the extensions slot
 // would not be safe to carry a delegation that downstream parties
 // rely on.
 func TestExtensionsTamperBreaksAllSignatures(t *testing.T) {
@@ -88,7 +88,7 @@ func TestExtensionsTamperBreaksAllSignatures(t *testing.T) {
 		NewIdentityKeyID:      newIDFP,
 		NewIdentityPublicKey:  base64.StdEncoding.EncodeToString(newIDPub),
 		MigratedAt:            migratedAt,
-		ForwardingWindowUntil: &until,
+		NoticeWindowUntil: &until,
 		Mode:                  migration.ModeCooperative,
 		Extensions: extensions.Map{
 			"semp.dev/witness": extensions.Entry{

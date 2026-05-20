@@ -64,7 +64,7 @@ func submission(kp keypairs, mode migration.Mode) migration.SubmitInput {
 		NewDomainPriv:        kp.newDomPriv,
 		OldDomainKeyID:       "old-domain-fp",
 		Mode:                 mode,
-		ForwardingWindow:     migration.RecommendedForwardingWindow,
+		NoticeWindow:     migration.RecommendedNoticeWindow,
 		MigratedAt:           time.Now().UTC().Truncate(time.Second),
 	}
 }
@@ -84,13 +84,13 @@ func TestBuildSubmissionCooperative(t *testing.T) {
 	if r.OldDomainSignature == nil || r.OldDomainSignature.Value != "" {
 		t.Errorf("old_domain_signature should be allocated but unsigned, got %+v", r.OldDomainSignature)
 	}
-	if r.ForwardingWindowUntil == nil {
-		t.Error("ForwardingWindowUntil should be set in cooperative mode")
+	if r.NoticeWindowUntil == nil {
+		t.Error("NoticeWindowUntil should be set in cooperative mode")
 	}
 }
 
 // TestBuildSubmissionUnilateral confirms the unilateral branch:
-// three sigs, no old_domain slot, ForwardingWindowUntil nil.
+// three sigs, no old_domain slot, NoticeWindowUntil nil.
 func TestBuildSubmissionUnilateral(t *testing.T) {
 	kp := newKeypairs(t)
 	r, err := migration.BuildSubmission(submission(kp, migration.ModeUnilateral))
@@ -100,12 +100,12 @@ func TestBuildSubmissionUnilateral(t *testing.T) {
 	if r.OldDomainSignature != nil {
 		t.Errorf("unilateral record should NOT have old_domain_signature slot, got %+v", r.OldDomainSignature)
 	}
-	if r.ForwardingWindowUntil != nil {
-		t.Errorf("unilateral ForwardingWindowUntil should be nil, got %s", r.ForwardingWindowUntil)
+	if r.NoticeWindowUntil != nil {
+		t.Errorf("unilateral NoticeWindowUntil should be nil, got %s", r.NoticeWindowUntil)
 	}
 }
 
-// TestBuildSubmissionRejectsBadWindow walks each ForwardingWindow
+// TestBuildSubmissionRejectsBadWindow walks each NoticeWindow
 // rejection path.
 func TestBuildSubmissionRejectsBadWindow(t *testing.T) {
 	kp := newKeypairs(t)
@@ -114,13 +114,13 @@ func TestBuildSubmissionRejectsBadWindow(t *testing.T) {
 		window time.Duration
 	}{
 		{"zero", 0},
-		{"below min", migration.MinForwardingWindow - time.Hour},
-		{"above max", migration.MaxForwardingWindow + time.Hour},
+		{"below min", migration.MinNoticeWindow - time.Hour},
+		{"above max", migration.MaxNoticeWindow + time.Hour},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			in := submission(kp, migration.ModeCooperative)
-			in.ForwardingWindow = tc.window
+			in.NoticeWindow = tc.window
 			if _, err := migration.BuildSubmission(in); err == nil {
 				t.Error("BuildSubmission accepted out-of-bounds window")
 			}
@@ -207,14 +207,14 @@ func TestAcceptSubmissionRejectsBadOldIdentitySig(t *testing.T) {
 	}
 }
 
-// TestAcceptSubmissionForwardingPolicy confirms the operator's
+// TestAcceptSubmissionNoticePolicy confirms the operator's
 // per-window policy gate fires.
-func TestAcceptSubmissionForwardingPolicy(t *testing.T) {
+func TestAcceptSubmissionNoticePolicy(t *testing.T) {
 	kp := newKeypairs(t)
 	submitted, _ := migration.BuildSubmission(submission(kp, migration.ModeCooperative))
 	policy := func(window time.Duration) error {
 		if window > 60*24*time.Hour {
-			return migration.ErrForwardingWindowRefused
+			return migration.ErrNoticeWindowRefused
 		}
 		return nil
 	}
@@ -227,13 +227,13 @@ func TestAcceptSubmissionForwardingPolicy(t *testing.T) {
 		OldDomainPriv:      kp.oldDomPriv,
 		Now:                submitted.MigratedAt.Add(time.Minute),
 		OldIdentityCreated: submitted.MigratedAt.Add(-time.Hour),
-		ForwardingPolicy:   policy,
+		NoticePolicy:   policy,
 	})
 	if err == nil {
 		t.Fatal("AcceptSubmission accepted a window the operator policy refused")
 	}
-	if !errors.Is(err, migration.ErrForwardingWindowRefused) {
-		t.Errorf("err does not wrap ErrForwardingWindowRefused: %v", err)
+	if !errors.Is(err, migration.ErrNoticeWindowRefused) {
+		t.Errorf("err does not wrap ErrNoticeWindowRefused: %v", err)
 	}
 }
 
