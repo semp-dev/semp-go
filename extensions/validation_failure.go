@@ -4,9 +4,27 @@ package extensions
 // extension's definition document is published per EXTENSIONS.md
 // §3.5 and RFC 8615. The full URL is
 // "https://<host>" + DefinitionPathPrefix + "<name>.json" where
-// <name> is the namespace-prefixed identifier such as
-// "semp.dev/foo" or "vendor.example.com/feature1".
+// <host>/<name> together form the extension identifier (such as
+// "semp.dev/foo" or "vendor.example.com/feature1").
 const DefinitionPathPrefix = "/.well-known/semp-extensions/"
+
+// DefinitionURL returns the canonical definition-document URL for
+// an extension identifier of the form "<host>/<name>" per
+// EXTENSIONS.md §6. Implementations consulting an extension
+// definition MUST request this canonical form; servers MUST NOT
+// publish definition documents only at a legacy path.
+//
+// Returns the empty string if id does not contain a "/" separator.
+func DefinitionURL(id string) string {
+	for i := 0; i < len(id); i++ {
+		if id[i] == '/' && i > 0 && i < len(id)-1 {
+			host := id[:i]
+			name := id[i+1:]
+			return "https://" + host + DefinitionPathPrefix + name + ".json"
+		}
+	}
+	return ""
+}
 
 // ValidationFailureCode is the informational diagnostic carried by
 // a single entry in an extension_unsupported rejection's `errors`
