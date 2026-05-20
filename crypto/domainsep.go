@@ -103,6 +103,29 @@ const (
 	// 2.3 plus ENVELOPE.md section 4.3, registered in spec commit
 	// 3063cbf).
 	SigCtxTransparencySTH = "SEMP-TRANSPARENCY-STH:"
+
+	// SigCtxStatus prefixes the originating device's signature on a
+	// SEMP_STATUS recipient-status configuration record
+	// (draft-gokce-semp-delivery §1.6.5).
+	SigCtxStatus = "SEMP-STATUS:"
+
+	// SigCtxTrustObservation prefixes the observer domain key's
+	// signature on a SEMP_TRUST_OBSERVATION record
+	// (draft-gokce-semp-delivery §11.1).
+	SigCtxTrustObservation = "SEMP-TRUST-OBSERVATION:"
+
+	// SigCtxTrustTransfer prefixes the issuing domain's signature on
+	// a SEMP_TRUST_TRANSFER record (draft-gokce-semp-delivery §7).
+	SigCtxTrustTransfer = "SEMP-TRUST-TRANSFER:"
+
+	// SigCtxReputationReferences prefixes the subject domain key's
+	// signature on a SEMP_REPUTATION_REFERENCES record
+	// (draft-gokce-semp-delivery §12.2).
+	SigCtxReputationReferences = "SEMP-REPUTATION-REFERENCES:"
+
+	// SigCtxAbuseReport prefixes the reporting user's signature on a
+	// SEMP_ABUSE_REPORT record (draft-gokce-semp-delivery §10).
+	SigCtxAbuseReport = "SEMP-ABUSE-REPORT:"
 )
 
 // PrefixedMessage prepends a domain-separation context prefix to a message.

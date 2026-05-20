@@ -124,12 +124,33 @@ type ResponseResult struct {
 	ErrorReason string `json:"error_reason,omitempty"`
 }
 
-// ResultStatus is the per-address status in a Response.
+// ResultStatus is the per-address status in a Response. The set
+// mirrors the submission-time status vocabulary so the client can
+// share dispatch logic between key fetch and submission per
+// draft-gokce-semp-client §6.4.
 type ResultStatus string
 
 // ResultStatus values.
 const (
-	StatusFound    ResultStatus = "found"
+	// StatusFound: the home server returned a current key set for
+	// this address.
+	StatusFound ResultStatus = "found"
+
+	// StatusNotFound: the address is registered with the home
+	// server but has no current published key (revoked or no
+	// active enrollment).
 	StatusNotFound ResultStatus = "not_found"
-	StatusError    ResultStatus = "error"
+
+	// StatusLegacyRequired: the address belongs to a domain that
+	// does not run SEMP. The client SHOULD fall back to the
+	// legacy interop path.
+	StatusLegacyRequired ResultStatus = "legacy_required"
+
+	// StatusRecipientNotFound: no record of the address at the
+	// home server.
+	StatusRecipientNotFound ResultStatus = "recipient_not_found"
+
+	// StatusError: the lookup failed for a transient or unspecified
+	// reason. ErrorReason carries the human-readable diagnostic.
+	StatusError ResultStatus = "error"
 )
