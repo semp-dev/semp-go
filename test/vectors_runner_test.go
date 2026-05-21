@@ -124,11 +124,13 @@ var dispatch = map[string]handler{
 	"envelope-roundtrip": handleEnvelopeRoundtrip,
 
 	// LIBRARY_REVIEW decision-pass categories.
-	"migration-notice":      handleMigrationNotice,
-	"reputation-references": handleReputationReferencesValid,
-	"status-config":         handleStatusConfigValid,
-	"trust-observation":     handleTrustObservation,
-	"validation-failures":   handleValidationFailures,
+	"migration-notice":         handleMigrationNotice,
+	"reputation-references":    handleReputationReferencesValid,
+	"status-config":            handleStatusConfigValid,
+	"trust-observation":        handleTrustObservation,
+	"validation-failures":      handleValidationFailures,
+	"abuse-report":             handleAbuseReportObservation,
+	"publication-eligibility":  handlePublicationEligibility,
 }
 
 // TestVectors is the entry point. It walks every *.json file in the

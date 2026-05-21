@@ -444,6 +444,79 @@ func handleTrustObservation(t *testing.T, entry vectorEntry) {
 }
 
 // ---------------------------------------------------------------------------
+// abuse-report / observation_record_abuse
+
+func handleAbuseReportObservation(t *testing.T, entry vectorEntry) {
+	reportRaw := jgetRaw(t, entry.Inputs, "report_json")
+	if len(reportRaw) == 0 {
+		t.Fatal("missing report_json")
+	}
+	var report reputation.AbuseReport
+	if err := json.Unmarshal(reportRaw, &report); err != nil {
+		t.Fatalf("unmarshal report_json: %v", err)
+	}
+	if report.Type != reputation.AbuseReportType {
+		t.Errorf("type=%q, want %q", report.Type, reputation.AbuseReportType)
+	}
+	if report.Category != reputation.AbuseObservationRecord {
+		t.Errorf("category=%q, want %q",
+			report.Category, reputation.AbuseObservationRecord)
+	}
+	if !reputation.KnownAbuseCategory(report.Category) {
+		t.Errorf("AbuseObservationRecord not recognized by KnownAbuseCategory")
+	}
+	// Cross-check the spec category set against the lib.
+	catsRaw := jgetRaw(t, entry.Expected, "categories_known_to_lib")
+	var cats []string
+	_ = json.Unmarshal(catsRaw, &cats)
+	for _, c := range cats {
+		if !reputation.KnownAbuseCategory(reputation.AbuseCategory(c)) {
+			t.Errorf("spec category %q not recognized by lib", c)
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// publication-eligibility / threshold
+
+func handlePublicationEligibility(t *testing.T, entry vectorEntry) {
+	if reputation.MinPublishVolumeEnvelopes != 16 {
+		t.Errorf("MinPublishVolumeEnvelopes = %d, want 16",
+			reputation.MinPublishVolumeEnvelopes)
+	}
+	for i, raw := range entry.Samples {
+		metricsRaw := jgetRaw(t, raw, "metrics")
+		var m reputation.Metrics
+		if err := json.Unmarshal(metricsRaw, &m); err != nil {
+			t.Errorf("sample %d: unmarshal metrics: %v", i, err)
+			continue
+		}
+		wantMeets := jgetBool(t, raw, "expected_meets_publish_volume")
+		wantEligible := jgetBool(t, raw, "expected_eligible")
+		gotMeets := reputation.MeetsPublishVolume(m)
+		if gotMeets != wantMeets {
+			t.Errorf("sample %d (%s): MeetsPublishVolume=%v, want %v",
+				i, jget(t, raw, "label"), gotMeets, wantMeets)
+		}
+		gotEligible := reputation.EligibleForPublication(m)
+		if gotEligible != wantEligible {
+			t.Errorf("sample %d (%s): EligibleForPublication=%v, want %v",
+				i, jget(t, raw, "label"), gotEligible, wantEligible)
+		}
+		// AllMetricsZero cross-check when the sample pins it.
+		if azRaw := jgetRaw(t, raw, "expected_all_zero"); len(azRaw) > 0 {
+			var wantAZ bool
+			_ = json.Unmarshal(azRaw, &wantAZ)
+			gotAZ := reputation.AllMetricsZero(m)
+			if gotAZ != wantAZ {
+				t.Errorf("sample %d (%s): AllMetricsZero=%v, want %v",
+					i, jget(t, raw, "label"), gotAZ, wantAZ)
+			}
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
 // validation-failures / single + multi
 
 func handleValidationFailures(t *testing.T, entry vectorEntry) {
