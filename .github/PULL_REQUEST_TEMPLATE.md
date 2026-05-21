@@ -63,8 +63,7 @@ want it called out so reviewers and downstream callers see it.
 ## Checklist
 
 - [ ] PR title is short and descriptive
-- [ ] Commit messages explain the why, not just the what
+- [ ] Commit messages explain the motivation behind the change
 - [ ] No `--no-verify` / `--no-gpg-sign` bypasses in the commits
-- [ ] If AI-assisted, commits carry a `Co-Authored-By:` trailer naming the model
 - [ ] SPEC-GAP.md updated if this closes a follow-up
-- [ ] Memory of stale `// TODO`s, dead branches, and debug prints has been pruned
+- [ ] Stale `// TODO`s, dead branches, and debug prints have been pruned

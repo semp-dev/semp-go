@@ -15,7 +15,7 @@ Key properties:
 - **End-to-end encrypted** -- brief (routing metadata) is readable only by the recipient server and client; enclosure (message body) is readable only by the recipient client.
 - **Federated** -- any domain can run a SEMP server. Cross-domain delivery uses authenticated federation handshakes with full cryptographic binding.
 - **Post-quantum ready** -- the `pq-kyber768-x25519` hybrid suite protects session keys against harvest-now-decrypt-later attacks from future quantum adversaries.
-- **Observable reputation** -- domain trust is earned through observed behavior, not self-reported claims. Signed observations are published and independently verifiable.
+- **Observable reputation** -- domain trust is earned through behavior that other servers can witness. Signed observations are published and independently verifiable.
 
 ## Status
 

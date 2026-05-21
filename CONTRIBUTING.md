@@ -65,21 +65,21 @@ Before opening a PR, make sure:
 
 - Standard Go formatting (`gofmt`); no custom linters.
 - Spec prose follows RFC-style normative language (MUST / SHOULD / MAY) when documenting a normative behavior.
-- Avoid em-dashes, en-dashes, and inline `--` in spec-citing prose; the project's spec authors prefer cleaner punctuation. Keep code comments terse and let identifiers speak.
+- Use ASCII punctuation throughout. Keep code comments terse and let identifiers speak.
 
 ### Commits
 
-Commit messages should explain the why, not just the what. The project's existing commits are descriptive -- read recent ones for the house style. A typical commit message has:
+A good commit message explains the motivation behind the change. The project's existing commits are descriptive; read recent ones for the house style. A typical commit message has:
 
 1. A subject line under 72 characters.
 2. A blank line.
 3. One or more paragraphs describing the change, the spec reference, and any breaking implications.
 
-If your work was AI-assisted, append a `Co-Authored-By:` trailer naming the model. The project does not require a CLA today.
+The project does not require a CLA today.
 
 ### Test plan in the PR
 
-Every PR's description should include a short Test plan section listing what you ran and what passed. The PR template has a checklist; fill it in honestly -- partial completion is fine, partial honesty is not.
+Every PR's description should include a short Test plan section listing what you ran and what passed. The PR template has a checklist; fill it in honestly.
 
 ## Versioning
 
