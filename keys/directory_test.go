@@ -203,7 +203,7 @@ func TestDirectoryCacheVerifyAndCacheHappyPath(t *testing.T) {
 		t.Errorf("highest = %d, want 1", cache.Highest("alice@example.com"))
 	}
 
-	// Add another device → revision 2; cache accepts.
+	// Add another device -> revision 2; cache accepts.
 	dir2, err := state.AddDevice(context.Background(), mkEntry(t, "d-2", keys.DeviceRoleFullAccess, nil))
 	if err != nil {
 		t.Fatalf("AddDevice: %v", err)

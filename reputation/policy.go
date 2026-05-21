@@ -15,11 +15,11 @@ import (
 //
 // The decision curve matches REPUTATION.md §8.3.2:
 //
-//   - Unknown / neutral domains → DifficultyForAge(ageDays)
-//   - Trusted domains           → no PoW (returns zero-value
+//   - Unknown / neutral domains -> DifficultyForAge(ageDays)
+//   - Trusted domains           -> no PoW (returns zero-value
 //     challenge)
-//   - Suspicious domains        → DifficultySuspicious (22)
-//   - Hostile domains           → DifficultyHostile (26)
+//   - Suspicious domains        -> DifficultySuspicious (22)
+//   - Hostile domains           -> DifficultyHostile (26)
 //
 // Callers that want a stricter or looser curve should implement their
 // own policy that reads Score directly; PoWPolicy is the sensible

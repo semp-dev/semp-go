@@ -63,25 +63,25 @@ func TestClientHandshakeRoundTripSuitePQ(t *testing.T) {
 	defer client.Erase()
 	defer server.Erase()
 
-	// --- 1. Client → Server: init
+	// --- 1. Client -> Server: init
 	initBytes, err := client.Init()
 	if err != nil {
 		t.Fatalf("client.Init: %v", err)
 	}
 
-	// --- 2. Server → Client: response
+	// --- 2. Server -> Client: response
 	respBytes, err := server.OnInit(initBytes)
 	if err != nil {
 		t.Fatalf("server.OnInit: %v", err)
 	}
 
-	// --- 3. Client → Server: confirm
+	// --- 3. Client -> Server: confirm
 	confirmBytes, clientSession, err := client.OnResponse(respBytes)
 	if err != nil {
 		t.Fatalf("client.OnResponse: %v", err)
 	}
 
-	// --- 4. Server → Client: accepted
+	// --- 4. Server -> Client: accepted
 	acceptedBytes, serverSession, err := server.OnConfirm(confirmBytes)
 	if err != nil {
 		t.Fatalf("server.OnConfirm: %v", err)
@@ -187,10 +187,10 @@ func TestClientHandshakeNegotiatesPQWhenBothOffer(t *testing.T) {
 	// picked the PQ suite.
 }
 
-// TestEnvelopeSealUnderSuitePQ drives an envelope compose → sign →
+// TestEnvelopeSealUnderSuitePQ drives an envelope compose -> sign ->
 // verify round-trip using SuitePQ. The envelope's K_env_mac is
 // derived through the hybrid KEM, so a successful verify proves the
-// entire crypto stack (KEM → KDF → MAC → AEAD → signer) composes
+// entire crypto stack (KEM -> KDF -> MAC -> AEAD -> signer) composes
 // correctly under the post-quantum suite.
 func TestEnvelopeSealUnderSuitePQ(t *testing.T) {
 	suite := crypto.SuitePQ

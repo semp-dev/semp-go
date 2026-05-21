@@ -112,13 +112,13 @@ func (kdfHKDFSHA512) Expand(prk, info []byte, length int) []byte {
 // server stores it inside the ticket and never returns it
 // directly).
 type SessionKeys struct {
-	// EncC2S encrypts client → server handshake messages.
+	// EncC2S encrypts client -> server handshake messages.
 	EncC2S []byte
-	// EncS2C encrypts server → client handshake messages.
+	// EncS2C encrypts server -> client handshake messages.
 	EncS2C []byte
-	// MACC2S authenticates client → server handshake messages.
+	// MACC2S authenticates client -> server handshake messages.
 	MACC2S []byte
-	// MACS2C authenticates server → client handshake messages.
+	// MACS2C authenticates server -> client handshake messages.
 	MACS2C []byte
 	// EnvMAC authenticates envelopes via seal.session_mac.
 	EnvMAC []byte

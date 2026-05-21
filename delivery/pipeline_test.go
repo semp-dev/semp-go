@@ -136,7 +136,7 @@ func localTo(addrs ...string) delivery.LocalAddressFunc {
 }
 
 // staticDomainKeys returns a DomainKeyLookup that resolves a single
-// domain → public key mapping.
+// domain -> public key mapping.
 type staticDomainKeys struct {
 	domain string
 	pub    []byte

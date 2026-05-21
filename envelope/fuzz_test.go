@@ -10,7 +10,7 @@ import (
 
 // FuzzEnvelopeDecode feeds arbitrary bytes into envelope.Decode and
 // asserts the parser never panics. A successful decode must be
-// idempotent under Encode → Decode round-tripping.
+// idempotent under Encode -> Decode round-tripping.
 //
 // Seeds include a minimal well-formed envelope JSON so the fuzzer can
 // mutate around it instead of exploring pure garbage.

@@ -20,4 +20,4 @@ assignees: ''
 
 ## Spec reference
 
-<!-- If your question is about a particular spec section, cite it (e.g., "ENVELOPE.md §6.5.3"). The answer is often "the spec says X" — knowing which X helps a lot. -->
+<!-- If your question is about a particular spec section, cite it (e.g., "ENVELOPE.md §6.5.3"). The answer is often "the spec says X" -- knowing which X helps a lot. -->

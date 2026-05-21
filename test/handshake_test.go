@@ -27,7 +27,7 @@ func mustMarshalJSON(t *testing.T, v any) json.RawMessage {
 
 // TestClientHandshakeRoundTrip drives the full four-message client handshake
 // in a single process. The test wires a Client and a Server back to back via
-// in-memory byte buffers, walks them through init → response → confirm →
+// in-memory byte buffers, walks them through init -> response -> confirm ->
 // accepted, and then asserts:
 //
 //   1. Both sides agree on the session_id, the negotiated suite, and the
@@ -77,21 +77,21 @@ func TestClientHandshakeRoundTrip(t *testing.T) {
 	defer client.Erase()
 	defer server.Erase()
 
-	// --- 1. Client → Server: init
+	// --- 1. Client -> Server: init
 	initBytes, err := client.Init()
 	if err != nil {
 		t.Fatalf("client.Init: %v", err)
 	}
 	t.Logf("init message: %d bytes", len(initBytes))
 
-	// --- 2. Server → Client: response
+	// --- 2. Server -> Client: response
 	respBytes, err := server.OnInit(initBytes)
 	if err != nil {
 		t.Fatalf("server.OnInit: %v", err)
 	}
 	t.Logf("response message: %d bytes", len(respBytes))
 
-	// --- 3. Client → Server: confirm (and partially-built session)
+	// --- 3. Client -> Server: confirm (and partially-built session)
 	confirmBytes, clientSession, err := client.OnResponse(respBytes)
 	if err != nil {
 		t.Fatalf("client.OnResponse: %v", err)
@@ -101,7 +101,7 @@ func TestClientHandshakeRoundTrip(t *testing.T) {
 		t.Errorf("client session should be handshaking after OnResponse, got %s", clientSession.State)
 	}
 
-	// --- 4. Server → Client: accepted (and fully-built server session)
+	// --- 4. Server -> Client: accepted (and fully-built server session)
 	acceptedBytes, serverSession, err := server.OnConfirm(confirmBytes)
 	if err != nil {
 		t.Fatalf("server.OnConfirm: %v", err)

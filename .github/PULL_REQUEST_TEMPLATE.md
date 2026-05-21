@@ -22,7 +22,7 @@ actually read when reviewing.
 Cite the spec section(s) this PR implements or touches. Examples:
 - DELIVERY.md §3.2.5 (disposition authentication)
 - KEY.md §10.3.5 step 6 (issuance flow)
-- N/A — pure library refactor / Go-side helper
+- N/A -- pure library refactor / Go-side helper
 
 If the change requires a spec change, link the semp-spec PR/commit:
 - semp-dev/semp-spec#123

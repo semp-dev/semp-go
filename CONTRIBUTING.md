@@ -17,7 +17,7 @@ Participation in this project is governed by the [Code of Conduct](CODE_OF_CONDU
 | Bug fix in `semp-go` | this repo |
 | New Go-side helper / convenience that has no spec impact | this repo |
 
-If you are not sure which side a change belongs on, open a [Question](https://github.com/semp-dev/semp-go/issues/new?template=question.md) — we are happy to triage.
+If you are not sure which side a change belongs on, open a [Question](https://github.com/semp-dev/semp-go/issues/new?template=question.md) -- we are happy to triage.
 
 ## Reporting bugs
 
@@ -69,7 +69,7 @@ Before opening a PR, make sure:
 
 ### Commits
 
-Commit messages should explain the why, not just the what. The project's existing commits are descriptive — read recent ones for the house style. A typical commit message has:
+Commit messages should explain the why, not just the what. The project's existing commits are descriptive -- read recent ones for the house style. A typical commit message has:
 
 1. A subject line under 72 characters.
 2. A blank line.
@@ -79,7 +79,7 @@ If your work was AI-assisted, append a `Co-Authored-By:` trailer naming the mode
 
 ### Test plan in the PR
 
-Every PR's description should include a short Test plan section listing what you ran and what passed. The PR template has a checklist; fill it in honestly — partial completion is fine, partial honesty is not.
+Every PR's description should include a short Test plan section listing what you ran and what passed. The PR template has a checklist; fill it in honestly -- partial completion is fine, partial honesty is not.
 
 ## Versioning
 

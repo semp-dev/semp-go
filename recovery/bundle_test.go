@@ -82,7 +82,7 @@ func TestNormalizeRecoverySecretEmptyRecoveryCode(t *testing.T) {
 // TestNormalizeRecoverySecretUnknownForm confirms an unknown form
 // is rejected rather than silently passed through.
 func TestNormalizeRecoverySecretUnknownForm(t *testing.T) {
-	if _, err := recovery.NormalizeRecoverySecret(recovery.SecretForm("emoji"), "🦀🦀🦀"); err == nil {
+	if _, err := recovery.NormalizeRecoverySecret(recovery.SecretForm("emoji"), "anything"); err == nil {
 		t.Error("NormalizeRecoverySecret accepted unknown form")
 	}
 }
@@ -203,7 +203,7 @@ func TestEncryptDecryptBundlePayload(t *testing.T) {
 		t.Errorf("encryption_keys round-trip mismatch: %+v", got.EncryptionKeys)
 	}
 
-	// Tamper one ciphertext byte → AEAD failure.
+	// Tamper one ciphertext byte -> AEAD failure.
 	tampered := make([]byte, len(ct))
 	copy(tampered, ct)
 	tampered[0] ^= 0x01
@@ -211,7 +211,7 @@ func TestEncryptDecryptBundlePayload(t *testing.T) {
 		t.Error("DecryptBundlePayload accepted tampered ciphertext")
 	}
 
-	// Wrong key → AEAD failure.
+	// Wrong key -> AEAD failure.
 	otherKey := make([]byte, 32)
 	if _, err := rand.Read(otherKey); err != nil {
 		t.Fatalf("rand: %v", err)
@@ -462,7 +462,7 @@ func TestBundleEndToEnd(t *testing.T) {
 		t.Error("restored identity_key.private_key mismatch")
 	}
 
-	// Wrong passphrase → wrong K_bundle → AEAD open fails.
+	// Wrong passphrase -> wrong K_bundle -> AEAD open fails.
 	wrongSecret, err := recovery.NormalizeRecoverySecret(
 		recovery.SecretFormPassphrase, "incorrect horse battery staple",
 	)

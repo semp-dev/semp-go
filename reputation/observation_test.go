@@ -120,7 +120,7 @@ func TestObservationStoreScoreTrusted(t *testing.T) {
 	for i := 0; i < 100; i++ {
 		store.RecordEnvelope("good.example", true)
 	}
-	// 2 rejects out of 102 → ~2% reject rate, still trusted.
+	// 2 rejects out of 102 -> ~2% reject rate, still trusted.
 	store.RecordEnvelope("good.example", false)
 	store.RecordEnvelope("good.example", false)
 	score := store.Score("good.example")

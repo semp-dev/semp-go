@@ -278,7 +278,7 @@ func TestAcceptSubmissionLockoutDuplicate(t *testing.T) {
 }
 
 // TestLockoutRegistryReleaseAndPrune covers the in-memory impl's
-// lifecycle: Reserve → IsLockedOut hits → Release / Prune lifts.
+// lifecycle: Reserve -> IsLockedOut hits -> Release / Prune lifts.
 func TestLockoutRegistryReleaseAndPrune(t *testing.T) {
 	reg := migration.NewInMemoryLockoutRegistry()
 	until := time.Now().UTC().Add(180 * 24 * time.Hour)

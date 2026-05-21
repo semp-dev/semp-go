@@ -55,7 +55,7 @@ type FinalizationEffects struct {
 	// DrainOutboundQueue corresponds to §4.2.5: every non-terminal
 	// queue state record for this account MUST transition to
 	// `expired` per DELIVERY.md §2.6. The operator supplies the
-	// user→envelopes lookup since the queue store API is
+	// user->envelopes lookup since the queue store API is
 	// envelope/recipient-keyed; closure driver does not impose a
 	// per-user index.
 	DrainOutboundQueue FinalizationEffectFunc

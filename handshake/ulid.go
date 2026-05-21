@@ -9,7 +9,7 @@ import (
 )
 
 // crockfordAlphabet is the Crockford base32 alphabet (RFC 4648 with the
-// substitution rules I and L → 1, O → 0). ULIDs are encoded with this
+// substitution rules I and L -> 1, O -> 0). ULIDs are encoded with this
 // alphabet, but for our purposes any 26-character base32 string with the
 // same total entropy is sufficient - we are only using ULIDs as session
 // identifiers, not as RFC 4648 base32 to be parsed by external tools.

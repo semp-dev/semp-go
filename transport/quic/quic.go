@@ -12,7 +12,7 @@
 // Transport.Dial constructs an *http.Client whose Transport field is
 // an *http3.Transport (QUIC-backed HTTP/3 round-tripper) and passes
 // it into h2.Dial. The returned transport.Conn is identical to the
-// h2 Conn - strictly turn-based, Send → Recv → Send.
+// h2 Conn - strictly turn-based, Send -> Recv -> Send.
 //
 // # TLS
 //
@@ -84,7 +84,7 @@ func (*Transport) Profiles() transport.Profile { return transport.ProfileBoth }
 // unencrypted connections. Dial does no network I/O; the first POST
 // happens on the first Send.
 //
-// The returned Conn is strictly turn-based: Send → Recv → Send →
+// The returned Conn is strictly turn-based: Send -> Recv -> Send ->
 // Recv. This matches the SEMP handshake and request-response
 // pattern.
 func (t *Transport) Dial(ctx context.Context, endpoint string) (transport.Conn, error) {

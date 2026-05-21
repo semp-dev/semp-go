@@ -53,7 +53,7 @@ const (
 
 	// DifficultyRelaxed is the relaxed level for zero-reputation but
 	// established-age domains (§8.3.2 table: "Zero reputation, domain
-	// age > threshold → 16").
+	// age > threshold -> 16").
 	DifficultyRelaxed = 16
 
 	// DifficultySuspicious is the lower end of the "established domain
@@ -73,8 +73,8 @@ const (
 // DifficultyForAge returns the recommended difficulty for a new-domain
 // that is ageDays old according to the curve in REPUTATION.md §8.3.2:
 //
-//   - age < DomainAgeGateDays → DifficultyBaseline (20)
-//   - age ≥ DomainAgeGateDays → DifficultyRelaxed  (16)
+//   - age < DomainAgeGateDays -> DifficultyBaseline (20)
+//   - age ≥ DomainAgeGateDays -> DifficultyRelaxed  (16)
 //
 // Operators with stricter or looser policies should skip this helper
 // and pass their own difficulty to IssueChallenge.
@@ -90,9 +90,9 @@ func DifficultyForAge(ageDays int) int {
 // Zero-reputation domains are handled by DifficultyForAge; this helper
 // is for domains that already have an established observation record.
 //
-//   - AssessmentTrusted / AssessmentNeutral → 0 (no PoW required)
-//   - AssessmentSuspicious                  → DifficultySuspicious (22)
-//   - AssessmentHostile                     → DifficultyHostile (26)
+//   - AssessmentTrusted / AssessmentNeutral -> 0 (no PoW required)
+//   - AssessmentSuspicious                  -> DifficultySuspicious (22)
+//   - AssessmentHostile                     -> DifficultyHostile (26)
 //
 // A return value of zero MUST be interpreted as "no challenge".
 func DifficultyForAssessment(a Assessment) int {

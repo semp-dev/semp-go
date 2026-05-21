@@ -30,7 +30,7 @@ const TicketIDLen = 16
 
 // TicketIssuer issues, opens, and consumes opaque resumption tickets
 // per SESSION.md §2.7 and HANDSHAKE.md §2.8. Implementations may be
-// stateful (server-held table of ticket-id → ticket payload) or
+// stateful (server-held table of ticket-id -> ticket payload) or
 // stateless (AEAD-wrapped self-contained ticket bytes). The wire
 // format is opaque to the client; only the issuing server can open a
 // ticket it produced.

@@ -21,7 +21,7 @@ func newTestIssuer(t *testing.T) *session.StatelessTicketIssuer {
 	return issuer
 }
 
-// TestStatelessTicketRoundTrip verifies the basic Issue → Open
+// TestStatelessTicketRoundTrip verifies the basic Issue -> Open
 // happy path: the bound identity, resumption secret, and expires_at
 // recover identically.
 func TestStatelessTicketRoundTrip(t *testing.T) {

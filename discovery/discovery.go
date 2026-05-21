@@ -316,7 +316,7 @@ func domainPartOf(address string) string {
 }
 
 // hostOfURL extracts the host portion of a URL like
-// "wss://semp.example.com/v1/ws" → "semp.example.com". Returns the
+// "wss://semp.example.com/v1/ws" -> "semp.example.com". Returns the
 // original string when parsing fails.
 func hostOfURL(u string) string {
 	s := u

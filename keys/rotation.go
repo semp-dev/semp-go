@@ -196,7 +196,7 @@ func (d *RotationDriver) evaluate(ctx context.Context, p RotationPolicy) Rotatio
 		res.Error = fmt.Errorf("rotation: revoke old key %s: %w", current.KeyID, err)
 		return res
 	}
-	d.logf("rotation: rotated %s key for %s: %s → %s", p.KeyType, p.Address, current.KeyID, newKey)
+	d.logf("rotation: rotated %s key for %s: %s -> %s", p.KeyType, p.Address, current.KeyID, newKey)
 
 	// Immediately check retirement on the just-rotated key.
 	res.Retired = d.maybeRetire(ctx, p, now)
@@ -313,7 +313,7 @@ func (d *RotationDriver) DueForRotation(ctx context.Context, p RotationPolicy) (
 		return false, err
 	}
 	if current == nil {
-		return true, nil // no key exists → initial keygen is due
+		return true, nil // no key exists -> initial keygen is due
 	}
 	return d.now().Sub(current.Created) >= p.RotateEvery, nil
 }

@@ -187,7 +187,7 @@ func TestZeroize(t *testing.T) {
 // peers offer it, and return an error when only the unimplemented PQ suite
 // is offered by both peers.
 func TestNegotiateBaseline(t *testing.T) {
-	// Baseline mutually offered → baseline selected.
+	// Baseline mutually offered -> baseline selected.
 	id, err := Negotiate(
 		[]SuiteID{SuiteIDX25519ChaCha20Poly1305},
 		[]SuiteID{SuiteIDX25519ChaCha20Poly1305},
@@ -199,7 +199,7 @@ func TestNegotiateBaseline(t *testing.T) {
 		t.Errorf("got %q, want %q", id, SuiteIDX25519ChaCha20Poly1305)
 	}
 
-	// Both PQ and baseline offered → PQ selected (preferred per
+	// Both PQ and baseline offered -> PQ selected (preferred per
 	// SESSION.md §4.3: servers MUST prefer the post-quantum hybrid
 	// when both peers support one).
 	id, err = Negotiate(
@@ -213,7 +213,7 @@ func TestNegotiateBaseline(t *testing.T) {
 		t.Errorf("got %q, want %q (PQ preferred)", id, SuiteIDPQKyber768X25519)
 	}
 
-	// PQ only on both sides → PQ selected.
+	// PQ only on both sides -> PQ selected.
 	id, err = Negotiate(
 		[]SuiteID{SuiteIDPQKyber768X25519},
 		[]SuiteID{SuiteIDPQKyber768X25519},
@@ -225,7 +225,7 @@ func TestNegotiateBaseline(t *testing.T) {
 		t.Errorf("got %q, want %q", id, SuiteIDPQKyber768X25519)
 	}
 
-	// Disjoint sets → error.
+	// Disjoint sets -> error.
 	_, err = Negotiate(
 		[]SuiteID{SuiteIDX25519ChaCha20Poly1305},
 		[]SuiteID{SuiteIDPQKyber768X25519},
@@ -369,7 +369,7 @@ func TestDeriveResumedSessionKeysMixesBothInputs(t *testing.T) {
 	if len(base.EnvMAC) != 32 || len(base.Resumption) != 32 {
 		t.Fatalf("derived keys are wrong size")
 	}
-	// Same resumption secret, different ephemeral → different keys.
+	// Same resumption secret, different ephemeral -> different keys.
 	diffEph, err := DeriveResumedSessionKeys(suite.KDF(), ephB, resumptionA, clientNonce, serverNonce)
 	if err != nil {
 		t.Fatalf("diffEph DeriveResumedSessionKeys: %v", err)
@@ -377,7 +377,7 @@ func TestDeriveResumedSessionKeysMixesBothInputs(t *testing.T) {
 	if bytes.Equal(base.EnvMAC, diffEph.EnvMAC) {
 		t.Error("changing only the ephemeral DH did not change EnvMAC; ephemeral input not mixed in")
 	}
-	// Same ephemeral, different resumption secret → different keys.
+	// Same ephemeral, different resumption secret -> different keys.
 	diffResume, err := DeriveResumedSessionKeys(suite.KDF(), ephA, resumptionB, clientNonce, serverNonce)
 	if err != nil {
 		t.Fatalf("diffResume DeriveResumedSessionKeys: %v", err)

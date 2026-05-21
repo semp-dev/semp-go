@@ -341,7 +341,7 @@ func TestResolverMXFallback(t *testing.T) {
 }
 
 // TestResolverNotFound confirms the terminal fall-through: no DNS,
-// no well-known, no MX → not_found.
+// no well-known, no MX -> not_found.
 func TestResolverNotFound(t *testing.T) {
 	ts := httptest.NewServer(http.NotFoundHandler())
 	defer ts.Close()

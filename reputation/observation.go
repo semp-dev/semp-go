@@ -523,10 +523,10 @@ type Score struct {
 // policies should treat Score as raw input and run their own
 // classifier. The defaults are:
 //
-//   - AbuseRate ≥ 0.05 OR RejectRate ≥ 0.50 → AssessmentHostile
-//   - AbuseRate ≥ 0.01 OR RejectRate ≥ 0.20 → AssessmentSuspicious
-//   - AbuseRate == 0 AND RejectRate < 0.05 AND TotalEnvelopes ≥ 100 → AssessmentTrusted
-//   - Otherwise → AssessmentNeutral
+//   - AbuseRate ≥ 0.05 OR RejectRate ≥ 0.50 -> AssessmentHostile
+//   - AbuseRate ≥ 0.01 OR RejectRate ≥ 0.20 -> AssessmentSuspicious
+//   - AbuseRate == 0 AND RejectRate < 0.05 AND TotalEnvelopes ≥ 100 -> AssessmentTrusted
+//   - Otherwise -> AssessmentNeutral
 func (s *ObservationStore) Score(domain string) Score {
 	if s == nil {
 		return Score{Domain: domain, Assessment: AssessmentNeutral, AgeDays: -1}

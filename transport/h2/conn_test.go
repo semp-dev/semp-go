@@ -12,7 +12,7 @@ import (
 )
 
 // TestPersistentConnTurnBased confirms the client-side Conn returned
-// by Transport.Dial enforces the strict Send → Recv → Send → Recv
+// by Transport.Dial enforces the strict Send -> Recv -> Send -> Recv
 // alternation pattern documented in TRANSPORT.md §4.2.3.
 //
 // The server is a vanilla httptest server that echoes the request

@@ -8,14 +8,14 @@ go get semp.dev/semp-go@latest
 
 ## What is SEMP?
 
-SEMP is an end-to-end encrypted messaging protocol designed for privacy, federation, and post-quantum forward secrecy. Messages are sealed with per-envelope keys so the server reads routing metadata only — message content is never exposed to any server in transit or at rest.
+SEMP is an end-to-end encrypted messaging protocol designed for privacy, federation, and post-quantum forward secrecy. Messages are sealed with per-envelope keys so the server reads routing metadata only -- message content is never exposed to any server in transit or at rest.
 
 Key properties:
 
-- **End-to-end encrypted** — brief (routing metadata) is readable only by the recipient server and client; enclosure (message body) is readable only by the recipient client.
-- **Federated** — any domain can run a SEMP server. Cross-domain delivery uses authenticated federation handshakes with full cryptographic binding.
-- **Post-quantum ready** — the `pq-kyber768-x25519` hybrid suite protects session keys against harvest-now-decrypt-later attacks from future quantum adversaries.
-- **Observable reputation** — domain trust is earned through observed behavior, not self-reported claims. Signed observations are published and independently verifiable.
+- **End-to-end encrypted** -- brief (routing metadata) is readable only by the recipient server and client; enclosure (message body) is readable only by the recipient client.
+- **Federated** -- any domain can run a SEMP server. Cross-domain delivery uses authenticated federation handshakes with full cryptographic binding.
+- **Post-quantum ready** -- the `pq-kyber768-x25519` hybrid suite protects session keys against harvest-now-decrypt-later attacks from future quantum adversaries.
+- **Observable reputation** -- domain trust is earned through observed behavior, not self-reported claims. Signed observations are published and independently verifiable.
 
 ## Status
 
@@ -83,7 +83,7 @@ func serveSession(ctx context.Context, conn transport.Conn) {
 
 The per-type handlers compose primitives the library already exposes (`envelope.Decode` + `envelope.Verify`, `keys.HandleRequest`, `session.Rekeyer`, etc.). For cross-domain forwarding, drive a `delivery.Forwarder` from inside `OnEnvelope`.
 
-### Client — Send
+### Client -- Send
 
 ```go
 // After establishing a session via handshake.RunClient...
@@ -116,7 +116,7 @@ conn.Send(ctx, wire)
 // Read and parse the SubmissionResponse...
 ```
 
-### Client — Receive
+### Client -- Receive
 
 ```go
 // After establishing a session...
@@ -150,14 +150,14 @@ for _, b64 := range resp.Envelopes {
 | `semp.dev/semp-go` (root) | ERRORS.md, DELIVERY.md §1 | Protocol version, reason codes, acknowledgment types, `Error` type |
 | `crypto` | ENVELOPE.md §7.3, SESSION.md §2.1, §4.1 | Algorithm suites (`x25519-chacha20-poly1305`, `pq-kyber768-x25519`), X25519+Kyber768 hybrid KEM, AEAD, KDF, MAC, Ed25519 signing |
 | `keys` | KEY.md | Key records, fingerprints, revocation publication + fetch + cache, key rotation driver, scoped device certificates, store interface |
-| `keys/memstore` | — | In-memory key store for tests and demos (NOT for production) |
+| `keys/memstore` | -- | In-memory key store for tests and demos (NOT for production) |
 | `brief` | ENVELOPE.md §5, CLIENT.md §3.5 | Address type with validation, BCC materialization, brief struct |
 | `enclosure` | ENVELOPE.md §6 | Message body, attachments with SHA-256/SHA-512 integrity verification |
 | `seal` | ENVELOPE.md §4 | Cryptographic seal: signature, session MAC, per-recipient key wrapping |
 | `envelope` | ENVELOPE.md, MIME.md | Envelope compose/encode/decode, sign, verify, brief/enclosure decrypt |
 | `session` | SESSION.md | Session state, key lifecycle, in-session rekeying (SEMP_REKEY) |
 | `handshake` | HANDSHAKE.md | Client and federation handshake state machines, generic challenge framework, PoW solver/verifier, capability negotiation |
-| `transport` | TRANSPORT.md §2–§5 | Transport interface, sequential fallback with per-domain cache, length-prefix framer |
+| `transport` | TRANSPORT.md §2-§5 | Transport interface, sequential fallback with per-domain cache, length-prefix framer |
 | `transport/ws` | TRANSPORT.md §4.1 | WebSocket binding (`semp.v1` subprotocol) |
 | `transport/h2` | TRANSPORT.md §4.2 | HTTP/2 binding with persistent Conn adapter and SSE session stream for server-push |
 | `transport/quic` | TRANSPORT.md §4.3 | QUIC / HTTP/3 binding via `quic-go` |
@@ -172,7 +172,7 @@ for _, b64 := range resp.Envelopes {
 | `extensions` | EXTENSIONS.md | Extension entry/map types, key validation (namespace rules), per-layer size limits, default registry from §9 candidate list |
 | `clockskew` | CONFORMANCE.md §9.3 | Tiered clock-skew tolerance helpers (`Default`, `Strict`) shared across handshake, delivery, session, keys |
 | `canonical` | ENVELOPE.md §4.3 | Canonical JSON serializer used by every signature and MAC computation |
-| `session` (Dispatch) | — | Post-handshake message-loop primitive: reads frames off any `MessageStream`, peeks the outer `type`, fans out to caller-supplied per-type handlers |
+| `session` (Dispatch) | -- | Post-handshake message-loop primitive: reads frames off any `MessageStream`, peeks the outer `type`, fans out to caller-supplied per-type handlers |
 | `test` | VECTORS.md | Cross-language vectors runner + integration tests (envelope round-trip, handshake baseline + PQ, rekey, account-recovery bundle round-trip) |
 
 ## What You Provide for Production
@@ -231,16 +231,16 @@ go test -race ./...                     # no data races
 
 | Module | Version | Used by |
 |---|---|---|
-| `github.com/cloudflare/circl` | v1.6.3 | `crypto` — Kyber768 KEM for the post-quantum hybrid suite |
-| `github.com/coder/websocket` | v1.8.14 | `transport/ws` — WebSocket binding |
-| `github.com/quic-go/quic-go` | v0.59.0 | `transport/quic` — QUIC / HTTP/3 binding |
-| `golang.org/x/crypto` | v0.50.0 | `crypto` — ChaCha20-Poly1305, X25519, HKDF |
+| `github.com/cloudflare/circl` | v1.6.3 | `crypto` -- Kyber768 KEM for the post-quantum hybrid suite |
+| `github.com/coder/websocket` | v1.8.14 | `transport/ws` -- WebSocket binding |
+| `github.com/quic-go/quic-go` | v0.59.0 | `transport/quic` -- QUIC / HTTP/3 binding |
+| `golang.org/x/crypto` | v0.50.0 | `crypto` -- ChaCha20-Poly1305, X25519, HKDF |
 
 ## Versioning
 
 The library follows semver with an explicit pre-1.0 contract that mirrors SEMP itself being draft:
 
-- `v0.x.y` — pre-1.0. API and wire-format stability are best-effort within a minor version. Minor bumps (`0.3 → 0.4`) accompany meaningful feature additions or any signature breakage; patch bumps are bug-fix-only.
+- `v0.x.y` -- pre-1.0. API and wire-format stability are best-effort within a minor version. Minor bumps (`0.3 -> 0.4`) accompany meaningful feature additions or any signature breakage; patch bumps are bug-fix-only.
 - `v1.0.0` will ship after the SEMP spec reaches `1.0.0` and the API has stabilized for at least one minor cycle.
 
 The library's version is independent of the SEMP spec version it implements; the [SPEC-GAP.md](SPEC-GAP.md) header records which spec commit each release tracks.

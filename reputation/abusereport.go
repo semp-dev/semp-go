@@ -57,7 +57,7 @@ func KnownAbuseCategory(c AbuseCategory) bool {
 // (or from a user's home server on the user's behalf) to the user's
 // home server. Its JSON layout matches REPUTATION.md §3.2 exactly.
 //
-// Abuse reports are user → home-server messages sent over an already-
+// Abuse reports are user -> home-server messages sent over an already-
 // authenticated session - the handshake identified the reporting user
 // so the abuse report itself does not carry its own signature (the
 // §3.2 schema has no signature field). The report's evidence may

@@ -10,11 +10,11 @@
 //     across the request sequence.
 //   - Transport.Dial: returns a transport.Conn that POSTs on Send
 //     and returns the response body on Recv. Strictly turn-based
-//     (Send → Recv → Send → Recv), matching the SEMP handshake and
+//     (Send -> Recv -> Send -> Recv), matching the SEMP handshake and
 //     request-response flows.
 //   - EncodeEvent / EventReader: SSE encoder + decoder for the
 //     long-lived /v1/session/{id} channel (TRANSPORT.md §4.2.4),
-//     server→client push direction.
+//     server->client push direction.
 //   - OpenSessionStream / SessionStreamConn: the client side of
 //     the long-lived POST, decoding pushed events and exposing
 //     Recv / Close.
@@ -125,8 +125,8 @@ type Config struct {
 // Client is the client-side HTTP/2 primitive. One Client corresponds
 // to one logical SEMP session against one endpoint URL. Client.Do
 // makes one POST per call and threads the Semp-Session-Id header
-// across successive calls, so a multi-message handshake (init →
-// response → confirm → accepted per TRANSPORT.md §4.2.3) maps to a
+// across successive calls, so a multi-message handshake (init ->
+// response -> confirm -> accepted per TRANSPORT.md §4.2.3) maps to a
 // sequence of Do calls on the same Client.
 //
 // Client is NOT safe for concurrent Do calls. Callers that want to
@@ -256,7 +256,7 @@ func (*Transport) Profiles() transport.Profile { return transport.ProfileBoth }
 // no network I/O - the first POST happens on the first Send.
 //
 // The returned Conn is strictly turn-based: callers MUST follow
-// Send → Recv → Send → Recv. This matches the SEMP handshake
+// Send -> Recv -> Send -> Recv. This matches the SEMP handshake
 // (TRANSPORT.md §4.2.3) and the request-response pattern.
 func (t *Transport) Dial(ctx context.Context, endpoint string) (transport.Conn, error) {
 	_ = ctx // Dial is non-blocking; ctx is accepted for interface compatibility.

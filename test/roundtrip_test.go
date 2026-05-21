@@ -14,8 +14,8 @@ import (
 
 // TestEnvelopeRoundTrip exercises the full happy path of an envelope:
 //
-//   compose → sign → encode → decode → verify-signature → verify-session-MAC
-//   → server-unwraps-brief → client-unwraps-brief → client-unwraps-enclosure
+//   compose -> sign -> encode -> decode -> verify-signature -> verify-session-MAC
+//   -> server-unwraps-brief -> client-unwraps-brief -> client-unwraps-enclosure
 //
 // All in one process. No transports, no real handshake, no real key
 // distribution - those layers are still stubs. The point is to prove that

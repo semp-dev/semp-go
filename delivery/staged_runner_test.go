@@ -125,7 +125,7 @@ func TestStagedAdvanceOnAllDispositions(t *testing.T) {
 		t.Errorf("second delivery = %+v, want stage=2 devices=[d-phone]", h.delivers[1])
 	}
 	h.mu.Unlock()
-	// One more advance from stage 2 → completes.
+	// One more advance from stage 2 -> completes.
 	if err := h.runner.IngestDisposition(context.Background(), "env-1", "d-phone",
 		disp("env-1", "d-phone", delivery.DispositionAdvance)); err != nil {
 		t.Fatalf("IngestDisposition stage 2: %v", err)

@@ -82,14 +82,14 @@ type Store interface {
 // pulls due records from Store, runs DeliverFunc against each, and
 // updates state per the per-attempt outcome:
 //
-//   - Delivered → state = delivered, emit event.
-//   - Rejected with non-recoverable reason → state = rejected,
+//   - Delivered -> state = delivered, emit event.
+//   - Rejected with non-recoverable reason -> state = rejected,
 //     emit event (only the actual reason returned by the recipient
 //     is recorded; §2.6 forbids fabricating reasons).
 //   - Rejected with recoverable reason, or Silent, or transport
-//     failure → schedule next attempt via NextAttempt; advance
+//     failure -> schedule next attempt via NextAttempt; advance
 //     attempts counter.
-//   - Effective deadline reached without terminal ack → state =
+//   - Effective deadline reached without terminal ack -> state =
 //     expired, emit event.
 //
 // Cancellations submitted via Cancel transition the record to

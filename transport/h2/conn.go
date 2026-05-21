@@ -23,7 +23,7 @@ const DefaultIdleTimeout = 60 * time.Second
 //
 // The adapter is turn-based: callers MUST follow the pattern
 //
-//	Send → Recv → Send → Recv → …
+//	Send -> Recv -> Send -> Recv -> …
 //
 // which is exactly what the SEMP handshake and request-response
 // flows do. This matches the HTTP/2 binding in TRANSPORT.md §4.2.3 where
@@ -38,7 +38,7 @@ type persistentClient struct {
 	peer   string
 
 	// pendingMu guards pending. Only one response is ever buffered at a
-	// time because the contract is strict Send → Recv alternation.
+	// time because the contract is strict Send -> Recv alternation.
 	pendingMu sync.Mutex
 	pending   []byte
 	hasPending bool

@@ -190,7 +190,7 @@ func resolveAlpha(ctx context.Context, resolver *PartitionResolver, config *Part
 				return r.Server, nil
 			}
 		}
-		// Fallback: non-alphabetic first character → last range.
+		// Fallback: non-alphabetic first character -> last range.
 		return config.AlphaRanges[len(config.AlphaRanges)-1].Server, nil
 	}
 

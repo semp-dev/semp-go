@@ -218,7 +218,7 @@ func TestSuitePQRegistration(t *testing.T) {
 	}
 }
 
-// TestSuitePQHybridRoundTripThroughInterface drives an Encapsulate →
+// TestSuitePQHybridRoundTripThroughInterface drives an Encapsulate ->
 // Decapsulate round-trip through the Suite interface (rather than
 // the concrete hybrid type), confirming the Suite wiring propagates
 // correctly to downstream handshake/session code that only holds a

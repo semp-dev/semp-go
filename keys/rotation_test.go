@@ -265,7 +265,7 @@ func TestRotationDriverDueForRotation(t *testing.T) {
 		Algorithm:   "x25519",
 		RotateEvery: 30 * 24 * time.Hour,
 	}
-	// No key exists → due.
+	// No key exists -> due.
 	due, err := driver.DueForRotation(context.Background(), policy)
 	if err != nil {
 		t.Fatalf("DueForRotation: %v", err)
@@ -275,12 +275,12 @@ func TestRotationDriverDueForRotation(t *testing.T) {
 	}
 	// Create key.
 	driver.Run(context.Background(), []keys.RotationPolicy{policy})
-	// Still fresh → not due.
+	// Still fresh -> not due.
 	due, _ = driver.DueForRotation(context.Background(), policy)
 	if due {
 		t.Error("fresh key should not be due")
 	}
-	// Advance past deadline → due.
+	// Advance past deadline -> due.
 	now = now.Add(31 * 24 * time.Hour)
 	due, _ = driver.DueForRotation(context.Background(), policy)
 	if !due {

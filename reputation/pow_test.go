@@ -230,7 +230,7 @@ func TestChallengeLedgerSweepPrunesExpired(t *testing.T) {
 }
 
 // TestPoWSolutionRoundTrip confirms an end-to-end PoW exchange:
-// issue → solve manually → verify. We solve at difficulty 8 (cheap)
+// issue -> solve manually -> verify. We solve at difficulty 8 (cheap)
 // and reuse the handshake package's hash math indirectly via raw
 // SHA-256 to prove the wire format in REPUTATION.md §8.3.3 is stable.
 func TestPoWSolutionRoundTrip(t *testing.T) {
@@ -339,7 +339,7 @@ func TestPoWPolicyDecideTrustedSkips(t *testing.T) {
 // old.
 func TestPoWPolicyDecideHostileRaisesDifficulty(t *testing.T) {
 	store := reputation.NewObservationStore(nil)
-	// 10 envelopes with 5 abuse reports ⇒ 50% abuse rate → hostile.
+	// 10 envelopes with 5 abuse reports => 50% abuse rate -> hostile.
 	for i := 0; i < 10; i++ {
 		store.RecordEnvelope("bad.example", true)
 	}
@@ -373,7 +373,7 @@ func TestPoWPolicyMinDifficultyFloor(t *testing.T) {
 		Store:         store,
 		Ledger:        ledger,
 		MinDifficulty: 24,
-		AgeDaysFor:    func(string) int { return 365 }, // old → normally relaxed (16)
+		AgeDaysFor:    func(string) int { return 365 }, // old -> normally relaxed (16)
 	}
 	ch, err := policy.Decide("neutral.example")
 	if err != nil {

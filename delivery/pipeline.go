@@ -77,15 +77,15 @@ type EnvMACFunc func() []byte
 // Pipeline runs the receive-side delivery pipeline defined in
 // DELIVERY.md §2:
 //
-//  1. Verify seal.signature                  → seal_invalid
-//  2. Check postmark.expires                 → envelope_expired
-//  3. Check postmark.session_id              → no_session / handshake_invalid
-//  4. Verify seal.session_mac                → session_mac_invalid
-//  5. Check domain / server policy           → rejected or silent
+//  1. Verify seal.signature                  -> seal_invalid
+//  2. Check postmark.expires                 -> envelope_expired
+//  3. Check postmark.session_id              -> no_session / handshake_invalid
+//  4. Verify seal.session_mac                -> session_mac_invalid
+//  5. Check domain / server policy           -> rejected or silent
 //  6. Decrypt K_brief from seal.brief_recipients
 //  7. Decrypt envelope.brief
-//  8. Check user policy (block list)         → rejected or silent
-//  9. Deliver to client                      → delivered
+//  8. Check user policy (block list)         -> rejected or silent
+//  9. Deliver to client                      -> delivered
 //
 // Each numbered step is implemented as a private method on Pipeline so
 // operators can subclass or wrap individual steps without rewriting

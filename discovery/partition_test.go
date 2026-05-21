@@ -131,7 +131,7 @@ func TestResolvePartitionAlphaPreResolved(t *testing.T) {
 		{"nancy@example.com", "semp-2.example.com"},
 		{"oscar@example.com", "semp-3.example.com"},
 		{"zach@example.com", "semp-4.example.com"},
-		{"123user@example.com", "semp-4.example.com"},  // non-alpha → last range
+		{"123user@example.com", "semp-4.example.com"},  // non-alpha -> last range
 	}
 	for _, tc := range tests {
 		got, err := discovery.ResolvePartition(context.Background(), resolver, config, tc.address)

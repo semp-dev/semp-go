@@ -194,9 +194,9 @@ const (
 func (s DiscoveryStatus) String() string { return string(s) }
 
 // ToSubmissionStatus maps a discovery outcome to the submission status that
-// the home server returns to the client per DISCOVERY.md §7.1: semp →
-// proceed, legacy → legacy_required, not_found → recipient_not_found,
-// server_unavailable → rejected (with reason_code "server_unavailable"
+// the home server returns to the client per DISCOVERY.md §7.1: semp ->
+// proceed, legacy -> legacy_required, not_found -> recipient_not_found,
+// server_unavailable -> rejected (with reason_code "server_unavailable"
 // attached separately by the caller per ERRORS.md §3).
 func (s DiscoveryStatus) ToSubmissionStatus() SubmissionStatus {
 	switch s {
