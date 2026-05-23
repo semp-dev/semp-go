@@ -22,8 +22,6 @@ import (
 // the data model and the seal layer mesh correctly with the crypto layer:
 // every byte that the sender produces is consumable by the receiver,
 // and every tampered byte is rejected.
-//
-// This is the milestone-2 acceptance test.
 func TestEnvelopeRoundTrip(t *testing.T) {
 	suite := crypto.SuiteBaseline
 

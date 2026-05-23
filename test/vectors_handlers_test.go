@@ -1,17 +1,17 @@
 package test
 
-// Phase 2 vector handlers.
+// Per-category vector handlers. Three shapes live here:
 //
-// Wave 2A here covers single-signature documents - every category
-// where the construction is "blank one signature field, canonicalize,
-// prepend a domain-separation prefix, Ed25519-verify against a pinned
-// public key". The pattern is uniform enough that a single
-// `verifySingleSignedDoc` helper plus a per-category dispatcher
-// covers ten categories at modest cost.
+//   - Single-signature documents: "blank one signature field,
+//     canonicalize, prepend a domain-separation prefix, Ed25519-verify
+//     against a pinned public key". A single `verifySingleSignedDoc`
+//     helper plus a per-category dispatcher covers ten categories at
+//     modest cost.
 //
-// Multi-signature chains (migration, forwarding) and round-trip
-// constructions (seal, envelope, sender-signature, etc.) are Wave 2D
-// and live in a separate file.
+//   - Decision-table shape validators for status/lifecycle vectors.
+//
+//   - Multi-signature chains (migration, forwarding) and round-trip
+//     constructions (seal, envelope, sender-signature, etc.).
 
 import (
 	"crypto/ed25519"
@@ -361,11 +361,11 @@ func handleHandshakeMessagesPQ(t *testing.T, entry vectorEntry) {
 //
 //	resume-request-canonical  - canonical-only; client_signature blanked
 //	resume-accepted-signed    - Ed25519; server_signature
-//	resume-key-derivation     - KDF round-trip; deferred to Wave 2D
+//	resume-key-derivation     - KDF round-trip; not handled here
 //
 // The request is canonical-only because the client signature isn't
 // applied at this layer (per HANDSHAKE.md §2.8); the canonical bytes
-// are what matters here. Wave 2D will pick up the KDF derivation.
+// are what matters here.
 
 func handleSessionResumption(t *testing.T, entry vectorEntry) {
 	switch entry.ID {
@@ -447,9 +447,9 @@ func handleSessionResumption(t *testing.T, entry vectorEntry) {
 // ---------------------------------------------------------------------------
 // recovery-shamir: three entries
 //
-//	shamir-split-and-combine          - GF(256) Shamir; Wave 2D
+//	shamir-split-and-combine            - GF(256) Shamir; not handled here
 //	shamir-recovery-set-manifest-signed - Ed25519; signature.value
-//	shamir-share-record-signed        - multiple records; device_signature.value
+//	shamir-share-record-signed          - multiple records; device_signature.value
 
 func handleRecoveryShamir(t *testing.T, entry vectorEntry) {
 	switch entry.ID {
@@ -594,7 +594,7 @@ func handleFirstContactToken(t *testing.T, entry vectorEntry) {
 }
 
 // ---------------------------------------------------------------------------
-// Wave 2B: decision-table shape validators
+// Decision-table shape validators
 //
 // These categories ship table-shape vectors that map a (state, event)
 // or (condition) tuple to an expected_action / reason_code / behavior
@@ -802,7 +802,7 @@ func handleSessionLifecycle(t *testing.T, entry vectorEntry) {
 }
 
 // ---------------------------------------------------------------------------
-// Wave 2C: must-reject-index cross-reference + envelope-rejection schema
+// must-reject-index cross-reference + envelope-rejection schema
 //
 // must-reject-index.json is a generated cross-reference; the runner
 // validates that every `pointer` of the form `<file>#<id>` resolves
@@ -812,7 +812,7 @@ func handleSessionLifecycle(t *testing.T, entry vectorEntry) {
 // covered by their own handlers).
 //
 // negative-envelope-rejection schema-only here; the actual must-reject
-// outcomes need round-trip-aware envelope verification (Wave 2D).
+// outcomes need round-trip-aware envelope verification (handled below).
 
 func handleMustRejectIndex(t *testing.T, entry vectorEntry) {
 	// The index file has a different top-level shape: no `vectors`
@@ -829,8 +829,8 @@ func handleMustRejectIndex(t *testing.T, entry vectorEntry) {
 }
 
 func handleNegativeEnvelopeRejection(t *testing.T, entry vectorEntry) {
-	// Wave 2D: re-run the §7.2 verification steps and confirm the
-	// pinned rejection actually happens. Each entry pins an envelope
+	// Re-run the §7.2 verification steps and confirm the pinned
+	// rejection actually happens. Each entry pins an envelope
 	// constructed to fail at a specific step; the runner asserts
 	// semp-go's verification fails at that step (and only that step
 	// for the first failure).
@@ -926,7 +926,7 @@ func timeParseISO(s string) (time.Time, error) {
 var _ hash.Hash
 
 // ---------------------------------------------------------------------------
-// sender-signature: Wave 2D verifier (3 entries)
+// sender-signature verifier (3 entries)
 //
 // All three entries share the same construction: a sender_signature
 // over the enclosure's canonical bytes with the SEMP-ENCLOSURE-SENDER:
@@ -1012,7 +1012,7 @@ func deepCopyMap(m map[string]any) map[string]any {
 }
 
 // ---------------------------------------------------------------------------
-// delivery-receipt: Wave 2D verifier (3 entries)
+// delivery-receipt verifier (3 entries)
 //
 // Valid: signature verifies + envelope_hash recomputes correctly.
 // Tampered envelope: signature still verifies (the receipt itself is
@@ -1127,7 +1127,7 @@ func handleDeliveryReceipt(t *testing.T, entry vectorEntry) {
 }
 
 // ---------------------------------------------------------------------------
-// transparency: Wave 2D (4 entries)
+// transparency verifier (4 entries)
 //
 // RFC 6962 Merkle math:
 //   leaf hash:  SHA-256(0x00 || leaf_payload)
@@ -1574,15 +1574,14 @@ func runEnvelopeRoundtrip(t *testing.T, entry vectorEntry, suite crypto.Suite) {
 }
 
 // ---------------------------------------------------------------------------
-// seal-roundtrip: HPKE-Base wrap (verify-only)
+// seal-roundtrip: HPKE-Base wrap (full receive-side + send-side check)
 //
 // Each vector pins the wrapped bytes plus all the recipient's keying
-// material. We exercise the receive-side path: feed wrapped_b64 to
-// the corresponding Unwrap and assert K is recovered byte-for-byte.
-// The send-side (Wrap) path requires a deterministic ephemeral input
-// that the production seal.Wrapper does not expose; cross-language
-// byte-level wrap-side checks are deferred until a deterministic
-// test-only Wrap variant lands.
+// material and the sender's ephemeral randomness. We exercise both
+// directions: feed wrapped_b64 to Unwrap and assert K is recovered
+// byte-for-byte; then feed the pinned randomness through
+// WrapWithRandomness and assert the produced wrapped bytes match
+// expected.wrapped_b64 byte-for-byte.
 
 func handleSealRoundtrip(t *testing.T, entry vectorEntry) {
 	suite := jget(t, entry.Inputs, "suite")
@@ -1607,6 +1606,20 @@ func handleSealRoundtrip(t *testing.T, entry vectorEntry) {
 			t.Errorf("baseline unwrap recovered K mismatch:\n  got  %x\n  want %x",
 				got, wantK)
 		}
+		// Send-side: WrapWithRandomness using the pinned ephemeral
+		// MUST produce the pinned wrapped_b64 byte-for-byte.
+		ephPriv := decodeHexF(t, jget(t, entry.Inputs, "ephemeral_private_key_hex"),
+			"ephemeral_private_key_hex")
+		gotWrapped, err := w.WrapWithRandomness(recipPub, wantK, seal.WrapRandomness{
+			EphemeralX25519Priv: ephPriv,
+		})
+		if err != nil {
+			t.Fatalf("WrapWithRandomness: %v", err)
+		}
+		if gotWrapped != wrappedB64 {
+			t.Errorf("baseline WrapWithRandomness output mismatch:\n  got  %s\n  want %s",
+				gotWrapped, wrappedB64)
+		}
 		if entry.ID == "seal-wrap-baseline-ephemeral-changes-output" {
 			// Sanity check: the vector pins differs_from_case_1
 			// to demonstrate that two different ephemerals
@@ -1625,6 +1638,27 @@ func handleSealRoundtrip(t *testing.T, entry vectorEntry) {
 		if !bytesEq(k, wantK) {
 			t.Errorf("pq unwrap recovered K mismatch:\n  got  %x\n  want %x",
 				k, wantK)
+		}
+		// Send-side: WrapWithRandomness using the pinned hybrid
+		// ephemeral X25519 priv and Kyber encaps `m` MUST produce the
+		// pinned wrapped_b64 byte-for-byte.
+		recipPub := decodeHexF(t, jget(t, entry.Inputs, "recipient_hybrid_public_key_hex"),
+			"recipient_hybrid_public_key_hex")
+		ephX := decodeHexF(t, jget(t, entry.Inputs, "ephemeral_x25519_private_key_hex"),
+			"ephemeral_x25519_private_key_hex")
+		kyberM := decodeHexF(t, jget(t, entry.Inputs, "kyber_encaps_randomness_m_hex"),
+			"kyber_encaps_randomness_m_hex")
+		wPQ := seal.NewWrapper(crypto.SuitePQ)
+		gotWrapped, err := wPQ.WrapWithRandomness(recipPub, wantK, seal.WrapRandomness{
+			EphemeralX25519Priv:    ephX,
+			KyberEncapsRandomnessM: kyberM,
+		})
+		if err != nil {
+			t.Fatalf("PQ WrapWithRandomness: %v", err)
+		}
+		if gotWrapped != wrappedB64 {
+			t.Errorf("PQ WrapWithRandomness output mismatch:\n  got  %s\n  want %s",
+				gotWrapped, wrappedB64)
 		}
 	default:
 		t.Skipf("seal-roundtrip suite %q: no handler", suite)

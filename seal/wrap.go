@@ -45,10 +45,36 @@ type Wrapper interface {
 	// base64-encoded wrapped result.
 	Wrap(recipientPublicKey, symmetricKey []byte) (string, error)
 
+	// WrapWithRandomness is the derandomized form of Wrap: the KEM
+	// ephemeral randomness is taken from the caller-supplied
+	// WrapRandomness instead of from rand.Reader.
+	//
+	// USE CASES are intentionally narrow: cross-language test vectors
+	// (the seal-roundtrip vectors pin ephemeral_private_key_hex and
+	// kyber_encaps_randomness_m_hex), determinism audits, and
+	// stateless-edge deployments that must stash randomness across HTTP
+	// round-trips. Production callers MUST use Wrap so the ephemeral is
+	// sourced from the operating system entropy pool.
+	WrapWithRandomness(recipientPublicKey, symmetricKey []byte, randomness WrapRandomness) (string, error)
+
 	// Unwrap decrypts the wrapped symmetric key using the recipient's
 	// key pair and returns the raw symmetric key bytes. The public key
 	// is needed as AAD for the AEAD verification.
 	Unwrap(recipientPrivateKey, recipientPublicKey []byte, wrapped string) ([]byte, error)
+}
+
+// WrapRandomness carries the pinned randomness inputs for
+// WrapWithRandomness. For SuiteBaseline only EphemeralX25519Priv is
+// consumed; for SuitePQ both fields are required (each 32 bytes).
+type WrapRandomness struct {
+	// EphemeralX25519Priv is the 32-byte X25519 ephemeral private key
+	// the sender uses for its half of the KEM ECDH.
+	EphemeralX25519Priv []byte
+
+	// KyberEncapsRandomnessM is the 32-byte ML-KEM-768 encapsulation
+	// randomness `m` per FIPS 203 §7.2. Required for SuitePQ; ignored
+	// for SuiteBaseline.
+	KyberEncapsRandomnessM []byte
 }
 
 // WrapInfo is the HKDF info context used by NewWrapper. It is exported so
@@ -124,6 +150,56 @@ func (w *wrapper) Wrap(recipientPublicKey, symmetricKey []byte) (string, error) 
 	}
 
 	// 4. Concatenate KEM ciphertext with AEAD ciphertext, base64-encode.
+	wrapped := make([]byte, 0, len(kemCT)+len(ct))
+	wrapped = append(wrapped, kemCT...)
+	wrapped = append(wrapped, ct...)
+	return base64.StdEncoding.EncodeToString(wrapped), nil
+}
+
+// WrapWithRandomness is the derandomized analogue of Wrap. Dispatches
+// on the wrapper's suite to call the matching deterministic KEM
+// primitive (X25519EncapsulateWithRandomness for baseline,
+// HybridEncapsulateWithRandomness for PQ), then runs the same
+// HKDF -> AEAD pipeline Wrap uses.
+func (w *wrapper) WrapWithRandomness(recipientPublicKey, symmetricKey []byte, randomness WrapRandomness) (string, error) {
+	if len(recipientPublicKey) == 0 {
+		return "", errors.New("seal: empty recipient public key")
+	}
+	if len(symmetricKey) == 0 {
+		return "", errors.New("seal: empty symmetric key")
+	}
+
+	var sharedSecret, kemCT []byte
+	var err error
+	switch w.suite.ID() {
+	case crypto.SuiteIDX25519ChaCha20Poly1305:
+		sharedSecret, kemCT, err = crypto.X25519EncapsulateWithRandomness(recipientPublicKey, randomness.EphemeralX25519Priv)
+	case crypto.SuiteIDPQKyber768X25519:
+		sharedSecret, kemCT, err = crypto.HybridEncapsulateWithRandomness(recipientPublicKey, crypto.HybridEncapsRandomness{
+			EphemeralX25519Priv:    randomness.EphemeralX25519Priv,
+			KyberEncapsRandomnessM: randomness.KyberEncapsRandomnessM,
+		})
+	default:
+		return "", fmt.Errorf("seal: WrapWithRandomness: unsupported suite %q", w.suite.ID())
+	}
+	if err != nil {
+		return "", fmt.Errorf("seal: KEM encapsulate with randomness: %w", err)
+	}
+	defer crypto.Zeroize(sharedSecret)
+
+	salt := append(kemCT, recipientPublicKey...)
+	kdf := w.suite.KDF()
+	prk := kdf.Extract(salt, sharedSecret)
+	defer crypto.Zeroize(prk)
+	wrapKey := kdf.Expand(prk, []byte(WrapInfo), w.suite.AEAD().KeySize())
+	defer crypto.Zeroize(wrapKey)
+
+	nonce := make([]byte, w.suite.AEAD().NonceSize())
+	ct, err := w.suite.AEAD().Seal(wrapKey, nonce, symmetricKey, recipientPublicKey)
+	if err != nil {
+		return "", fmt.Errorf("seal: AEAD seal: %w", err)
+	}
+
 	wrapped := make([]byte, 0, len(kemCT)+len(ct))
 	wrapped = append(wrapped, kemCT...)
 	wrapped = append(wrapped, ct...)

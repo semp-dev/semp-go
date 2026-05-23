@@ -33,7 +33,7 @@ If the change requires a spec change, link the semp-spec PR/commit:
 - [ ] Bug fix (no API or wire change)
 - [ ] New feature / helper (additive, backwards-compatible)
 - [ ] Breaking change (signature change, behavior change, wire change)
-- [ ] Documentation / SPEC-GAP / README only
+- [ ] Documentation / README only
 - [ ] Test or tooling only
 
 ## Test plan
@@ -65,5 +65,4 @@ want it called out so reviewers and downstream callers see it.
 - [ ] PR title is short and descriptive
 - [ ] Commit messages explain the motivation behind the change
 - [ ] No `--no-verify` / `--no-gpg-sign` bypasses in the commits
-- [ ] SPEC-GAP.md updated if this closes a follow-up
 - [ ] Stale `// TODO`s, dead branches, and debug prints have been pruned

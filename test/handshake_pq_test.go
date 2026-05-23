@@ -21,10 +21,9 @@ import (
 // messages through an in-process pair and asserts that both sides
 // agree on the session id and the derived K_env_mac.
 //
-// This is the milestone-3ll acceptance test: it proves that the
-// handshake state machines, the canonical serializer, the confirmation
-// hash, and the Kyber768 hybrid shared-secret derivation all
-// interoperate end to end without a transport.
+// End-to-end check on the PQ path: the handshake state machines, the
+// canonical serializer, the confirmation hash, and the Kyber768 hybrid
+// shared-secret derivation all interoperate without a transport.
 func TestClientHandshakeRoundTripSuitePQ(t *testing.T) {
 	suite := crypto.SuitePQ
 	if suite == nil {
@@ -303,5 +302,122 @@ func TestEnvelopeSealUnderSuitePQ(t *testing.T) {
 	// server session's.
 	if err := envelope.VerifySessionMAC(env, suite, serverSession.EnvMAC()); err != nil {
 		t.Fatalf("VerifySessionMAC: %v", err)
+	}
+}
+
+// TestServerPinnedRandomnessProducesByteIdenticalResponsePQ covers the
+// stateless-edge replay pattern: two Server instances built with the
+// same ServerHybridRandomness + ServerNonce + SessionIDOverride MUST
+// produce byte-identical ServerResponse bytes when given the same
+// client init. This is what makes Cloudflare-Worker-style deployments
+// possible: the first POST builds the server, processes the init, and
+// stashes the randomness + nonce + session_id in a TTL cache; the
+// second POST rebuilds the server with the stashed values, replays
+// OnInit, and arrives at the exact same internal state needed to drive
+// OnConfirm.
+func TestServerPinnedRandomnessProducesByteIdenticalResponsePQ(t *testing.T) {
+	suite := crypto.SuitePQ
+	if suite == nil {
+		t.Fatal("SuitePQ nil")
+	}
+	store := newMemStore()
+
+	identityPub, identityPriv, err := suite.Signer().GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("identity keypair: %v", err)
+	}
+	identityFP := store.putUserKey("alice@example.com", keys.TypeIdentity, identityPub)
+	store.putPrivateKey(identityFP, identityPriv)
+
+	domainPub, domainPriv, err := suite.Signer().GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("domain keypair: %v", err)
+	}
+	domainFP := store.putDomainKey("example.com", domainPub)
+
+	client := handshake.NewClient(handshake.ClientConfig{
+		Suite:         suite,
+		Store:         store,
+		Identity:      "alice@example.com",
+		IdentityKeyID: identityFP,
+		ServerDomain:  "example.com",
+	})
+	defer client.Erase()
+	initBytes, err := client.Init()
+	if err != nil {
+		t.Fatalf("client.Init: %v", err)
+	}
+
+	// Pin all three randomness sources.
+	ephX := make([]byte, 32)
+	for i := range ephX {
+		ephX[i] = byte(0x10 + i)
+	}
+	kyberM := make([]byte, 32)
+	for i := range kyberM {
+		kyberM[i] = byte(0xa0 + i)
+	}
+	nonce := make([]byte, 32)
+	for i := range nonce {
+		nonce[i] = byte(0x55 ^ i)
+	}
+	hybrid := &crypto.HybridEncapsRandomness{
+		EphemeralX25519Priv:    ephX,
+		KyberEncapsRandomnessM: kyberM,
+	}
+	sessionID := "01HX0PINNED0SESSION0FOR0REPLAY0X"
+
+	build := func() *handshake.Server {
+		return handshake.NewServer(handshake.ServerConfig{
+			Suite:                  suite,
+			Store:                  store,
+			Policy:                 permitAllPolicy{},
+			Domain:                 "example.com",
+			DomainKeyID:            domainFP,
+			DomainPrivateKey:       domainPriv,
+			ServerHybridRandomness: hybrid,
+			ServerNonce:            nonce,
+			SessionIDOverride:      sessionID,
+		})
+	}
+
+	server1 := build()
+	defer server1.Erase()
+	resp1, err := server1.OnInit(initBytes)
+	if err != nil {
+		t.Fatalf("server1.OnInit: %v", err)
+	}
+
+	server2 := build()
+	defer server2.Erase()
+	resp2, err := server2.OnInit(initBytes)
+	if err != nil {
+		t.Fatalf("server2.OnInit: %v", err)
+	}
+
+	if !bytes.Equal(resp1, resp2) {
+		t.Fatalf("pinned-randomness ServerResponse bytes differ across two builds:\n  resp1 (%d bytes)\n  resp2 (%d bytes)",
+			len(resp1), len(resp2))
+	}
+
+	// And the replayed server must drive a valid handshake against the
+	// real client - confirming the pinned state is also functionally
+	// correct, not just byte-equal.
+	confirmBytes, clientSession, err := client.OnResponse(resp2)
+	if err != nil {
+		t.Fatalf("client.OnResponse on replayed resp: %v", err)
+	}
+	acceptedBytes, serverSession, err := server2.OnConfirm(confirmBytes)
+	if err != nil {
+		t.Fatalf("server2.OnConfirm: %v", err)
+	}
+	if err := client.OnAccepted(acceptedBytes, clientSession); err != nil {
+		t.Fatalf("client.OnAccepted: %v", err)
+	}
+	if clientSession.ID != serverSession.ID {
+		t.Errorf("session id mismatch: client=%s server=%s", clientSession.ID, serverSession.ID)
+	}
+	if serverSession.ID != sessionID {
+		t.Errorf("session id = %q, want pinned %q", serverSession.ID, sessionID)
 	}
 }

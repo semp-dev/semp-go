@@ -28,8 +28,6 @@ What's outside the library's scope:
 - **Spec-deferred** items: §3.2 §5.2 delegated forwarding mechanism, §3.5 streaming AEAD modes (both deferred to future spec revisions).
 - **Durable storage backends** behind the provided `Store` / `BundleStore` / `LockoutRegistry` / `RateLimitCounter` / `BlockListLookup` interfaces. The library ships in-memory reference impls for every one of them; production deployments MUST plug their own.
 
-See [SPEC-GAP.md](SPEC-GAP.md) for the per-cluster catch-up status.
-
 | Metric | Value |
 |---|---|
 | Test packages | 24, all passing under `-race` |
@@ -243,7 +241,7 @@ The library follows semver with an explicit pre-1.0 contract that mirrors SEMP i
 - `v0.x.y` -- pre-1.0. API and wire-format stability are best-effort within a minor version. Minor bumps (`0.3 -> 0.4`) accompany meaningful feature additions or any signature breakage; patch bumps are bug-fix-only.
 - `v1.0.0` will ship after the SEMP spec reaches `1.0.0` and the API has stabilized for at least one minor cycle.
 
-The library's version is independent of the SEMP spec version it implements; the [SPEC-GAP.md](SPEC-GAP.md) header records which spec commit each release tracks.
+The library's version is independent of the SEMP spec version it implements.
 
 `go get semp.dev/semp-go@latest` resolves to the most recent tag. Pin a specific version (`semp.dev/semp-go@v0.4.0`) for reproducibility.
 

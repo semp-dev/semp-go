@@ -863,6 +863,13 @@ type Responder struct {
 	capabilities     Capabilities
 	sessionTTL       int
 
+	// Optional pinned randomness for the responder's KEM step,
+	// outbound nonce, and session_id. See ResponderConfig docs.
+	responderEphemeralPriv    []byte
+	responderHybridRandomness *crypto.HybridEncapsRandomness
+	responderNonce            []byte
+	sessionIDOverride         string
+
 	// TicketIssuer issues and opens federation resumption tickets
 	// per HANDSHAKE.md §2.8.7. nil disables federation resumption.
 	ticketIssuer session.TicketIssuer
@@ -921,6 +928,37 @@ type ResponderConfig struct {
 	// resumption_ticket and initiators fall back to full handshakes
 	// on every reconnect.
 	TicketIssuer session.TicketIssuer
+
+	// ResponderEphemeralPriv, when non-nil, pins the X25519 ephemeral
+	// private key the responder uses for its KEM step in OnInit. Used
+	// ONLY by the baseline suite. Production callers MUST leave this
+	// nil so the ephemeral is drawn from rand.Reader.
+	//
+	// Narrow uses: stateless-edge deployments that must rebuild
+	// responder state across two HTTP round-trips by stashing the
+	// randomness consumed in OnInit (see semp-explorer's Cloudflare
+	// Worker), and cross-language test vectors.
+	ResponderEphemeralPriv []byte
+
+	// ResponderHybridRandomness, when non-nil, pins both the X25519
+	// ephemeral private and the ML-KEM-768 encapsulation randomness
+	// `m` the responder uses for its KEM step in OnInit. Used ONLY by
+	// the pq-kyber768-x25519 suite. Same narrow-use caveats as
+	// ResponderEphemeralPriv.
+	ResponderHybridRandomness *crypto.HybridEncapsRandomness
+
+	// ResponderNonce, when non-nil, pins the 32-byte responder nonce
+	// OnInit uses for the FederationResponse instead of drawing from
+	// rand.Reader. Used in conjunction with ResponderEphemeralPriv /
+	// ResponderHybridRandomness for full responder-state determinism
+	// across two HTTP round-trips.
+	ResponderNonce []byte
+
+	// SessionIDOverride, when non-empty, pins the session_id OnInit
+	// writes into the FederationResponse instead of generating a fresh
+	// ULID. Used alongside the other pin fields to make the entire
+	// FederationResponse byte-deterministic for stateless-edge replay.
+	SessionIDOverride string
 }
 
 // NewResponder constructs a federation Responder from a config. When
@@ -953,13 +991,35 @@ func NewResponder(cfg ResponderConfig) *Responder {
 		policy:          cfg.Policy,
 		verifier:        verifier,
 		localDomain:     cfg.LocalDomain,
-		localServerID:   cfg.LocalServerID,
-		localDomainKey:  cfg.LocalDomainKeyID,
-		localDomainPriv: cfg.LocalDomainPrivateKey,
-		capabilities:    caps,
-		sessionTTL:      ttl,
-		ticketIssuer:    cfg.TicketIssuer,
+		localServerID:             cfg.LocalServerID,
+		localDomainKey:            cfg.LocalDomainKeyID,
+		localDomainPriv:           cfg.LocalDomainPrivateKey,
+		capabilities:              caps,
+		sessionTTL:                ttl,
+		ticketIssuer:              cfg.TicketIssuer,
+		responderEphemeralPriv:    cfg.ResponderEphemeralPriv,
+		responderHybridRandomness: cfg.ResponderHybridRandomness,
+		responderNonce:            cfg.ResponderNonce,
+		sessionIDOverride:         cfg.SessionIDOverride,
 	}
+}
+
+// responderEncapsulate dispatches between the entropy-driven
+// Encapsulate and the derandomized free-function variants based on
+// which config fields (if any) the caller pinned. Returns the same
+// (sharedSecret, ciphertext) tuple Encapsulate does.
+func (r *Responder) responderEncapsulate(clientEphPub []byte) (shared, ct []byte, err error) {
+	switch r.suite.ID() {
+	case crypto.SuiteIDPQKyber768X25519:
+		if r.responderHybridRandomness != nil {
+			return crypto.HybridEncapsulateWithRandomness(clientEphPub, *r.responderHybridRandomness)
+		}
+	case crypto.SuiteIDX25519ChaCha20Poly1305:
+		if r.responderEphemeralPriv != nil {
+			return crypto.X25519EncapsulateWithRandomness(clientEphPub, r.responderEphemeralPriv)
+		}
+	}
+	return r.suite.KEM().Encapsulate(clientEphPub)
 }
 
 // OnInit processes a federation init (message 1) and returns the response
@@ -1050,19 +1110,33 @@ func (r *Responder) OnInit(data []byte) ([]byte, error) {
 	// ephemeral public key. Works for both baseline X25519 (returns
 	// a fresh X25519 ephemeral pub as the ciphertext) and the hybrid
 	// Kyber768+X25519 suite (returns responderX25519Pub || kyberCt).
-	shared, ephPub, err := r.suite.KEM().Encapsulate(clientEphPub)
+	//
+	// When the config pins responderEphemeralPriv (baseline) or
+	// responderHybridRandomness (PQ), the KEM step is derandomized so
+	// stateless-edge deployments can replay it across HTTP round-trips.
+	shared, ephPub, err := r.responderEncapsulate(clientEphPub)
 	if err != nil {
 		return nil, fmt.Errorf("handshake: ephemeral KEM encapsulate: %w", err)
 	}
 	defer crypto.Zeroize(shared)
 
-	serverNonce := make([]byte, 32)
-	if _, err := rand.Read(serverNonce); err != nil {
-		return nil, fmt.Errorf("handshake: server nonce: %w", err)
+	var serverNonce []byte
+	if len(r.responderNonce) == 32 {
+		serverNonce = append([]byte(nil), r.responderNonce...)
+	} else {
+		serverNonce = make([]byte, 32)
+		if _, err := rand.Read(serverNonce); err != nil {
+			return nil, fmt.Errorf("handshake: server nonce: %w", err)
+		}
 	}
-	sessionID, err := newULID()
-	if err != nil {
-		return nil, err
+	var sessionID string
+	if r.sessionIDOverride != "" {
+		sessionID = r.sessionIDOverride
+	} else {
+		sessionID, err = newULID()
+		if err != nil {
+			return nil, err
+		}
 	}
 	if r.localServerID == "" {
 		id, err := newULID()

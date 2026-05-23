@@ -253,3 +253,164 @@ func mustGenPub(t *testing.T, kem crypto.KEM) []byte {
 	}
 	return pub
 }
+
+// TestHybridEncapsulateWithRandomnessDeterministic confirms two calls
+// with identical inputs produce byte-equal output, and that the result
+// decapsulates to the same shared secret a fresh-randomness call would
+// have produced (verified via Decapsulate round-trip).
+func TestHybridEncapsulateWithRandomnessDeterministic(t *testing.T) {
+	kem := crypto.NewKEMHybridKyber768X25519()
+	recipPub, recipPriv, err := kem.GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
+	xPriv := make([]byte, 32)
+	for i := range xPriv {
+		xPriv[i] = byte(i + 1)
+	}
+	m := make([]byte, 32)
+	for i := range m {
+		m[i] = byte(0xa0 + i)
+	}
+	r := crypto.HybridEncapsRandomness{
+		EphemeralX25519Priv:    xPriv,
+		KyberEncapsRandomnessM: m,
+	}
+	ss1, ct1, err := crypto.HybridEncapsulateWithRandomness(recipPub, r)
+	if err != nil {
+		t.Fatalf("HybridEncapsulateWithRandomness #1: %v", err)
+	}
+	ss2, ct2, err := crypto.HybridEncapsulateWithRandomness(recipPub, r)
+	if err != nil {
+		t.Fatalf("HybridEncapsulateWithRandomness #2: %v", err)
+	}
+	if !bytes.Equal(ct1, ct2) {
+		t.Error("deterministic encaps produced different ciphertexts across two calls")
+	}
+	if !bytes.Equal(ss1, ss2) {
+		t.Error("deterministic encaps produced different shared secrets across two calls")
+	}
+	// Decapsulate round-trip
+	ssRecip, err := kem.Decapsulate(ct1, recipPriv)
+	if err != nil {
+		t.Fatalf("Decapsulate: %v", err)
+	}
+	if !bytes.Equal(ss1, ssRecip) {
+		t.Error("pinned encaps shared secret differs from recipient's Decapsulate output")
+	}
+}
+
+// TestHybridEncapsulateWithRandomnessDiffersFromFresh confirms a pinned
+// encaps and a fresh-randomness encaps against the same recipient
+// produce different ciphertexts (the fresh randomness path samples its
+// own m and ephemeral, so the two outputs MUST diverge with
+// overwhelming probability).
+func TestHybridEncapsulateWithRandomnessDiffersFromFresh(t *testing.T) {
+	kem := crypto.NewKEMHybridKyber768X25519()
+	recipPub, _, err := kem.GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
+	xPriv := make([]byte, 32)
+	for i := range xPriv {
+		xPriv[i] = 0x5a
+	}
+	m := make([]byte, 32)
+	for i := range m {
+		m[i] = 0x3c
+	}
+	ssPinned, ctPinned, err := crypto.HybridEncapsulateWithRandomness(recipPub, crypto.HybridEncapsRandomness{
+		EphemeralX25519Priv:    xPriv,
+		KyberEncapsRandomnessM: m,
+	})
+	if err != nil {
+		t.Fatalf("HybridEncapsulateWithRandomness: %v", err)
+	}
+	ssFresh, ctFresh, err := kem.Encapsulate(recipPub)
+	if err != nil {
+		t.Fatalf("Encapsulate: %v", err)
+	}
+	if bytes.Equal(ctPinned, ctFresh) {
+		t.Error("pinned and fresh encaps produced equal ciphertexts (should be unequal w.h.p.)")
+	}
+	if bytes.Equal(ssPinned, ssFresh) {
+		t.Error("pinned and fresh encaps produced equal shared secrets (should be unequal w.h.p.)")
+	}
+}
+
+// TestHybridEncapsulateWithRandomnessRejectsBadSizes confirms the
+// length validations on all three inputs fire before any crypto work.
+func TestHybridEncapsulateWithRandomnessRejectsBadSizes(t *testing.T) {
+	kem := crypto.NewKEMHybridKyber768X25519()
+	goodPub, _, err := kem.GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
+	goodPriv := make([]byte, 32)
+	goodM := make([]byte, 32)
+
+	cases := []struct {
+		name string
+		pub  []byte
+		r    crypto.HybridEncapsRandomness
+		want string
+	}{
+		{"short pub", make([]byte, 10), crypto.HybridEncapsRandomness{
+			EphemeralX25519Priv: goodPriv, KyberEncapsRandomnessM: goodM,
+		}, "remote pub length"},
+		{"short eph priv", goodPub, crypto.HybridEncapsRandomness{
+			EphemeralX25519Priv: make([]byte, 16), KyberEncapsRandomnessM: goodM,
+		}, "EphemeralX25519Priv length"},
+		{"short kyber m", goodPub, crypto.HybridEncapsRandomness{
+			EphemeralX25519Priv: goodPriv, KyberEncapsRandomnessM: make([]byte, 16),
+		}, "KyberEncapsRandomnessM length"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, _, err := crypto.HybridEncapsulateWithRandomness(tc.pub, tc.r)
+			if err == nil {
+				t.Fatal("expected error, got nil")
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("error %q does not contain %q", err.Error(), tc.want)
+			}
+		})
+	}
+}
+
+// TestX25519EncapsulateWithRandomnessDeterministic mirrors the hybrid
+// test on the baseline X25519 KEM: pinning the ephemeral private
+// produces the same (ss, ct) on every call and round-trips correctly
+// through Decapsulate.
+func TestX25519EncapsulateWithRandomnessDeterministic(t *testing.T) {
+	kem := crypto.NewKEMX25519()
+	recipPub, recipPriv, err := kem.GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
+	ephPriv := make([]byte, 32)
+	for i := range ephPriv {
+		ephPriv[i] = byte(i + 1)
+	}
+	ss1, ct1, err := crypto.X25519EncapsulateWithRandomness(recipPub, ephPriv)
+	if err != nil {
+		t.Fatalf("X25519EncapsulateWithRandomness #1: %v", err)
+	}
+	ss2, ct2, err := crypto.X25519EncapsulateWithRandomness(recipPub, ephPriv)
+	if err != nil {
+		t.Fatalf("X25519EncapsulateWithRandomness #2: %v", err)
+	}
+	if !bytes.Equal(ct1, ct2) {
+		t.Error("deterministic encaps produced different ciphertexts across two calls")
+	}
+	if !bytes.Equal(ss1, ss2) {
+		t.Error("deterministic encaps produced different shared secrets across two calls")
+	}
+	ssRecip, err := kem.Decapsulate(ct1, recipPriv)
+	if err != nil {
+		t.Fatalf("Decapsulate: %v", err)
+	}
+	if !bytes.Equal(ss1, ssRecip) {
+		t.Error("pinned encaps shared secret differs from recipient's Decapsulate output")
+	}
+}

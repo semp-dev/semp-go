@@ -8,10 +8,11 @@ package test
 // that breaks a vector breaks compatibility with every other SEMP
 // implementation that passes the same vectors.
 //
-// Phase 1 (this file): framework + Layer 1 + deterministic Layer 2
-// categories. Categories without a handler print t.Skip("category X:
-// handler not yet wired") so coverage gaps are visible without breaking
-// the build.
+// This file: framework + Layer 1 + deterministic Layer 2 categories.
+// Per-category handlers for the remaining layers live in
+// vectors_handlers_test.go. Categories without a handler print
+// t.Skip("category X: handler not yet wired") so coverage gaps are
+// visible without breaking the build.
 //
 // Path resolution: looks for vectors at $SEMP_VECTORS_DIR first, then at
 // ../semp-spec/vectors/v1.0.0/ (the canonical sibling-checkout layout).
@@ -90,7 +91,7 @@ var dispatch = map[string]handler{
 	"extension-entries":  handleExtensionEntries,
 	"clock-tolerance":    handleClockTolerance,
 
-	// Wave 2A: single-signature documents (Layer 5 + signed handshake).
+	// Single-signature documents (Layer 5 + signed handshake).
 	"account-closure":       runSignedDocHandler(pickAccountClosure),
 	"configuration-update":  runSignedDocHandler(pickConfigurationUpdate),
 	"user-policy":           runSignedDocHandler(pickUserPolicy),
@@ -101,18 +102,18 @@ var dispatch = map[string]handler{
 	"recovery-shamir":       handleRecoveryShamir,
 	"first-contact-token":   handleFirstContactToken,
 
-	// Wave 2B: decision-table shape validators.
+	// Decision-table shape validators.
 	"delivery-status":     handleDeliveryStatus,
 	"device-certificates": handleDeviceCertificates,
 	"key-revocation":      handleKeyRevocation,
 	"recipient-status":    handleRecipientStatus,
 	"session-lifecycle":   handleSessionLifecycle,
 
-	// Wave 2C: cross-reference + must-reject schema.
+	// Cross-reference + must-reject schema.
 	"must-reject-index":           handleMustRejectIndex,
 	"negative-envelope-rejection": handleNegativeEnvelopeRejection,
 
-	// Wave 2D: verify-only round-trip handlers.
+	// Verify-only round-trip handlers.
 	"sender-signature": handleSenderSignature,
 	"delivery-receipt": handleDeliveryReceipt,
 	"transparency":     handleTransparency,
@@ -199,7 +200,7 @@ func TestVectors(t *testing.T) {
 	}
 	sort.Strings(missing)
 	if len(missing) > 0 {
-		t.Logf("categories without a handler (Phase 2/3 work): %s",
+		t.Logf("categories without a handler: %s",
 			strings.Join(missing, ", "))
 	}
 }
@@ -615,8 +616,7 @@ func handleDiscovery(t *testing.T, entry vectorEntry) {
 				continue
 			}
 			// For accepted records, sanity-check the version field
-			// where the vector pins it. Deeper field checks (transports,
-			// extensions) are Phase 2 work.
+			// where the vector pins it.
 			if v := jget(t, expectedRaw, "version"); v != "" && caps.Version != v {
 				t.Errorf("sample %d: version=%s, want %s", i, caps.Version, v)
 			}
@@ -626,10 +626,9 @@ func handleDiscovery(t *testing.T, entry vectorEntry) {
 		// the action documented in expected.per_address_actions,
 		// confirm every result has a `ttl` (§4.6 caching policy
 		// requirement). Signature verification of discovery
-		// responses is exercised separately by
-		// discovery-signed.json (Wave 2A); this vector pins a
-		// placeholder signature value because its purpose is
-		// parsing semantics.
+		// responses is exercised separately by discovery-signed.json;
+		// this vector pins a placeholder signature value because its
+		// purpose is parsing semantics.
 		var resp map[string]any
 		if err := json.Unmarshal(jgetRaw(t, entry.Inputs, "response_json"), &resp); err != nil {
 			t.Fatalf("response_json unmarshal: %v", err)
@@ -769,8 +768,7 @@ func handleExtensionEntries(t *testing.T, entry vectorEntry) {
 	}
 
 	// Validate at the postmark layer (the vector does not always
-	// pin a layer; postmark is the most common). Phase 2 will refine
-	// per-layer dispatch from the vector's `layer` field if it adds one.
+	// pin a layer; postmark is the most common).
 	err := extensions.Validate(reg, extensions.LayerPostmark, extMap)
 	wantAction := jget(t, entry.Expected, "action")
 	gotOK := err == nil

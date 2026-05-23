@@ -83,7 +83,7 @@ Every PR's description should include a short Test plan section listing what you
 
 ## Versioning
 
-Pre-1.0 semver: minor bumps for meaningful additions or signature changes, patch bumps for bug fixes only. The library version is independent of the SEMP spec version it implements; SPEC-GAP.md records which spec commit each release tracks.
+Pre-1.0 semver: minor bumps for meaningful additions or signature changes, patch bumps for bug fixes only. The library version is independent of the SEMP spec version it implements.
 
 ## Security disclosures
 

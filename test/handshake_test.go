@@ -35,10 +35,10 @@ func mustMarshalJSON(t *testing.T, v any) json.RawMessage {
 //   2. The client session is in StateActive with a future ExpiresAt.
 //   3. The server session is in StateActive with the matching peer identity.
 //
-// This is the milestone-3a acceptance test: it proves that the handshake
-// state machines, the canonical serializer, the confirmation hash, the
-// shared-secret derivation, the identity proof encryption, and all four
-// message types interoperate end to end without any transport.
+// End-to-end check: the handshake state machines, the canonical
+// serializer, the confirmation hash, the shared-secret derivation, the
+// identity proof encryption, and all four message types interoperate
+// without any transport.
 func TestClientHandshakeRoundTrip(t *testing.T) {
 	suite := crypto.SuiteBaseline
 	store := newMemStore()
@@ -352,11 +352,10 @@ func bytesEqualHelper(a, b []byte) bool {
 // state machine to short-circuit to a resumed session via Server.OnResume,
 // and the resumed session's K_env_mac matches across both sides.
 //
-// This is the milestone-3b acceptance test for SPEC-GAP §4.3. The
-// resumed session derives its keys from a fresh ephemeral DH mixed
-// with K_resumption per HANDSHAKE.md §2.8.3, so a passive observer
-// who later compromises the ticket alone cannot derive the resumed
-// session's keys.
+// The resumed session derives its keys from a fresh ephemeral DH
+// mixed with K_resumption per HANDSHAKE.md §2.8.3, so a passive
+// observer who later compromises the ticket alone cannot derive the
+// resumed session's keys.
 func TestClientHandshakeResume(t *testing.T) {
 	suite := crypto.SuiteBaseline
 	store := newMemStore()

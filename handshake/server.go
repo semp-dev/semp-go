@@ -42,6 +42,13 @@ type Server struct {
 	// field on the Accepted message and OnResume rejects.
 	ticketIssuer session.TicketIssuer
 
+	// Optional pinned randomness for the server's KEM step, outbound
+	// nonce, and session_id. See ServerConfig docs.
+	serverEphemeralPriv    []byte
+	serverHybridRandomness *crypto.HybridEncapsRandomness
+	serverNonceOverride    []byte
+	sessionIDOverride      string
+
 	// Internal state populated by OnInit and consumed by OnConfirm.
 	sessionID          string
 	clientNonce        []byte
@@ -95,6 +102,36 @@ type ServerConfig struct {
 	// Accepted message omits resumption_ticket and clients fall back
 	// to full handshakes on every reconnect.
 	TicketIssuer session.TicketIssuer
+
+	// ServerEphemeralPriv, when non-nil, pins the X25519 ephemeral
+	// private key the server uses for its KEM step in OnInit. Used
+	// ONLY by the baseline suite. Production callers MUST leave this
+	// nil so the ephemeral is drawn from rand.Reader.
+	//
+	// Narrow uses: stateless-edge deployments that must rebuild
+	// server state across two HTTP round-trips by stashing the
+	// randomness consumed in OnInit, and cross-language test vectors.
+	ServerEphemeralPriv []byte
+
+	// ServerHybridRandomness, when non-nil, pins both the X25519
+	// ephemeral private and the ML-KEM-768 encapsulation randomness
+	// `m` the server uses for its KEM step in OnInit. Used ONLY by
+	// the pq-kyber768-x25519 suite. Same narrow-use caveats as
+	// ServerEphemeralPriv.
+	ServerHybridRandomness *crypto.HybridEncapsRandomness
+
+	// ServerNonce, when non-nil, pins the 32-byte server nonce OnInit
+	// uses for the ServerResponse instead of drawing from rand.Reader.
+	// Used in conjunction with ServerEphemeralPriv /
+	// ServerHybridRandomness for full server-state determinism across
+	// two HTTP round-trips.
+	ServerNonce []byte
+
+	// SessionIDOverride, when non-empty, pins the session_id OnInit
+	// writes into the ServerResponse instead of generating a fresh
+	// ULID. Used alongside the other pin fields to make the entire
+	// ServerResponse byte-deterministic for stateless-edge replay.
+	SessionIDOverride string
 }
 
 // Policy is the set of decisions a server delegates to its operator:
@@ -145,15 +182,37 @@ func NewServer(cfg ServerConfig) *Server {
 		}
 	}
 	return &Server{
-		suite:            cfg.Suite,
-		store:            cfg.Store,
-		policy:           cfg.Policy,
-		domain:           cfg.Domain,
-		domainKey:        cfg.DomainKeyID,
-		domainPrivateKey: cfg.DomainPrivateKey,
-		capabilities:     caps,
-		ticketIssuer:     cfg.TicketIssuer,
+		suite:                  cfg.Suite,
+		store:                  cfg.Store,
+		policy:                 cfg.Policy,
+		domain:                 cfg.Domain,
+		domainKey:              cfg.DomainKeyID,
+		domainPrivateKey:       cfg.DomainPrivateKey,
+		capabilities:           caps,
+		ticketIssuer:           cfg.TicketIssuer,
+		serverEphemeralPriv:    cfg.ServerEphemeralPriv,
+		serverHybridRandomness: cfg.ServerHybridRandomness,
+		serverNonceOverride:    cfg.ServerNonce,
+		sessionIDOverride:      cfg.SessionIDOverride,
 	}
+}
+
+// serverEncapsulate dispatches between the entropy-driven Encapsulate
+// and the derandomized free-function variants based on which config
+// fields (if any) the caller pinned. Returns the same
+// (sharedSecret, ciphertext) tuple Encapsulate does.
+func (s *Server) serverEncapsulate(clientEphPub []byte) (shared, ct []byte, err error) {
+	switch s.suite.ID() {
+	case crypto.SuiteIDPQKyber768X25519:
+		if s.serverHybridRandomness != nil {
+			return crypto.HybridEncapsulateWithRandomness(clientEphPub, *s.serverHybridRandomness)
+		}
+	case crypto.SuiteIDX25519ChaCha20Poly1305:
+		if s.serverEphemeralPriv != nil {
+			return crypto.X25519EncapsulateWithRandomness(clientEphPub, s.serverEphemeralPriv)
+		}
+	}
+	return s.suite.KEM().Encapsulate(clientEphPub)
 }
 
 // OnInit processes a message 1 (init/client) and returns either:
@@ -289,19 +348,33 @@ func (s *Server) processInit(init *ClientInit) ([]byte, error) {
 	// (responderX25519Pub || kyberCiphertext) as ephPub. The server
 	// holds no ephemeral private key after this call - Encapsulate
 	// zeroizes it internally.
-	shared, ephPub, err := s.suite.KEM().Encapsulate(clientEphPub)
+	//
+	// When the config pins serverEphemeralPriv (baseline) or
+	// serverHybridRandomness (PQ), the KEM step is derandomized so
+	// stateless-edge deployments can replay it across HTTP round-trips.
+	shared, ephPub, err := s.serverEncapsulate(clientEphPub)
 	if err != nil {
 		return nil, fmt.Errorf("handshake: ephemeral KEM encapsulate: %w", err)
 	}
 	defer crypto.Zeroize(shared)
 
-	serverNonce := make([]byte, 32)
-	if _, err := rand.Read(serverNonce); err != nil {
-		return nil, fmt.Errorf("handshake: server nonce: %w", err)
+	var serverNonce []byte
+	if len(s.serverNonceOverride) == 32 {
+		serverNonce = append([]byte(nil), s.serverNonceOverride...)
+	} else {
+		serverNonce = make([]byte, 32)
+		if _, err := rand.Read(serverNonce); err != nil {
+			return nil, fmt.Errorf("handshake: server nonce: %w", err)
+		}
 	}
-	sessionID, err := newULID()
-	if err != nil {
-		return nil, err
+	var sessionID string
+	if s.sessionIDOverride != "" {
+		sessionID = s.sessionIDOverride
+	} else {
+		sessionID, err = newULID()
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	sessionKeys, err := crypto.DeriveSessionKeys(s.suite.KDF(), shared, clientNonce, serverNonce)

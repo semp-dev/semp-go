@@ -315,3 +315,87 @@ func (kemHybridKyber768X25519) Decapsulate(ciphertext, localPriv []byte) (shared
 func (kemHybridKyber768X25519) Agree(localPrivate, remotePublic []byte) (sharedSecret []byte, err error) {
 	return nil, errors.New("crypto: hybrid Kyber768+X25519 KEM does not support Agree; use Encapsulate/Decapsulate")
 }
+
+// HybridEncapsRandomness carries the two 32-byte randomness inputs the
+// hybrid KEM consumes during Encapsulate: the X25519 ephemeral private
+// key (used for ECDH against the recipient's X25519 half), and the
+// ML-KEM-768 encapsulation randomness `m` (used as the FIPS 203
+// derandomized-encaps input). Both fields are required and MUST each be
+// exactly 32 bytes.
+type HybridEncapsRandomness struct {
+	// EphemeralX25519Priv is the 32-byte X25519 ephemeral private key
+	// the responder/sender uses for its half of the ECDH.
+	EphemeralX25519Priv []byte
+
+	// KyberEncapsRandomnessM is the 32-byte ML-KEM-768 encapsulation
+	// randomness `m` per FIPS 203 §7.2. Passing this byte-pin makes the
+	// Kyber ciphertext and shared key deterministic.
+	KyberEncapsRandomnessM []byte
+}
+
+// HybridEncapsulateWithRandomness is the derandomized form of the
+// hybrid Encapsulate: instead of drawing the X25519 ephemeral private
+// and the ML-KEM-768 encapsulation randomness `m` from rand.Reader, the
+// caller supplies both via the HybridEncapsRandomness struct.
+//
+// USE CASES are intentionally narrow, mirroring DeriveKyber768KeyPair:
+// cross-language test vectors (the SEMP seal-roundtrip-pq vectors with
+// kyber_encaps_randomness_m_hex pin this directly), determinism audits,
+// and stateless-edge deployments where the responder must rebuild its
+// state across two HTTP round-trips by stashing the randomness it
+// consumed on the first call. Production code MUST use the
+// entropy-driven Encapsulate path; a deterministic encapsulation whose
+// randomness leaks reduces the session to "the adversary has the
+// shared secret".
+//
+// Returns the same `(sharedSecret, ciphertext)` shape as Encapsulate:
+//
+//   - sharedSecret: K_kyber || K_x25519 (64 bytes) per SESSION.md §4.1
+//   - ciphertext: kyberCiphertext || responderX25519Pub (1120 bytes)
+//
+// The caller is responsible for zeroizing both randomness fields after
+// the call.
+func HybridEncapsulateWithRandomness(remotePub []byte, randomness HybridEncapsRandomness) (sharedSecret, ciphertext []byte, err error) {
+	if len(remotePub) != HybridPublicKeySize {
+		return nil, nil, fmt.Errorf("crypto: HybridEncapsulateWithRandomness: remote pub length %d, want %d",
+			len(remotePub), HybridPublicKeySize)
+	}
+	if len(randomness.EphemeralX25519Priv) != curve25519.ScalarSize {
+		return nil, nil, fmt.Errorf("crypto: HybridEncapsulateWithRandomness: EphemeralX25519Priv length %d, want %d",
+			len(randomness.EphemeralX25519Priv), curve25519.ScalarSize)
+	}
+	if len(randomness.KyberEncapsRandomnessM) != 32 {
+		return nil, nil, fmt.Errorf("crypto: HybridEncapsulateWithRandomness: KyberEncapsRandomnessM length %d, want 32",
+			len(randomness.KyberEncapsRandomnessM))
+	}
+	kyberRemoteBytes := remotePub[:Kyber768PublicKeySize]
+	xRemote := remotePub[Kyber768PublicKeySize:]
+
+	var kyberPub mlkem768.PublicKey
+	kyberPub.Unpack(kyberRemoteBytes)
+
+	xEphPub, err := curve25519.X25519(randomness.EphemeralX25519Priv, curve25519.Basepoint)
+	if err != nil {
+		return nil, nil, fmt.Errorf("crypto: HybridEncapsulateWithRandomness: derive x25519 eph pub: %w", err)
+	}
+	xSS, err := curve25519.X25519(randomness.EphemeralX25519Priv, xRemote)
+	if err != nil {
+		return nil, nil, fmt.Errorf("crypto: HybridEncapsulateWithRandomness: x25519 agree: %w", err)
+	}
+	defer Zeroize(xSS)
+
+	kyberCt := make([]byte, Kyber768CiphertextSize)
+	kyberSS := make([]byte, Kyber768SharedKeySize)
+	kyberPub.EncapsulateTo(kyberCt, kyberSS, randomness.KyberEncapsRandomnessM)
+	defer Zeroize(kyberSS)
+
+	shared := make([]byte, 0, HybridSharedSecretSize)
+	shared = append(shared, kyberSS...)
+	shared = append(shared, xSS...)
+
+	ct := make([]byte, 0, HybridCiphertextSize)
+	ct = append(ct, kyberCt...)
+	ct = append(ct, xEphPub...)
+
+	return shared, ct, nil
+}

@@ -3,6 +3,7 @@ package crypto
 import (
 	"crypto/rand"
 	"errors"
+	"fmt"
 
 	"golang.org/x/crypto/curve25519"
 )
@@ -87,6 +88,43 @@ func (k kemX25519) Encapsulate(remotePub []byte) (sharedSecret, ciphertext []byt
 	secret, err := k.Agree(ephPriv, remotePub)
 	if err != nil {
 		return nil, nil, err
+	}
+	return secret, ephPub, nil
+}
+
+// X25519EncapsulateWithRandomness is the derandomized form of the
+// baseline X25519 Encapsulate: the caller supplies the X25519 ephemeral
+// private key instead of having it drawn from rand.Reader.
+//
+// USE CASES are intentionally narrow, mirroring DeriveKyber768KeyPair:
+// cross-language test vectors (the SEMP seal-roundtrip vectors with
+// ephemeral_private_key_hex pin this directly), determinism audits, and
+// stateless-edge deployments where the responder must rebuild its state
+// across two HTTP round-trips by stashing the randomness it consumed on
+// the first call. Production code MUST use the entropy-driven
+// Encapsulate path; a deterministic ephemeral whose private leaks
+// reduces the session to "the adversary has the shared secret".
+//
+// Returns the shared secret and the ephemeral public key (the
+// "ciphertext" in KEM terms, which is what the remote party feeds into
+// Decapsulate). The caller is responsible for zeroizing ephemeralPriv
+// after the call.
+func X25519EncapsulateWithRandomness(remotePub, ephemeralPriv []byte) (sharedSecret, ciphertext []byte, err error) {
+	if len(ephemeralPriv) != curve25519.ScalarSize {
+		return nil, nil, fmt.Errorf("crypto: X25519EncapsulateWithRandomness: ephemeral priv length %d, want %d",
+			len(ephemeralPriv), curve25519.ScalarSize)
+	}
+	if len(remotePub) != curve25519.PointSize {
+		return nil, nil, fmt.Errorf("crypto: X25519EncapsulateWithRandomness: remote pub length %d, want %d",
+			len(remotePub), curve25519.PointSize)
+	}
+	ephPub, err := curve25519.X25519(ephemeralPriv, curve25519.Basepoint)
+	if err != nil {
+		return nil, nil, fmt.Errorf("crypto: X25519EncapsulateWithRandomness: derive eph pub: %w", err)
+	}
+	secret, err := curve25519.X25519(ephemeralPriv, remotePub)
+	if err != nil {
+		return nil, nil, fmt.Errorf("crypto: X25519EncapsulateWithRandomness: agree: %w", err)
 	}
 	return secret, ephPub, nil
 }
