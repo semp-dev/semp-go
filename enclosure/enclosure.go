@@ -3,7 +3,7 @@ package enclosure
 import (
 	"time"
 
-	"semp.dev/semp-go/extensions"
+	"github.com/semp-dev/semp-go/extensions"
 )
 
 // Enclosure is the decrypted form of the envelope.enclosure field. It

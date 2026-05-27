@@ -3,7 +3,7 @@
 The Go reference implementation of the [Sealed Envelope Messaging Protocol (SEMP)](https://github.com/semp-dev/semp-spec).
 
 ```
-go get semp.dev/semp-go@latest
+go get github.com/semp-dev/semp-go@latest
 ```
 
 ## What is SEMP?
@@ -45,9 +45,9 @@ The library does not own the HTTP listener. Mount whatever framework you use, ha
 import (
     "context"
 
-    "semp.dev/semp-go/handshake"
-    "semp.dev/semp-go/session"
-    "semp.dev/semp-go/transport"
+    "github.com/semp-dev/semp-go/handshake"
+    "github.com/semp-dev/semp-go/session"
+    "github.com/semp-dev/semp-go/transport"
 )
 
 // per accepted connection (your framework wraps this in a goroutine):
@@ -145,7 +145,7 @@ for _, b64 := range resp.Envelopes {
 
 | Package | Spec Reference | Role |
 |---|---|---|
-| `semp.dev/semp-go` (root) | ERRORS.md, DELIVERY.md §1 | Protocol version, reason codes, acknowledgment types, `Error` type |
+| `github.com/semp-dev/semp-go` (root) | ERRORS.md, DELIVERY.md §1 | Protocol version, reason codes, acknowledgment types, `Error` type |
 | `crypto` | ENVELOPE.md §7.3, SESSION.md §2.1, §4.1 | Algorithm suites (`x25519-chacha20-poly1305`, `pq-kyber768-x25519`), X25519+Kyber768 hybrid KEM, AEAD, KDF, MAC, Ed25519 signing |
 | `keys` | KEY.md | Key records, fingerprints, revocation publication + fetch + cache, key rotation driver, scoped device certificates, store interface |
 | `keys/memstore` | -- | In-memory key store for tests and demos (NOT for production) |
@@ -243,7 +243,7 @@ The library follows semver with an explicit pre-1.0 contract that mirrors SEMP i
 
 The library's version is independent of the SEMP spec version it implements.
 
-`go get semp.dev/semp-go@latest` resolves to the most recent tag. Pin a specific version (`semp.dev/semp-go@v0.4.0`) for reproducibility.
+`go get github.com/semp-dev/semp-go@latest` resolves to the most recent tag. Pin a specific version (`github.com/semp-dev/semp-go@v0.4.0`) for reproducibility.
 
 ## License
 

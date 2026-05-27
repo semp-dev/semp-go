@@ -9,11 +9,11 @@ import (
 	"fmt"
 	"time"
 
-	"semp.dev/semp-go/clockskew"
-	"semp.dev/semp-go/crypto"
-	"semp.dev/semp-go/extensions"
-	"semp.dev/semp-go/keys"
-	"semp.dev/semp-go/session"
+	"github.com/semp-dev/semp-go/clockskew"
+	"github.com/semp-dev/semp-go/crypto"
+	"github.com/semp-dev/semp-go/extensions"
+	"github.com/semp-dev/semp-go/keys"
+	"github.com/semp-dev/semp-go/session"
 )
 
 // Client drives the client side of a SEMP client handshake. It owns the

@@ -5,8 +5,8 @@ import (
 	"errors"
 	"fmt"
 
-	"semp.dev/semp-go/crypto"
-	"semp.dev/semp-go/canonical"
+	"github.com/semp-dev/semp-go/crypto"
+	"github.com/semp-dev/semp-go/canonical"
 )
 
 // canonicalElidingField returns the canonical bytes of msg with the named

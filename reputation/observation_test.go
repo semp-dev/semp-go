@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"semp.dev/semp-go/reputation"
+	"github.com/semp-dev/semp-go/reputation"
 )
 
 // TestObservationStoreRecordHandshake counts handshake outcomes.

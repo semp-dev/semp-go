@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"testing"
 
-	"semp.dev/semp-go/extensions"
-	"semp.dev/semp-go/largeattachment"
+	"github.com/semp-dev/semp-go/extensions"
+	"github.com/semp-dev/semp-go/largeattachment"
 )
 
 func validItem(id string) largeattachment.Item {

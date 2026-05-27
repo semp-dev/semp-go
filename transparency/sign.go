@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"time"
 
-	"semp.dev/semp-go/clockskew"
-	"semp.dev/semp-go/crypto"
-	"semp.dev/semp-go/canonical"
+	"github.com/semp-dev/semp-go/clockskew"
+	"github.com/semp-dev/semp-go/crypto"
+	"github.com/semp-dev/semp-go/canonical"
 )
 
 // SignatureAlgorithmEd25519 is the only signature algorithm

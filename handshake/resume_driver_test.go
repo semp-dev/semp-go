@@ -6,8 +6,8 @@ import (
 	"errors"
 	"testing"
 
-	"semp.dev/semp-go/extensions"
-	"semp.dev/semp-go/handshake"
+	"github.com/semp-dev/semp-go/extensions"
+	"github.com/semp-dev/semp-go/handshake"
 )
 
 // rejectedBytes builds a wire-level Rejected message with the given

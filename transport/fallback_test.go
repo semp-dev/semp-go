@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"semp.dev/semp-go/transport"
+	"github.com/semp-dev/semp-go/transport"
 )
 
 // -----------------------------------------------------------------------------

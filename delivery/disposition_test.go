@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"semp.dev/semp-go/delivery"
+	"github.com/semp-dev/semp-go/delivery"
 )
 
 func TestDispositionValidateAccepts(t *testing.T) {

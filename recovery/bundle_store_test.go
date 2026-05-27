@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"semp.dev/semp-go/recovery"
+	"github.com/semp-dev/semp-go/recovery"
 )
 
 func mkBundle(t *testing.T, userID, bundleID string, supersedes *string) *recovery.BackupBundle {

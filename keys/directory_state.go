@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"semp.dev/semp-go/crypto"
+	"github.com/semp-dev/semp-go/crypto"
 )
 
 // DirectoryState is the per-user mutable state a home server keeps

@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"time"
 
-	"semp.dev/semp-go/canonical"
-	"semp.dev/semp-go/crypto"
+	"github.com/semp-dev/semp-go/canonical"
+	"github.com/semp-dev/semp-go/crypto"
 )
 
 // SEMP_STATUS message constants per draft-gokce-semp-delivery

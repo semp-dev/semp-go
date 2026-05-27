@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"semp.dev/semp-go/brief"
+	"github.com/semp-dev/semp-go/brief"
 )
 
 // TestAddressValidateAccepts exercises addresses already in canonical

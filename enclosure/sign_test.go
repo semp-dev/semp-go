@@ -4,8 +4,8 @@ import (
 	"testing"
 	"time"
 
-	"semp.dev/semp-go/crypto"
-	"semp.dev/semp-go/enclosure"
+	"github.com/semp-dev/semp-go/crypto"
+	"github.com/semp-dev/semp-go/enclosure"
 )
 
 func newTestSuiteAndKeys(t *testing.T) (crypto.Suite, []byte, []byte) {

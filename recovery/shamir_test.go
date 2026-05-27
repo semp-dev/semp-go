@@ -6,7 +6,7 @@ import (
 	mrand "math/rand/v2"
 	"testing"
 
-	"semp.dev/semp-go/recovery"
+	"github.com/semp-dev/semp-go/recovery"
 )
 
 // kBundleLen mirrors the §2.5 K_bundle width - the most important

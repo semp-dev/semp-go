@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"semp.dev/semp-go/handshake"
+	"github.com/semp-dev/semp-go/handshake"
 )
 
 func TestComputeFirstContactPrefixBindsTriple(t *testing.T) {

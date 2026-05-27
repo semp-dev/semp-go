@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"time"
 
-	"semp.dev/semp-go/extensions"
+	"github.com/semp-dev/semp-go/extensions"
 )
 
 // MessageType is the wire-level type discriminator for handshake messages.

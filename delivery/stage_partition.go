@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"sort"
 
-	"semp.dev/semp-go/brief"
-	"semp.dev/semp-go/keys"
+	"github.com/semp-dev/semp-go/brief"
+	"github.com/semp-dev/semp-go/keys"
 )
 
 // CertificateProvider is the lookup hook PartitionStages calls for

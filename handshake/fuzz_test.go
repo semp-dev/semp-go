@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"semp.dev/semp-go/handshake"
+	"github.com/semp-dev/semp-go/handshake"
 )
 
 // FuzzClientInitUnmarshal feeds arbitrary bytes into a ClientInit

@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	semp "semp.dev/semp-go"
-	"semp.dev/semp-go/delivery"
+	semp "github.com/semp-dev/semp-go"
+	"github.com/semp-dev/semp-go/delivery"
 )
 
 // blockEntry returns a §5 block-entry JSON payload with the supplied

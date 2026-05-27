@@ -3,7 +3,7 @@ package handshake
 import (
 	"errors"
 
-	"semp.dev/semp-go/crypto"
+	"github.com/semp-dev/semp-go/crypto"
 )
 
 // NegotiateCapabilities returns the agreed session parameters from the

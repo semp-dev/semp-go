@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"semp.dev/semp-go/crypto"
-	"semp.dev/semp-go/session"
+	"github.com/semp-dev/semp-go/crypto"
+	"github.com/semp-dev/semp-go/session"
 )
 
 // TestRekeySealRoundTrip exercises SealRekeyMessage / OpenRekeyMessage

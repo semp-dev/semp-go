@@ -3,7 +3,7 @@ package brief
 import (
 	"time"
 
-	"semp.dev/semp-go/extensions"
+	"github.com/semp-dev/semp-go/extensions"
 )
 
 // Brief is the decrypted form of the envelope.brief field. It is encrypted

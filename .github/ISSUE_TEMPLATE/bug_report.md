@@ -28,7 +28,7 @@ assignees: ''
 
 ## Environment
 
-- `semp-go` version: <!-- run `go list -m semp.dev/semp-go` -->
+- `semp-go` version: <!-- run `go list -m github.com/semp-dev/semp-go` -->
 - Go version: <!-- run `go version` -->
 - OS / arch: <!-- e.g., darwin/arm64, linux/amd64 -->
 - Crypto suite in use: <!-- baseline / pq / both, if relevant -->

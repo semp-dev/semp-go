@@ -9,8 +9,8 @@ import (
 	"fmt"
 	"strings"
 
-	"semp.dev/semp-go/keys"
-	"semp.dev/semp-go/seal"
+	"github.com/semp-dev/semp-go/keys"
+	"github.com/semp-dev/semp-go/seal"
 )
 
 // base64AlphabetFillers is the pool of single characters used to

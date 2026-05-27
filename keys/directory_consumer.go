@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"sync"
 
-	"semp.dev/semp-go/crypto"
+	"github.com/semp-dev/semp-go/crypto"
 )
 
 // DirectoryCache is the consumer-side state required by KEY.md

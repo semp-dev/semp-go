@@ -6,10 +6,10 @@ import (
 	"testing"
 	"time"
 
-	"semp.dev/semp-go/brief"
-	"semp.dev/semp-go/crypto"
-	"semp.dev/semp-go/keys"
-	"semp.dev/semp-go/keys/memstore"
+	"github.com/semp-dev/semp-go/brief"
+	"github.com/semp-dev/semp-go/crypto"
+	"github.com/semp-dev/semp-go/keys"
+	"github.com/semp-dev/semp-go/keys/memstore"
 )
 
 // minimalScope returns a Scope that satisfies the §10.3.3 "every

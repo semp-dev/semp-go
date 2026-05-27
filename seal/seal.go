@@ -1,9 +1,9 @@
 package seal
 
 import (
-	"semp.dev/semp-go/crypto"
-	"semp.dev/semp-go/extensions"
-	"semp.dev/semp-go/keys"
+	"github.com/semp-dev/semp-go/crypto"
+	"github.com/semp-dev/semp-go/extensions"
+	"github.com/semp-dev/semp-go/keys"
 )
 
 // Seal is the cryptographic seal that wraps every envelope (ENVELOPE.md §4.1).

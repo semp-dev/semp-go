@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"semp.dev/semp-go/crypto"
-	"semp.dev/semp-go/session"
+	"github.com/semp-dev/semp-go/crypto"
+	"github.com/semp-dev/semp-go/session"
 )
 
 func newTestIssuer(t *testing.T) *session.StatelessTicketIssuer {

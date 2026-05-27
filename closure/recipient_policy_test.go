@@ -5,9 +5,9 @@ import (
 	"testing"
 	"time"
 
-	semp "semp.dev/semp-go"
-	"semp.dev/semp-go/brief"
-	"semp.dev/semp-go/closure"
+	semp "github.com/semp-dev/semp-go"
+	"github.com/semp-dev/semp-go/brief"
+	"github.com/semp-dev/semp-go/closure"
 )
 
 // TestRecipientPolicyRejectsClosedAccount confirms an envelope

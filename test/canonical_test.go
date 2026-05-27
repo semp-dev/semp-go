@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"semp.dev/semp-go/canonical"
+	"github.com/semp-dev/semp-go/canonical"
 )
 
 // TestCanonicalEnvelopeMinimal validates the canonical envelope serializer

@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"sort"
 
-	semp "semp.dev/semp-go"
+	semp "github.com/semp-dev/semp-go"
 )
 
 // Layer identifies which extension point an `extensions` object

@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 
-	"semp.dev/semp-go/crypto"
+	"github.com/semp-dev/semp-go/crypto"
 )
 
 // ThirdPartyHook is one of the §7 policy hooks a third-party

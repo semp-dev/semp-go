@@ -6,8 +6,8 @@ import (
 	"errors"
 	"fmt"
 
-	semp "semp.dev/semp-go"
-	"semp.dev/semp-go/session"
+	semp "github.com/semp-dev/semp-go"
+	"github.com/semp-dev/semp-go/session"
 )
 
 // MessageStream is the minimal interface a handshake driver needs from a

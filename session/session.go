@@ -3,7 +3,7 @@ package session
 import (
 	"time"
 
-	"semp.dev/semp-go/crypto"
+	"github.com/semp-dev/semp-go/crypto"
 )
 
 // Session is the in-memory state for a single SEMP session, mirroring the

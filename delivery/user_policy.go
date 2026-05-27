@@ -7,8 +7,8 @@ import (
 	"fmt"
 	"time"
 
-	"semp.dev/semp-go/crypto"
-	"semp.dev/semp-go/canonical"
+	"github.com/semp-dev/semp-go/crypto"
+	"github.com/semp-dev/semp-go/canonical"
 )
 
 // SEMP_USER_POLICY message constants per DELIVERY.md §7.1.

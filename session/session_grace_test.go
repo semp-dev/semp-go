@@ -4,8 +4,8 @@ import (
 	"testing"
 	"time"
 
-	"semp.dev/semp-go/clockskew"
-	"semp.dev/semp-go/session"
+	"github.com/semp-dev/semp-go/clockskew"
+	"github.com/semp-dev/semp-go/session"
 )
 
 func freshActiveSession(expiresAt time.Time) *session.Session {

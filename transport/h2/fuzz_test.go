@@ -5,7 +5,7 @@ import (
 	"io"
 	"testing"
 
-	"semp.dev/semp-go/transport/h2"
+	"github.com/semp-dev/semp-go/transport/h2"
 )
 
 // FuzzEventReader feeds arbitrary bytes into the SSE EventReader and

@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"time"
 
-	"semp.dev/semp-go/canonical"
-	"semp.dev/semp-go/crypto"
-	"semp.dev/semp-go/keys"
+	"github.com/semp-dev/semp-go/canonical"
+	"github.com/semp-dev/semp-go/crypto"
+	"github.com/semp-dev/semp-go/keys"
 )
 
 // SEMP_REPUTATION_REFERENCES message constants per

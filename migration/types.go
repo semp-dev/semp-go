@@ -11,7 +11,7 @@ package migration
 import (
 	"time"
 
-	"semp.dev/semp-go/extensions"
+	"github.com/semp-dev/semp-go/extensions"
 )
 
 // Wire-level constants per MIGRATION.md §3.1.

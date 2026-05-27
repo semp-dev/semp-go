@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"semp.dev/semp-go/delivery"
+	"github.com/semp-dev/semp-go/delivery"
 )
 
 func TestSanitizeRetryClampsToSpecMinima(t *testing.T) {

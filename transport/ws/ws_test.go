@@ -10,7 +10,7 @@ import (
 
 	"github.com/coder/websocket"
 
-	"semp.dev/semp-go/transport/ws"
+	"github.com/semp-dev/semp-go/transport/ws"
 )
 
 // TestDialRefusesNonWSSEndpoint confirms that the default Transport

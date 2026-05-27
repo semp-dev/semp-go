@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"semp.dev/semp-go/transport/h2"
+	"github.com/semp-dev/semp-go/transport/h2"
 )
 
 // TestPersistentConnTurnBased confirms the client-side Conn returned

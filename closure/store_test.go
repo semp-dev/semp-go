@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"semp.dev/semp-go/closure"
+	"github.com/semp-dev/semp-go/closure"
 )
 
 // TestStorePendingLifecycle drives the pending-state CRUD: Put,

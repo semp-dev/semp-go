@@ -4,8 +4,8 @@ import (
 	"context"
 	"time"
 
-	semp "semp.dev/semp-go"
-	"semp.dev/semp-go/brief"
+	semp "github.com/semp-dev/semp-go"
+	"github.com/semp-dev/semp-go/brief"
 )
 
 // RecipientPolicyFunc is the per-recipient gate signature the

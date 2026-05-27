@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"semp.dev/semp-go/brief"
+	"github.com/semp-dev/semp-go/brief"
 )
 
 // MaxScopeMatcherEntries is the combined cap on the size of `allow`

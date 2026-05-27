@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 
-	"semp.dev/semp-go/crypto"
+	"github.com/semp-dev/semp-go/crypto"
 )
 
 // Verifier enforces the CLIENT.md §3.3 recipient key validation rules

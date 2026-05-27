@@ -9,8 +9,8 @@ import (
 	"net/url"
 	"strings"
 
-	"semp.dev/semp-go/crypto"
-	"semp.dev/semp-go/canonical"
+	"github.com/semp-dev/semp-go/crypto"
+	"github.com/semp-dev/semp-go/canonical"
 )
 
 // DeriveAttachmentKey derives K_attachment from K_enclosure per

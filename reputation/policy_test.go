@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"semp.dev/semp-go/reputation"
+	"github.com/semp-dev/semp-go/reputation"
 )
 
 // mockDelegate is a minimal DelegatePolicy used by the adapter tests.

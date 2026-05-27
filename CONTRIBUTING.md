@@ -23,7 +23,7 @@ If you are not sure which side a change belongs on, open a [Question](https://gi
 
 Use the [Bug report](https://github.com/semp-dev/semp-go/issues/new?template=bug_report.md) template. Please include:
 
-- The `semp-go` version (`go list -m semp.dev/semp-go`).
+- The `semp-go` version (`go list -m github.com/semp-dev/semp-go`).
 - Your Go version (`go version`).
 - A minimal reproduction (the smallest test or `main.go` that reproduces).
 - What you expected vs. what happened.

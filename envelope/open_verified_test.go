@@ -8,12 +8,12 @@ import (
 	"testing"
 	"time"
 
-	"semp.dev/semp-go/brief"
-	"semp.dev/semp-go/crypto"
-	"semp.dev/semp-go/enclosure"
-	"semp.dev/semp-go/envelope"
-	"semp.dev/semp-go/keys"
-	"semp.dev/semp-go/seal"
+	"github.com/semp-dev/semp-go/brief"
+	"github.com/semp-dev/semp-go/crypto"
+	"github.com/semp-dev/semp-go/enclosure"
+	"github.com/semp-dev/semp-go/envelope"
+	"github.com/semp-dev/semp-go/keys"
+	"github.com/semp-dev/semp-go/seal"
 )
 
 // staticResolver is the test-only resolver. Maps

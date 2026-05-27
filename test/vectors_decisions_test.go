@@ -18,13 +18,13 @@ import (
 	"testing"
 	"time"
 
-	"semp.dev/semp-go/crypto"
-	"semp.dev/semp-go/delivery"
-	"semp.dev/semp-go/discovery"
-	"semp.dev/semp-go/extensions"
-	"semp.dev/semp-go/keys"
-	"semp.dev/semp-go/reputation"
-	"semp.dev/semp-go/transport/h2"
+	"github.com/semp-dev/semp-go/crypto"
+	"github.com/semp-dev/semp-go/delivery"
+	"github.com/semp-dev/semp-go/discovery"
+	"github.com/semp-dev/semp-go/extensions"
+	"github.com/semp-dev/semp-go/keys"
+	"github.com/semp-dev/semp-go/reputation"
+	"github.com/semp-dev/semp-go/transport/h2"
 )
 
 // ---------------------------------------------------------------------------

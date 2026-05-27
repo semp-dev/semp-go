@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	semp "semp.dev/semp-go"
+	semp "github.com/semp-dev/semp-go"
 )
 
 // AttemptResult is what a Scheduler's DeliverFunc returns for one

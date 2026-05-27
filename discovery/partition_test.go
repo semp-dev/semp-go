@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"semp.dev/semp-go/discovery"
+	"github.com/semp-dev/semp-go/discovery"
 )
 
 // partFakeDNS is a test double for DNSLookup that returns

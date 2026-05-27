@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"semp.dev/semp-go/keys"
-	"semp.dev/semp-go/keys/memstore"
+	"github.com/semp-dev/semp-go/keys"
+	"github.com/semp-dev/semp-go/keys/memstore"
 )
 
 // fakeGen is a KeyGenerator that produces 32-byte random keypairs.

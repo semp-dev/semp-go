@@ -3,7 +3,7 @@ package keys
 import (
 	"time"
 
-	semp "semp.dev/semp-go"
+	semp "github.com/semp-dev/semp-go"
 )
 
 // RequestType is the wire-level type discriminator for SEMP_KEYS messages

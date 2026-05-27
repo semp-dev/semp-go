@@ -4,8 +4,8 @@ import (
 	"errors"
 	"testing"
 
-	"semp.dev/semp-go/keys"
-	"semp.dev/semp-go/recovery"
+	"github.com/semp-dev/semp-go/keys"
+	"github.com/semp-dev/semp-go/recovery"
 )
 
 // fakeDirectory is a minimal recovery.DirectoryView used to keep the

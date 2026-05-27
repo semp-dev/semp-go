@@ -10,10 +10,10 @@ import (
 	"strings"
 	"time"
 
-	"semp.dev/semp-go/crypto"
-	"semp.dev/semp-go/extensions"
-	"semp.dev/semp-go/keys"
-	"semp.dev/semp-go/session"
+	"github.com/semp-dev/semp-go/crypto"
+	"github.com/semp-dev/semp-go/extensions"
+	"github.com/semp-dev/semp-go/keys"
+	"github.com/semp-dev/semp-go/session"
 )
 
 // ServerInit is the message 1 sent by an initiating server in a federation

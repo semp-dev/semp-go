@@ -4,8 +4,8 @@ import (
 	"testing"
 	"time"
 
-	"semp.dev/semp-go/closure"
-	"semp.dev/semp-go/crypto"
+	"github.com/semp-dev/semp-go/closure"
+	"github.com/semp-dev/semp-go/crypto"
 )
 
 func newKeypair(t *testing.T) (pub, priv []byte, fp string) {

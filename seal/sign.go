@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 
-	"semp.dev/semp-go/crypto"
+	"github.com/semp-dev/semp-go/crypto"
 )
 
 // Signer computes the dual integrity proofs that live in Seal.Signature and

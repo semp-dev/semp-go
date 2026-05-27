@@ -5,8 +5,8 @@ import (
 	"errors"
 	"fmt"
 
-	semp "semp.dev/semp-go"
-	"semp.dev/semp-go/session"
+	semp "github.com/semp-dev/semp-go"
+	"github.com/semp-dev/semp-go/session"
 )
 
 // RunClientResume drives a client-side resume exchange to completion

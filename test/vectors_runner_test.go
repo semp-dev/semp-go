@@ -36,13 +36,13 @@ import (
 	"testing"
 	"time"
 
-	"semp.dev/semp-go/clockskew"
-	"semp.dev/semp-go/crypto"
-	"semp.dev/semp-go/discovery"
-	"semp.dev/semp-go/envelope"
-	"semp.dev/semp-go/extensions"
-	"semp.dev/semp-go/handshake"
-	semp "semp.dev/semp-go"
+	"github.com/semp-dev/semp-go/clockskew"
+	"github.com/semp-dev/semp-go/crypto"
+	"github.com/semp-dev/semp-go/discovery"
+	"github.com/semp-dev/semp-go/envelope"
+	"github.com/semp-dev/semp-go/extensions"
+	"github.com/semp-dev/semp-go/handshake"
+	semp "github.com/semp-dev/semp-go"
 )
 
 // vectorFile mirrors the top-level shape documented in vectors/README.md.

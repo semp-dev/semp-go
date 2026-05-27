@@ -16,8 +16,8 @@ import (
 	"golang.org/x/crypto/hkdf"
 	"golang.org/x/text/unicode/norm"
 
-	"semp.dev/semp-go/crypto"
-	"semp.dev/semp-go/canonical"
+	"github.com/semp-dev/semp-go/crypto"
+	"github.com/semp-dev/semp-go/canonical"
 )
 
 // SecretForm names the recovery secret encoding per RECOVERY.md

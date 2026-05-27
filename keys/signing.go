@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"time"
 
-	"semp.dev/semp-go/crypto"
-	"semp.dev/semp-go/canonical"
+	"github.com/semp-dev/semp-go/crypto"
+	"github.com/semp-dev/semp-go/canonical"
 )
 
 // SignatureAlgorithmEd25519 is the algorithm string used in

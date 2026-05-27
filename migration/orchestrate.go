@@ -9,7 +9,7 @@ import (
 	"fmt"
 	"time"
 
-	"semp.dev/semp-go/crypto"
+	"github.com/semp-dev/semp-go/crypto"
 )
 
 // SubmitInput bundles the inputs the new provider side uses to

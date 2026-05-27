@@ -35,7 +35,7 @@ import (
 	"strings"
 	"time"
 
-	"semp.dev/semp-go/transport"
+	"github.com/semp-dev/semp-go/transport"
 )
 
 // Path constants for the HTTP/2 binding per TRANSPORT.md §4.2.1.

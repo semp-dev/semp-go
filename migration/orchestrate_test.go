@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"semp.dev/semp-go/crypto"
-	"semp.dev/semp-go/migration"
+	"github.com/semp-dev/semp-go/crypto"
+	"github.com/semp-dev/semp-go/migration"
 )
 
 // keypairs returns three identity-style keypairs we reuse across

@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"semp.dev/semp-go/crypto"
-	"semp.dev/semp-go/keys"
+	"github.com/semp-dev/semp-go/crypto"
+	"github.com/semp-dev/semp-go/keys"
 )
 
 // TestSignRecordVerifyRoundTrip signs a user key record with a

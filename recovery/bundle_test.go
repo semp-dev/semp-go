@@ -8,8 +8,8 @@ import (
 
 	"golang.org/x/crypto/chacha20poly1305"
 
-	"semp.dev/semp-go/crypto"
-	"semp.dev/semp-go/recovery"
+	"github.com/semp-dev/semp-go/crypto"
+	"github.com/semp-dev/semp-go/recovery"
 )
 
 // recommendedKDF returns a KDF block satisfying the §2.5 RECOMMENDED

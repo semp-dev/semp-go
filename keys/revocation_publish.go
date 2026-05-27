@@ -28,8 +28,8 @@ import (
 	"sync"
 	"time"
 
-	"semp.dev/semp-go/crypto"
-	"semp.dev/semp-go/canonical"
+	"github.com/semp-dev/semp-go/crypto"
+	"github.com/semp-dev/semp-go/canonical"
 )
 
 // Wire-level constants for revocation publications.

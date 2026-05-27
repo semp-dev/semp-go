@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	semp "semp.dev/semp-go"
-	"semp.dev/semp-go/crypto"
-	"semp.dev/semp-go/keys"
+	semp "github.com/semp-dev/semp-go"
+	"github.com/semp-dev/semp-go/crypto"
+	"github.com/semp-dev/semp-go/keys"
 )
 
 func mkScope(blocklistRead, blocklistWrite, keysRead, keysWrite, devicesRead, devicesWrite bool) keys.Scope {

@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	semp "semp.dev/semp-go"
+	semp "github.com/semp-dev/semp-go"
 )
 
 // PolicyApplyError carries the structured details of a policy

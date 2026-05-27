@@ -7,10 +7,10 @@ import (
 	"testing"
 	"time"
 
-	"semp.dev/semp-go/crypto"
-	"semp.dev/semp-go/handshake"
-	"semp.dev/semp-go/keys"
-	"semp.dev/semp-go/session"
+	"github.com/semp-dev/semp-go/crypto"
+	"github.com/semp-dev/semp-go/handshake"
+	"github.com/semp-dev/semp-go/keys"
+	"github.com/semp-dev/semp-go/session"
 )
 
 // mustMarshalJSON is a test helper that marshals v and fails the test

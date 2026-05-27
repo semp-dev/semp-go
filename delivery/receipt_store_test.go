@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"semp.dev/semp-go/delivery"
+	"github.com/semp-dev/semp-go/delivery"
 )
 
 func newReceipt(envelopeID string) *delivery.DeliveryReceipt {

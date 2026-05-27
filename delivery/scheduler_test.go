@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	semp "semp.dev/semp-go"
-	"semp.dev/semp-go/delivery"
+	semp "github.com/semp-dev/semp-go"
+	"github.com/semp-dev/semp-go/delivery"
 )
 
 // fakeClock is a manually-advanced wall-clock source used to drive

@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"semp.dev/semp-go/extensions"
+	"github.com/semp-dev/semp-go/extensions"
 )
 
 // -----------------------------------------------------------------------------

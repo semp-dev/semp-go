@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"semp.dev/semp-go/closure"
+	"github.com/semp-dev/semp-go/closure"
 )
 
 // fakeClock is a manually-advanced clock used to drive Driver.Tick

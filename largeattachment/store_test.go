@@ -7,7 +7,7 @@ import (
 	"io"
 	"testing"
 
-	"semp.dev/semp-go/largeattachment"
+	"github.com/semp-dev/semp-go/largeattachment"
 )
 
 func TestInMemoryStorePutGetRoundTrip(t *testing.T) {

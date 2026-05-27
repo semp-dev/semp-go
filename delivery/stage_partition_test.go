@@ -5,9 +5,9 @@ import (
 	"testing"
 	"time"
 
-	"semp.dev/semp-go/brief"
-	"semp.dev/semp-go/delivery"
-	"semp.dev/semp-go/keys"
+	"github.com/semp-dev/semp-go/brief"
+	"github.com/semp-dev/semp-go/delivery"
+	"github.com/semp-dev/semp-go/keys"
 )
 
 // fakeCerts is a tiny CertificateProvider for tests.

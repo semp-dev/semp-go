@@ -5,9 +5,9 @@ import (
 	"errors"
 	"fmt"
 
-	"semp.dev/semp-go/brief"
-	"semp.dev/semp-go/crypto"
-	"semp.dev/semp-go/enclosure"
+	"github.com/semp-dev/semp-go/brief"
+	"github.com/semp-dev/semp-go/crypto"
+	"github.com/semp-dev/semp-go/enclosure"
 )
 
 // SenderKeyResolver fetches a sender's identity public key by

@@ -10,8 +10,8 @@ import (
 	"sync"
 	"time"
 
-	"semp.dev/semp-go/clockskew"
-	"semp.dev/semp-go/crypto"
+	"github.com/semp-dev/semp-go/clockskew"
+	"github.com/semp-dev/semp-go/crypto"
 )
 
 // MaxTicketLifetime is the upper bound on a resumption ticket's

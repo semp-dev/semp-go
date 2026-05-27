@@ -5,9 +5,9 @@ import (
 	"testing"
 	"time"
 
-	"semp.dev/semp-go/crypto"
-	"semp.dev/semp-go/keys"
-	"semp.dev/semp-go/recovery"
+	"github.com/semp-dev/semp-go/crypto"
+	"github.com/semp-dev/semp-go/keys"
+	"github.com/semp-dev/semp-go/recovery"
 )
 
 func newSigKeypair(t *testing.T) (pub, priv []byte, fp keys.Fingerprint) {

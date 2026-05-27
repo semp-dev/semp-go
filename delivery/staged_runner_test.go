@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"semp.dev/semp-go/delivery"
+	"github.com/semp-dev/semp-go/delivery"
 )
 
 // stagedHarness wires up a StagedRunner with capture sinks so tests

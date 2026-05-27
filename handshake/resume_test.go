@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"semp.dev/semp-go/extensions"
-	"semp.dev/semp-go/handshake"
+	"github.com/semp-dev/semp-go/extensions"
+	"github.com/semp-dev/semp-go/handshake"
 )
 
 // TestResumeMarshalsExpectedShape confirms the Resume request

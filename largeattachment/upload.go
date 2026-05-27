@@ -10,7 +10,7 @@ import (
 
 	"golang.org/x/crypto/chacha20poly1305"
 
-	"semp.dev/semp-go/crypto"
+	"github.com/semp-dev/semp-go/crypto"
 )
 
 // EncryptInput bundles the inputs to Encrypt. KEnclosure and
@@ -223,7 +223,7 @@ func aeadForSuite(suite crypto.Suite) (string, crypto.AEAD, error) {
 		// §3.2 specifies xchacha20-poly1305 for attachments under
 		// the PQ suite. Wrap the x/crypto package directly here so
 		// the helper does not require a parallel public AEAD type
-		// in semp.dev/semp-go/crypto.
+		// in github.com/semp-dev/semp-go/crypto.
 		return AEADXChaCha20Poly1305, xchacha20poly1305AEAD{}, nil
 	default:
 		return "", nil, fmt.Errorf("largeattachment: no attachment AEAD wired for suite %q", suite.ID())

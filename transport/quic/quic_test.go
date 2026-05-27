@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"semp.dev/semp-go/transport"
-	tquic "semp.dev/semp-go/transport/quic"
+	"github.com/semp-dev/semp-go/transport"
+	tquic "github.com/semp-dev/semp-go/transport/quic"
 )
 
 // TestTransportID confirms the wire-level transport identifier and

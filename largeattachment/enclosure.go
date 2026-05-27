@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 
-	"semp.dev/semp-go/extensions"
+	"github.com/semp-dev/semp-go/extensions"
 )
 
 // ReadFromExtensions returns the slice of Items carried in the

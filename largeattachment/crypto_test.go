@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"semp.dev/semp-go/crypto"
-	"semp.dev/semp-go/largeattachment"
+	"github.com/semp-dev/semp-go/crypto"
+	"github.com/semp-dev/semp-go/largeattachment"
 )
 
 func TestDeriveAttachmentKeyDeterministic(t *testing.T) {

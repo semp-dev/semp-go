@@ -9,14 +9,14 @@ import (
 	"sync"
 	"time"
 
-	semp "semp.dev/semp-go"
-	"semp.dev/semp-go/crypto"
-	"semp.dev/semp-go/discovery"
-	"semp.dev/semp-go/envelope"
-	"semp.dev/semp-go/handshake"
-	"semp.dev/semp-go/keys"
-	"semp.dev/semp-go/session"
-	"semp.dev/semp-go/transport"
+	semp "github.com/semp-dev/semp-go"
+	"github.com/semp-dev/semp-go/crypto"
+	"github.com/semp-dev/semp-go/discovery"
+	"github.com/semp-dev/semp-go/envelope"
+	"github.com/semp-dev/semp-go/handshake"
+	"github.com/semp-dev/semp-go/keys"
+	"github.com/semp-dev/semp-go/session"
+	"github.com/semp-dev/semp-go/transport"
 )
 
 // EndpointResolver returns the federation endpoint URL the Forwarder

@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	semp "semp.dev/semp-go"
-	"semp.dev/semp-go/discovery"
+	semp "github.com/semp-dev/semp-go"
+	"github.com/semp-dev/semp-go/discovery"
 )
 
 // v3Label is a valid-shaped 56-character base32 v3 onion identifier

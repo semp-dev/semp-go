@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"semp.dev/semp-go/clockskew"
+	"github.com/semp-dev/semp-go/clockskew"
 )
 
 func TestCheckFutureTimestampAcceptsPastAndNearFuture(t *testing.T) {

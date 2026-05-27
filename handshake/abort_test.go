@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"testing"
 
-	semp "semp.dev/semp-go"
-	"semp.dev/semp-go/handshake"
+	semp "github.com/semp-dev/semp-go"
+	"github.com/semp-dev/semp-go/handshake"
 )
 
 func TestNewClientRejectionUnsignedAndPartyClient(t *testing.T) {

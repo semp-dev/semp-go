@@ -4,7 +4,7 @@ import (
 	"errors"
 	"fmt"
 
-	"semp.dev/semp-go/extensions"
+	"github.com/semp-dev/semp-go/extensions"
 )
 
 // ChallengeInvalidError signals that an initiator received a

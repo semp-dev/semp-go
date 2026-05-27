@@ -28,12 +28,12 @@ import (
 	"golang.org/x/crypto/argon2"
 	"golang.org/x/crypto/chacha20poly1305"
 
-	"semp.dev/semp-go/crypto"
-	"semp.dev/semp-go/envelope"
-	"semp.dev/semp-go/handshake"
-	"semp.dev/semp-go/canonical"
-	"semp.dev/semp-go/keys"
-	"semp.dev/semp-go/seal"
+	"github.com/semp-dev/semp-go/crypto"
+	"github.com/semp-dev/semp-go/envelope"
+	"github.com/semp-dev/semp-go/handshake"
+	"github.com/semp-dev/semp-go/canonical"
+	"github.com/semp-dev/semp-go/keys"
+	"github.com/semp-dev/semp-go/seal"
 )
 
 // signedDocSpec describes how to verify one signed document. The

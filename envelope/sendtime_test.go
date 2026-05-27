@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"semp.dev/semp-go/envelope"
+	"github.com/semp-dev/semp-go/envelope"
 )
 
 func TestSendTimeDelayRespectsTimeSensitive(t *testing.T) {

@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"semp.dev/semp-go/canonical"
+	"github.com/semp-dev/semp-go/canonical"
 )
 
 // FuzzCanonicalMarshal feeds arbitrary JSON bytes to canonical.Marshal

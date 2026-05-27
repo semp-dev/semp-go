@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"semp.dev/semp-go/crypto"
-	"semp.dev/semp-go/transparency"
+	"github.com/semp-dev/semp-go/crypto"
+	"github.com/semp-dev/semp-go/transparency"
 )
 
 func newTestLog(t *testing.T) (*transparency.Log, []byte) {

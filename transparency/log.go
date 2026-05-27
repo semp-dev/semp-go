@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"semp.dev/semp-go/crypto"
+	"github.com/semp-dev/semp-go/crypto"
 )
 
 // LogConfig bundles inputs to NewLog.

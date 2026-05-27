@@ -8,8 +8,8 @@ import (
 	"sync"
 	"time"
 
-	semp "semp.dev/semp-go"
-	"semp.dev/semp-go/crypto"
+	semp "github.com/semp-dev/semp-go"
+	"github.com/semp-dev/semp-go/crypto"
 )
 
 // ScopeResourceKind names which Scope.{Blocklist,Keys,Devices}
