@@ -11,8 +11,7 @@ import (
 // against VECTORS.md §3.1.
 //
 // The input envelope contains a non-empty seal.signature and seal.session_mac
-// (which the elider must replace with empty strings) and a postmark.hop_count
-// of 2 (which the elider must remove). All keys at every nesting level must
+// (which the elider must replace with empty strings). All keys at every nesting level must
 // be sorted lexicographically. The expected output is a single canonical JSON
 // byte sequence with no whitespace.
 func TestCanonicalEnvelopeMinimal(t *testing.T) {
@@ -25,7 +24,6 @@ func TestCanonicalEnvelopeMinimal(t *testing.T) {
 			"from_domain": "sender.example",
 			"to_domain": "recipient.example",
 			"expires": "2025-06-10T21:00:00Z",
-			"hop_count": 2,
 			"extensions": {}
 		},
 		"seal": {

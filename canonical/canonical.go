@@ -22,8 +22,7 @@ import (
 //  5. Strings escaped per RFC 8259 (encoding/json's default).
 //
 // Marshal does not perform field elision. Callers that need to zero out
-// `seal.signature` / `seal.session_mac` or strip `postmark.hop_count` from
-// the canonical form should use MarshalWithElision.
+// `seal.signature` / `seal.session_mac` should use MarshalWithElision.
 //
 // Implementation note: the function marshals v with encoding/json, parses
 // the result back into a generic value, and re-emits it with sorted keys.
@@ -57,8 +56,7 @@ func Marshal(v any) ([]byte, error) {
 // allowing safe in-place mutation of map[string]any / []any structures.
 //
 // The seal signer uses an Elider to set seal.signature and seal.session_mac
-// to the empty string and to remove postmark.hop_count from the value before
-// canonicalization, per ENVELOPE.md §4.3.
+// to the empty string before canonicalization, per ENVELOPE.md §4.3.
 type Elider func(value any) error
 
 // MarshalWithElision applies elide to a deep copy of v, then returns the
