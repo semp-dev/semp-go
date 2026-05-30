@@ -63,8 +63,7 @@ type DeliveryReceipt struct {
 // ComputeEnvelopeHash returns the SHA-256 of canonicalEnvelopeBytes
 // per §1.1.1.3. The caller computes canonical bytes via
 // envelope.Envelope.CanonicalBytes(), which already applies the
-// §4.3 elision rules (signature, session_mac, and hop_count
-// excluded). The result is the value to put in
+// §4.3 elision rules (signature and session_mac excluded). The result is the value to put in
 // DeliveryReceipt.EnvelopeHash.Value (base64-encoded).
 func ComputeEnvelopeHash(canonicalEnvelopeBytes []byte) string {
 	sum := sha256.Sum256(canonicalEnvelopeBytes)

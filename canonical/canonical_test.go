@@ -70,10 +70,10 @@ func TestMarshalArraysPreserveOrder(t *testing.T) {
 }
 
 // TestEnvelopeElider confirms the elider sets seal.signature and
-// seal.session_mac to "" and removes postmark.hop_count.
+// seal.session_mac to "" and leaves all other fields unchanged.
 func TestEnvelopeElider(t *testing.T) {
 	const input = `{
-		"postmark": {"hop_count": 5, "id": "abc"},
+		"postmark": {"id": "abc", "session_id": "s"},
 		"seal": {"signature": "abc", "session_mac": "def", "key_id": "k"}
 	}`
 	var v any
@@ -84,7 +84,7 @@ func TestEnvelopeElider(t *testing.T) {
 	if err != nil {
 		t.Fatalf("MarshalWithElision: %v", err)
 	}
-	const want = `{"postmark":{"id":"abc"},"seal":{"key_id":"k","session_mac":"","signature":""}}`
+	const want = `{"postmark":{"id":"abc","session_id":"s"},"seal":{"key_id":"k","session_mac":"","signature":""}}`
 	if string(out) != want {
 		t.Errorf("want %s, got %s", want, out)
 	}

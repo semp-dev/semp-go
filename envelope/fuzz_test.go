@@ -64,7 +64,7 @@ func FuzzEnvelopeDecode(f *testing.F) {
 		}
 		// Compare JSON canonicalizations of the two envelopes rather
 		// than the envelopes themselves - the struct can carry
-		// pointer-identity noise (e.g. Postmark.HopCount) that is
+		// representational noise that is
 		// irrelevant to the wire format.
 		a, _ := json.Marshal(env)
 		b, _ := json.Marshal(env2)

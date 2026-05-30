@@ -17,8 +17,7 @@ type Seal struct {
 	KeyID keys.Fingerprint `json:"key_id"`
 
 	// Signature is the sender domain key signature over the canonical
-	// envelope bytes (with Signature and SessionMAC set to "" and
-	// postmark.hop_count omitted).
+	// envelope bytes (with Signature and SessionMAC set to "").
 	Signature string `json:"signature"`
 
 	// SessionMAC is the K_env_mac MAC over the same canonical bytes.

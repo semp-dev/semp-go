@@ -37,11 +37,12 @@ type Envelope struct {
 
 	// Padding carries opaque bytes that bring the envelope's wire size
 	// onto a power-of-two bucket per ENVELOPE.md section 2.4. The field
-	// is excluded from canonical bytes (see CanonicalBytes) so neither
-	// seal.signature nor seal.session_mac depends on padding content.
-	// Routing and recipient servers MUST count these bytes toward
-	// max_envelope_size enforcement and MUST NOT strip or rewrite them
-	// in transit.
+	// is required and always present on the wire; it MAY be the empty
+	// string. It is covered by the canonical bytes (see CanonicalBytes),
+	// so both seal.signature and seal.session_mac commit to the padding
+	// content; a server that strips or rewrites it invalidates the seal.
+	// Home servers MUST count these bytes toward max_envelope_size
+	// enforcement.
 	Padding string `json:"padding"`
 }
 
@@ -55,8 +56,8 @@ func New() *Envelope {
 }
 
 // CanonicalBytes returns the canonical JSON serialization of the envelope
-// with Seal.Signature and Seal.SessionMAC set to the empty string and
-// Postmark.HopCount and Padding omitted, ready for signature or MAC
+// with Seal.Signature and Seal.SessionMAC set to the empty string,
+// ready for signature or MAC
 // computation.
 //
 // This is the byte sequence over which both seal.signature (Ed25519) and

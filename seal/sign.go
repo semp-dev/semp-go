@@ -24,7 +24,7 @@ import (
 //     the sending server sealed it.
 //
 // Neither proof covers the other: the canonical bytes used as input to
-// both have signature and session_mac elided to "" (and hop_count omitted),
+// both have signature and session_mac elided to "",
 // so the order in which Signer fills them in does not matter.
 type Signer struct {
 	// Suite is the negotiated algorithm suite (signing + MAC primitives).
@@ -44,7 +44,7 @@ type Signer struct {
 // stores them in seal.
 //
 // canonicalBytes MUST be the canonical serialization with both Signature
-// and SessionMAC fields set to "" and Postmark.HopCount omitted, per
+// and SessionMAC fields set to "", per
 // ENVELOPE.md §4.3. Use envelope.Envelope.CanonicalBytes() to obtain it.
 //
 // After Sign returns, the seal struct is ready to be re-encoded into the

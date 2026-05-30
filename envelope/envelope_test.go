@@ -11,7 +11,6 @@ import (
 // TestEncodeDecodeRoundTrip confirms that an Envelope round-trips losslessly
 // through Encode and Decode.
 func TestEncodeDecodeRoundTrip(t *testing.T) {
-	hop := 3
 	src := New()
 	src.Postmark = Postmark{
 		ID:         "01J4K7P2XVEM3Q8YNZHBRC5T06",
@@ -19,7 +18,6 @@ func TestEncodeDecodeRoundTrip(t *testing.T) {
 		FromDomain: "sender.example",
 		ToDomain:   "recipient.example",
 		Expires:    time.Date(2025, 6, 10, 21, 0, 0, 0, time.UTC),
-		HopCount:   &hop,
 	}
 	src.Seal = seal.Seal{
 		Algorithm:           "x25519-chacha20-poly1305",
@@ -50,9 +48,6 @@ func TestEncodeDecodeRoundTrip(t *testing.T) {
 	if got.Postmark.ID != src.Postmark.ID {
 		t.Errorf("Postmark.ID mismatch")
 	}
-	if got.Postmark.HopCount == nil || *got.Postmark.HopCount != 3 {
-		t.Errorf("HopCount round-trip lost: %v", got.Postmark.HopCount)
-	}
 	if got.Seal.BriefRecipients["fp1"] != "wrapped1" {
 		t.Errorf("BriefRecipients mismatch")
 	}
@@ -78,11 +73,10 @@ func TestDecodeRejectsEmpty(t *testing.T) {
 	}
 }
 
-// TestCanonicalBytesElidesSealAndHopCount confirms that CanonicalBytes
-// returns the form fed into seal signing: signature/session_mac empty,
-// hop_count omitted, top-level padding omitted.
-func TestCanonicalBytesElidesSealAndHopCount(t *testing.T) {
-	hop := 7
+// TestCanonicalBytesElidesSeal confirms that CanonicalBytes returns the
+// form fed into seal signing: signature/session_mac empty, every other
+// field (including padding) preserved.
+func TestCanonicalBytesElidesSeal(t *testing.T) {
 	e := New()
 	e.Postmark = Postmark{
 		ID:         "id",
@@ -90,7 +84,6 @@ func TestCanonicalBytesElidesSealAndHopCount(t *testing.T) {
 		FromDomain: "a.example",
 		ToDomain:   "b.example",
 		Expires:    time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
-		HopCount:   &hop,
 	}
 	e.Seal = seal.Seal{
 		Algorithm:           "x25519-chacha20-poly1305",
@@ -102,7 +95,7 @@ func TestCanonicalBytesElidesSealAndHopCount(t *testing.T) {
 	}
 	e.Brief = "Yg=="
 	e.Enclosure = "ZQ=="
-	e.Padding = "PADDING-MUST-BE-ELIDED"
+	e.Padding = "PADDING-IN-SCOPE"
 
 	out, err := e.CanonicalBytes()
 	if err != nil {
@@ -118,13 +111,10 @@ func TestCanonicalBytesElidesSealAndHopCount(t *testing.T) {
 	if !strings.Contains(s, `"session_mac":""`) {
 		t.Errorf(`canonical bytes missing session_mac:"" : %s`, s)
 	}
-	if strings.Contains(s, `"hop_count"`) {
-		t.Errorf("canonical bytes still contain hop_count: %s", s)
+	if !strings.Contains(s, "PADDING-IN-SCOPE") {
+		t.Errorf("canonical bytes dropped padding: %s", s)
 	}
-	if strings.Contains(s, "PADDING-MUST-BE-ELIDED") {
-		t.Errorf("canonical bytes still contain padding: %s", s)
-	}
-	if strings.Contains(s, `"padding"`) {
-		t.Errorf("canonical bytes still contain padding key: %s", s)
+	if !strings.Contains(s, `"padding"`) {
+		t.Errorf("canonical bytes missing padding key: %s", s)
 	}
 }

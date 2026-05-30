@@ -35,17 +35,12 @@ type Postmark struct {
 	// envelopes whose Expires is in the past (ENVELOPE.md §9.1, §10.2).
 	Expires time.Time `json:"expires"`
 
-	// HopCount is the optional relay hop counter. When present, starts at
-	// 0 and is incremented by each relay. Excluded from canonical
-	// serialization because it is mutable in transit (ENVELOPE.md §4.3).
-	HopCount *int `json:"hop_count,omitempty"`
-
 	// Extensions are postmark-layer extensions visible to all routing
 	// servers. MUST NOT contain private metadata (ENVELOPE.md §8).
 	//
 	// Emitted as `extensions:{}` when empty. The canonical envelope
 	// form per ENVELOPE.md §4.3 lists the elisions explicitly
-	// (signature/session_mac blanked, hop_count and padding omitted)
+	// (signature/session_mac blanked)
 	// and treats every other field as preserved verbatim - including
 	// empty maps. Cross-implementation interop checks (semp-spec
 	// vectors `envelope-canonical-*`) hash the full canonical bytes,
